@@ -1,0 +1,741 @@
+[2m2026-05-09T16:31:32.134740Z[0m [32m INFO[0m [2mknot_server[0m[2m:[0m Starting knot-server v0.1.0
+[2m2026-05-09T16:31:32.134805Z[0m [32m INFO[0m [2mknot_server[0m[2m:[0m Binding to 0.0.0.0:18080
+[2m2026-05-09T16:31:32.134816Z[0m [32m INFO[0m [2mknot_server[0m[2m:[0m Connecting to Neo4j at bolt://localhost:17687...
+[2m2026-05-09T16:31:32.134920Z[0m [32m INFO[0m [2mneo4rs::pool[0m[2m:[0m creating connection pool for node bolt://localhost:17687 with max size 16
+[2m2026-05-09T16:31:32.135082Z[0m [32m INFO[0m [2mknot::db::graph::connection[0m[2m:[0m Connected to Neo4j at bolt://localhost:17687
+[2m2026-05-09T16:31:32.138008Z[0m [32m INFO[0m [2mneo4rs::connection[0m[2m:[0m Connected to Neo4j with version 4.4
+[2m2026-05-09T16:31:32.310017Z[0m [32m INFO[0m [2mknot::db::graph::connection[0m[2m:[0m Neo4j indexes/constraints verified
+[2m2026-05-09T16:31:32.310057Z[0m [32m INFO[0m [2mknot_server[0m[2m:[0m Neo4j connection established
+[2m2026-05-09T16:31:32.310064Z[0m [32m INFO[0m [2mknot_server[0m[2m:[0m Connecting to Qdrant at http://localhost:16334...
+[2m2026-05-09T16:31:32.312739Z[0m [32m INFO[0m [2mknot::db::vector::connection[0m[2m:[0m Creating Qdrant collection 'knot_entities' (dim=384, distance=Cosine)
+[2m2026-05-09T16:31:32.365492Z[0m [32m INFO[0m [2mknot::db::vector::connection[0m[2m:[0m Ensuring Keyword payload index on 'repo_name' for collection 'knot_entities'
+[2m2026-05-09T16:31:32.369411Z[0m [32m INFO[0m [2mknot_server[0m[2m:[0m Qdrant connection established
+[2m2026-05-09T16:31:32.369430Z[0m [32m INFO[0m [2mknot_server[0m[2m:[0m Initializing embedding model...
+[2m2026-05-09T16:31:32.369437Z[0m [32m INFO[0m [2mknot::pipeline::embed[0m[2m:[0m Initialising fastembed model (AllMiniLML6V2)…
+[2m2026-05-09T16:31:32.378732Z[0m [33m WARN[0m [2mort::logging[0m[2m:[0m GPU device discovery failed: device_discovery.cc:91 ReadFileContents Failed to open file: "/sys/class/drm/card3/device/vendor"
+[2m2026-05-09T16:31:32.378780Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Discovered OrtHardwareDevice {vendor_id:0x1022, device_id:0x0, vendor:AMD, type:0, metadata: []}
+[2m2026-05-09T16:31:32.379033Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Session Options {  execution_mode:0 execution_order:DEFAULT enable_profiling:0 optimized_model_filepath:"" enable_mem_pattern:1 enable_mem_reuse:1 enable_cpu_mem_arena:1 profile_file_prefix:onnxruntime_profile_ session_logid: session_log_severity_level:-1 session_log_verbosity_level:0 max_num_graph_transformation_steps:10 graph_optimization_level:3 intra_op_param:OrtThreadPoolParams { thread_pool_size: 32 auto_set_affinity: 0 allow_spinning: 0 dynamic_block_base_: 0 stack_size: 0 affinity_str:  set_denormal_as_zero: 0 } inter_op_param:OrtThreadPoolParams { thread_pool_size: 0 auto_set_affinity: 0 allow_spinning: 0 dynamic_block_base_: 0 stack_size: 0 affinity_str:  set_denormal_as_zero: 0 } use_per_session_threads:1 thread_pool_allow_spinning:1 use_deterministic_compute:0 ep_selection_policy:5 config_options: {  } }
+[2m2026-05-09T16:31:32.379065Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Flush-to-zero and denormal-as-zero are off
+[2m2026-05-09T16:31:32.379072Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Creating and using per session threadpools since use_per_session_threads_ is true
+[2m2026-05-09T16:31:32.379078Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Dynamic block base set to 0
+[2m2026-05-09T16:31:32.422218Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Initializing session.
+[2m2026-05-09T16:31:32.422256Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Creating BFCArena for Cpu with following configs: initial_chunk_size_bytes: 1048576 max_dead_bytes_per_chunk: 134217728 initial_growth_chunk_size_bytes: 2097152 max_power_of_two_extend_bytes: 1073741824 memory limit: 18446744073709551615 arena_extend_strategy: 0
+[2m2026-05-09T16:31:32.423677Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m This model does not have any local functions defined. AOT Inlining is not performed
+[2m2026-05-09T16:31:32.473194Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer EnsureUniqueDQForNodeUnit modified: 0 with status: OK
+[2m2026-05-09T16:31:32.473471Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer Level1_RuleBasedTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:32.473515Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer DoubleQDQPairsRemover modified: 0 with status: OK
+[2m2026-05-09T16:31:32.473979Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Total shared scalar initializer count: 132
+[2m2026-05-09T16:31:32.473999Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ConstantSharing modified: 1 with status: OK
+[2m2026-05-09T16:31:32.475474Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer CommonSubexpressionElimination modified: 1 with status: OK
+[2m2026-05-09T16:31:32.476416Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ConstantFolding modified: 0 with status: OK
+[2m2026-05-09T16:31:32.476475Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulAddFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.476542Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.0/attention/self/Reshape_output_0
+[2m2026-05-09T16:31:32.476553Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.0/attention/self/Reshape_2_output_0
+[2m2026-05-09T16:31:32.476562Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.0/attention/self/Reshape_1_output_0
+[2m2026-05-09T16:31:32.476574Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.0/attention/self/Reshape_3_output_0
+[2m2026-05-09T16:31:32.476585Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.1/attention/self/Reshape_output_0
+[2m2026-05-09T16:31:32.476595Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.1/attention/self/Reshape_2_output_0
+[2m2026-05-09T16:31:32.476606Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.1/attention/self/Reshape_1_output_0
+[2m2026-05-09T16:31:32.476616Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.1/attention/self/Reshape_3_output_0
+[2m2026-05-09T16:31:32.476625Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.2/attention/self/Reshape_output_0
+[2m2026-05-09T16:31:32.476634Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.2/attention/self/Reshape_2_output_0
+[2m2026-05-09T16:31:32.476642Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.2/attention/self/Reshape_1_output_0
+[2m2026-05-09T16:31:32.476651Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.2/attention/self/Reshape_3_output_0
+[2m2026-05-09T16:31:32.476661Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.3/attention/self/Reshape_output_0
+[2m2026-05-09T16:31:32.476669Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.3/attention/self/Reshape_2_output_0
+[2m2026-05-09T16:31:32.476677Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.3/attention/self/Reshape_1_output_0
+[2m2026-05-09T16:31:32.476686Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.3/attention/self/Reshape_3_output_0
+[2m2026-05-09T16:31:32.476695Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.4/attention/self/Reshape_output_0
+[2m2026-05-09T16:31:32.476704Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.4/attention/self/Reshape_2_output_0
+[2m2026-05-09T16:31:32.476712Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.4/attention/self/Reshape_1_output_0
+[2m2026-05-09T16:31:32.476721Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.4/attention/self/Reshape_3_output_0
+[2m2026-05-09T16:31:32.476746Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.5/attention/self/Reshape_output_0
+[2m2026-05-09T16:31:32.476754Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.5/attention/self/Reshape_2_output_0
+[2m2026-05-09T16:31:32.476765Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.5/attention/self/Reshape_1_output_0
+[2m2026-05-09T16:31:32.476776Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.5/attention/self/Reshape_3_output_0
+[2m2026-05-09T16:31:32.476781Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Total fused reshape node count: 24
+[2m2026-05-09T16:31:32.476785Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ReshapeFusion modified: 1 with status: OK
+[2m2026-05-09T16:31:32.477528Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Removing initializer '/encoder/layer.5/attention/self/Constant_11_output_0'. It is no longer used by any node.
+[2m2026-05-09T16:31:32.477542Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Removing initializer '/encoder/layer.5/attention/self/Constant_10_output_0'. It is no longer used by any node.
+[2m2026-05-09T16:31:32.477547Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Removing initializer '/encoder/layer.5/attention/self/Constant_4_output_0'. It is no longer used by any node.
+[2m2026-05-09T16:31:32.477553Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Removing initializer '/encoder/layer.3/attention/self/Constant_15_output_0'. It is no longer used by any node.
+[2m2026-05-09T16:31:32.477583Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer FreeDimensionOverrideTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:32.477588Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GeluFusionL1 modified: 0 with status: OK
+[2m2026-05-09T16:31:32.477593Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer LayerNormFusionL1 modified: 0 with status: OK
+[2m2026-05-09T16:31:32.477634Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QDQPropagationTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:32.477660Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer WeightBiasQuantization modified: 0 with status: OK
+[2m2026-05-09T16:31:32.477688Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer EnsureUniqueDQForNodeUnit modified: 0 with status: OK
+[2m2026-05-09T16:31:32.477712Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer WhereDummyDq modified: 0 with status: OK
+[2m2026-05-09T16:31:32.477843Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer TransposeOptimizer modified: 0 with status: OK
+[2m2026-05-09T16:31:32.477902Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer Level1_RuleBasedTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:32.477927Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer DoubleQDQPairsRemover modified: 0 with status: OK
+[2m2026-05-09T16:31:32.478045Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer CommonSubexpressionElimination modified: 0 with status: OK
+[2m2026-05-09T16:31:32.478093Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ConstantFolding modified: 0 with status: OK
+[2m2026-05-09T16:31:32.478123Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulAddFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.478149Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ReshapeFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.478154Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer FreeDimensionOverrideTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:32.478158Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GeluFusionL1 modified: 0 with status: OK
+[2m2026-05-09T16:31:32.478168Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer LayerNormFusionL1 modified: 0 with status: OK
+[2m2026-05-09T16:31:32.478225Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QDQPropagationTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:32.478263Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer WeightBiasQuantization modified: 0 with status: OK
+[2m2026-05-09T16:31:32.478296Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer EnsureUniqueDQForNodeUnit modified: 0 with status: OK
+[2m2026-05-09T16:31:32.478322Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer WhereDummyDq modified: 0 with status: OK
+[2m2026-05-09T16:31:32.478552Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Running graph optimizations in loop 1 time/s (Graph Optimizations Loop Level : 1)
+[2m2026-05-09T16:31:32.478593Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer Level2_RuleBasedTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:32.478728Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer TransposeOptimizer_CPUExecutionProvider modified: 0 with status: OK
+[2m2026-05-09T16:31:32.478758Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QDQS8ToU8Transformer modified: 0 with status: OK
+[2m2026-05-09T16:31:32.478819Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QDQSelectorActionTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:32.478846Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GemmActivationFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.478873Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulIntegerToFloatFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.478898Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer DynamicQuantizeMatMulFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.478929Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ConvActivationFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.478981Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GeluFusionL2 modified: 1 with status: OK
+[2m2026-05-09T16:31:32.479603Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Removing initializer '/encoder/layer.3/intermediate/intermediate_act_fn/Constant_2_output_0'. It is no longer used by any node.
+[2m2026-05-09T16:31:32.479612Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Removing initializer '/encoder/layer.3/intermediate/intermediate_act_fn/Constant_output_0'. It is no longer used by any node.
+[2m2026-05-09T16:31:32.479720Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer LayerNormFusionL2 modified: 1 with status: OK
+[2m2026-05-09T16:31:32.480193Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Removing initializer '/encoder/layer.5/output/LayerNorm/Constant_output_0'. It is no longer used by any node.
+[2m2026-05-09T16:31:32.480202Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Removing initializer '/encoder/layer.4/output/LayerNorm/Constant_1_output_0'. It is no longer used by any node.
+[2m2026-05-09T16:31:32.480244Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer SimplifiedLayerNormFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.480269Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer AttentionFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.480288Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer EmbedLayerNormFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.480293Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GatherSliceToSplitFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.480310Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GatherToSliceFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.480335Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatmulTransposeFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.480373Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer BiasGeluFusion modified: 1 with status: OK
+[2m2026-05-09T16:31:32.480821Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GroupQueryAttentionFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.480843Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulAddFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.480864Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer SkipLayerNormFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.480883Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer FastGeluFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.480901Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QuickGeluFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.480920Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer BiasSoftmaxFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.480937Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer BiasDropoutFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.480972Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulScaleFusion modified: 1 with status: OK
+[2m2026-05-09T16:31:32.481386Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Removing initializer '/encoder/layer.5/attention/self/Constant_12_output_0'. It is no longer used by any node.
+[2m2026-05-09T16:31:32.481431Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulActivationFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481453Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulNBitsFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481472Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QDQFinalCleanupTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481490Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer Level2_RuleBasedTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481507Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QDQS8ToU8Transformer modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481547Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QDQSelectorActionTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481564Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GemmActivationFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481581Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulIntegerToFloatFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481598Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer DynamicQuantizeMatMulFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481618Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ConvActivationFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481635Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GeluFusionL2 modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481652Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer LayerNormFusionL2 modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481669Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer SimplifiedLayerNormFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481692Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer AttentionFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481709Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer EmbedLayerNormFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481713Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GatherSliceToSplitFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481730Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GatherToSliceFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481753Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatmulTransposeFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481779Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer BiasGeluFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481795Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GroupQueryAttentionFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481818Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulAddFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481839Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer SkipLayerNormFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481857Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer FastGeluFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481875Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QuickGeluFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481892Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer BiasSoftmaxFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481909Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer BiasDropoutFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481930Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulScaleFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481947Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulActivationFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481967Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulNBitsFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.481985Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QDQFinalCleanupTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:32.482007Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer NchwcTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:32.482060Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer NhwcTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:32.482082Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ConvAddActivationFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:32.482142Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer RemoveDuplicateCastTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:32.482147Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer CastFloat16Transformer modified: 0 with status: OK
+[2m2026-05-09T16:31:32.482153Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MemcpyTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:32.482376Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Use DeviceBasedPartition as default
+[2m2026-05-09T16:31:32.486902Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Saving initialized tensors.
+[2m2026-05-09T16:31:32.486937Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:32.486949Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:32.486956Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 4
+[2m2026-05-09T16:31:32.486970Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:32.486984Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 24
+[2m2026-05-09T16:31:32.486989Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 24
+[2m2026-05-09T16:31:32.486997Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 24
+[2m2026-05-09T16:31:32.487002Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:32.487010Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:32.487022Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:32.487036Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:32.487043Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:32.487054Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 24
+[2m2026-05-09T16:31:32.487061Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 8
+[2m2026-05-09T16:31:32.487067Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 24
+[2m2026-05-09T16:31:32.487077Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:32.487085Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 24
+[2m2026-05-09T16:31:32.487091Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:32.487096Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:32.487102Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:32.487107Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:32.487117Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 4
+[2m2026-05-09T16:31:32.487123Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:32.487129Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 8
+[2m2026-05-09T16:31:32.487134Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:32.487139Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:32.487148Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:32.487170Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:32.487175Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 8
+[2m2026-05-09T16:31:32.487181Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Done saving initialized tensors
+[2m2026-05-09T16:31:32.487268Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:32.487632Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:32.487982Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:32.488194Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:32.488400Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:32.489820Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:32.490611Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:32.490814Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:32.491013Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:32.491206Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:32.491415Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:32.492325Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:32.493324Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:32.493658Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:32.493951Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:32.494160Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:32.494368Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:32.495769Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:32.496566Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:32.496791Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:32.497013Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:32.497307Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:32.497600Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:32.498428Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:32.499203Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:32.499406Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:32.499608Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:32.499814Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:32.500019Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:32.500782Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:32.502303Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:32.502597Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:32.502836Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:32.503060Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:32.503280Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:32.504254Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:32.505861Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Session successfully initialized.
+[2m2026-05-09T16:31:32.572364Z[0m [32m INFO[0m [2mknot::pipeline::embed[0m[2m:[0m Embedding model ready
+[2m2026-05-09T16:31:32.572414Z[0m [32m INFO[0m [2mknot_server[0m[2m:[0m Embedding model ready
+[2m2026-05-09T16:31:32.572421Z[0m [32m INFO[0m [2mknot_server[0m[2m:[0m Loading repository registry from /tmp/knot-e2e-workspace-1209819...
+[2m2026-05-09T16:31:32.572530Z[0m [32m INFO[0m [2mknot_server[0m[2m:[0m Registry loaded: 0 repositories
+[2m2026-05-09T16:31:32.572624Z[0m [32m INFO[0m [2mknot_server[0m[2m:[0m Indexing worker started (concurrency: 1)
+[2m2026-05-09T16:31:32.572633Z[0m [32m INFO[0m [2mknot_server[0m[2m:[0m Background scheduler started (poll: 86400s, stale lock timeout: 3600s, max index age: 86400s)
+[2m2026-05-09T16:31:32.572850Z[0m [32m INFO[0m [2mknot_server[0m[2m:[0m knot-server listening on 0.0.0.0:18080
+[2m2026-05-09T16:31:33.144487Z[0m [32m INFO[0m [2mknot_server::handlers[0m[2m:[0m Registered repository 'test-repo' (url: /tmp/knot-e2e-workspace-1209819/fixtures/test-repo.git, auth: Ssh)
+[2m2026-05-09T16:31:33.144584Z[0m [32m INFO[0m [2mknot_server::worker[0m[2m:[0m Worker picked up job: Clone { repo_id: "test-repo" } for test-repo
+[2m2026-05-09T16:31:33.144652Z[0m [32m INFO[0m [2mknot_server::worker[0m[2m:[0m Worker: acquired file lock for 'test-repo'
+[2m2026-05-09T16:31:33.144717Z[0m [32m INFO[0m [2mknot_server::worker[0m[2m:[0m Worker: status=indexing for 'test-repo'
+[2m2026-05-09T16:31:33.144729Z[0m [32m INFO[0m [2mknot_server::worker[0m[2m:[0m Worker: cloning 'test-repo' from /tmp/knot-e2e-workspace-1209819/fixtures/test-repo.git
+[2m2026-05-09T16:31:33.144762Z[0m [32m INFO[0m [2mknot_server::git[0m[2m:[0m Cloning /tmp/knot-e2e-workspace-1209819/fixtures/test-repo.git to /tmp/knot-e2e-workspace-1209819/test-repo
+Cloning into '/tmp/knot-e2e-workspace-1209819/test-repo'...
+done.
+[2m2026-05-09T16:31:33.149867Z[0m [32m INFO[0m [2mknot_server::git[0m[2m:[0m Clone of test-repo completed
+[2m2026-05-09T16:31:33.149882Z[0m [32m INFO[0m [2mknot_server::worker[0m[2m:[0m Worker: clone complete for 'test-repo'
+[2m2026-05-09T16:31:33.149904Z[0m [32m INFO[0m [2mknot::pipeline::state[0m[2m:[0m No existing index state found — will perform full indexing
+[2m2026-05-09T16:31:33.149912Z[0m [32m INFO[0m [2mknot_server::worker[0m[2m:[0m Worker: starting indexing pipeline for 'test-repo'
+[2m2026-05-09T16:31:33.152403Z[0m [32m INFO[0m [2mknot::pipeline::input[0m[2m:[0m Discovered 1 source files under '/tmp/knot-e2e-workspace-1209819/test-repo'
+[2m2026-05-09T16:31:33.152470Z[0m [32m INFO[0m [2mknot::pipeline::state[0m[2m:[0m File classification: 0 unchanged, 0 modified, 1 added, 0 deleted
+[2m2026-05-09T16:31:33.152477Z[0m [32m INFO[0m [2mknot::pipeline::runner[0m[2m:[0m File classification: 0 unchanged, 0 modified, 1 added, 0 deleted
+[2m2026-05-09T16:31:33.152492Z[0m [32m INFO[0m [2mknot::pipeline::runner[0m[2m:[0m Deleting 1 stale file(s) from databases (incremental mode)
+[2m2026-05-09T16:31:33.152501Z[0m [33m WARN[0m [2mknot::db::vector::delete[0m[2m:[0m Deleting 1 file(s) from repo 'test-repo' in Qdrant (incremental mode)
+[2m2026-05-09T16:31:33.152598Z[0m [33m WARN[0m [2mknot::db::graph::delete[0m[2m:[0m Deleting 1 file(s) from repo 'test-repo' in Neo4j (incremental mode)
+[2m2026-05-09T16:31:33.354422Z[0m [32m INFO[0m [2mknot::pipeline::runner[0m[2m:[0m Will parse and index 1 file(s) (added/modified)
+[2m2026-05-09T16:31:33.354490Z[0m [32m INFO[0m [2mknot::pipeline::runner[0m[2m:[0m Stage 2: Starting parallel parsing of 1 files...
+[2m2026-05-09T16:31:33.354615Z[0m [32m INFO[0m [2mknot::pipeline::embed[0m[2m:[0m Initialising fastembed model (AllMiniLML6V2)…
+[2m2026-05-09T16:31:33.354804Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Session Options {  execution_mode:0 execution_order:DEFAULT enable_profiling:0 optimized_model_filepath:"" enable_mem_pattern:1 enable_mem_reuse:1 enable_cpu_mem_arena:1 profile_file_prefix:onnxruntime_profile_ session_logid: session_log_severity_level:-1 session_log_verbosity_level:0 max_num_graph_transformation_steps:10 graph_optimization_level:3 intra_op_param:OrtThreadPoolParams { thread_pool_size: 32 auto_set_affinity: 0 allow_spinning: 0 dynamic_block_base_: 0 stack_size: 0 affinity_str:  set_denormal_as_zero: 0 } inter_op_param:OrtThreadPoolParams { thread_pool_size: 0 auto_set_affinity: 0 allow_spinning: 0 dynamic_block_base_: 0 stack_size: 0 affinity_str:  set_denormal_as_zero: 0 } use_per_session_threads:1 thread_pool_allow_spinning:1 use_deterministic_compute:0 ep_selection_policy:5 config_options: {  } }
+[2m2026-05-09T16:31:33.354831Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Creating and using per session threadpools since use_per_session_threads_ is true
+[2m2026-05-09T16:31:33.354845Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Dynamic block base set to 0
+[2m2026-05-09T16:31:33.368557Z[0m [32m INFO[0m [2mknot::pipeline::runner[0m[2m:[0m Stage 2: Parallel parsing complete.
+[2m2026-05-09T16:31:33.396582Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Initializing session.
+[2m2026-05-09T16:31:33.396629Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Creating BFCArena for Cpu with following configs: initial_chunk_size_bytes: 1048576 max_dead_bytes_per_chunk: 134217728 initial_growth_chunk_size_bytes: 2097152 max_power_of_two_extend_bytes: 1073741824 memory limit: 18446744073709551615 arena_extend_strategy: 0
+[2m2026-05-09T16:31:33.396702Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m This model does not have any local functions defined. AOT Inlining is not performed
+[2m2026-05-09T16:31:33.438868Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer EnsureUniqueDQForNodeUnit modified: 0 with status: OK
+[2m2026-05-09T16:31:33.439070Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer Level1_RuleBasedTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:33.439107Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer DoubleQDQPairsRemover modified: 0 with status: OK
+[2m2026-05-09T16:31:33.439449Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Total shared scalar initializer count: 132
+[2m2026-05-09T16:31:33.439467Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ConstantSharing modified: 1 with status: OK
+[2m2026-05-09T16:31:33.440634Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer CommonSubexpressionElimination modified: 1 with status: OK
+[2m2026-05-09T16:31:33.441407Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ConstantFolding modified: 0 with status: OK
+[2m2026-05-09T16:31:33.441451Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulAddFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.441496Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.0/attention/self/Reshape_output_0
+[2m2026-05-09T16:31:33.441505Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.0/attention/self/Reshape_2_output_0
+[2m2026-05-09T16:31:33.441514Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.0/attention/self/Reshape_1_output_0
+[2m2026-05-09T16:31:33.441522Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.0/attention/self/Reshape_3_output_0
+[2m2026-05-09T16:31:33.441531Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.1/attention/self/Reshape_output_0
+[2m2026-05-09T16:31:33.441538Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.1/attention/self/Reshape_2_output_0
+[2m2026-05-09T16:31:33.441546Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.1/attention/self/Reshape_1_output_0
+[2m2026-05-09T16:31:33.441555Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.1/attention/self/Reshape_3_output_0
+[2m2026-05-09T16:31:33.441563Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.2/attention/self/Reshape_output_0
+[2m2026-05-09T16:31:33.441571Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.2/attention/self/Reshape_2_output_0
+[2m2026-05-09T16:31:33.441579Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.2/attention/self/Reshape_1_output_0
+[2m2026-05-09T16:31:33.441587Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.2/attention/self/Reshape_3_output_0
+[2m2026-05-09T16:31:33.441596Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.3/attention/self/Reshape_output_0
+[2m2026-05-09T16:31:33.441604Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.3/attention/self/Reshape_2_output_0
+[2m2026-05-09T16:31:33.441621Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.3/attention/self/Reshape_1_output_0
+[2m2026-05-09T16:31:33.441629Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.3/attention/self/Reshape_3_output_0
+[2m2026-05-09T16:31:33.441638Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.4/attention/self/Reshape_output_0
+[2m2026-05-09T16:31:33.441645Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.4/attention/self/Reshape_2_output_0
+[2m2026-05-09T16:31:33.441653Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.4/attention/self/Reshape_1_output_0
+[2m2026-05-09T16:31:33.441662Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.4/attention/self/Reshape_3_output_0
+[2m2026-05-09T16:31:33.441670Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.5/attention/self/Reshape_output_0
+[2m2026-05-09T16:31:33.441677Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.5/attention/self/Reshape_2_output_0
+[2m2026-05-09T16:31:33.441685Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.5/attention/self/Reshape_1_output_0
+[2m2026-05-09T16:31:33.441694Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.5/attention/self/Reshape_3_output_0
+[2m2026-05-09T16:31:33.441699Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Total fused reshape node count: 24
+[2m2026-05-09T16:31:33.441703Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ReshapeFusion modified: 1 with status: OK
+[2m2026-05-09T16:31:33.442358Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Removing initializer '/encoder/layer.5/attention/self/Constant_11_output_0'. It is no longer used by any node.
+[2m2026-05-09T16:31:33.442367Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Removing initializer '/encoder/layer.5/attention/self/Constant_10_output_0'. It is no longer used by any node.
+[2m2026-05-09T16:31:33.442372Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Removing initializer '/encoder/layer.5/attention/self/Constant_4_output_0'. It is no longer used by any node.
+[2m2026-05-09T16:31:33.442377Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Removing initializer '/encoder/layer.3/attention/self/Constant_15_output_0'. It is no longer used by any node.
+[2m2026-05-09T16:31:33.442403Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer FreeDimensionOverrideTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:33.442408Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GeluFusionL1 modified: 0 with status: OK
+[2m2026-05-09T16:31:33.442413Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer LayerNormFusionL1 modified: 0 with status: OK
+[2m2026-05-09T16:31:33.442451Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QDQPropagationTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:33.442477Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer WeightBiasQuantization modified: 0 with status: OK
+[2m2026-05-09T16:31:33.442503Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer EnsureUniqueDQForNodeUnit modified: 0 with status: OK
+[2m2026-05-09T16:31:33.442528Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer WhereDummyDq modified: 0 with status: OK
+[2m2026-05-09T16:31:33.442656Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer TransposeOptimizer modified: 0 with status: OK
+[2m2026-05-09T16:31:33.442710Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer Level1_RuleBasedTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:33.442739Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer DoubleQDQPairsRemover modified: 0 with status: OK
+[2m2026-05-09T16:31:33.442859Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer CommonSubexpressionElimination modified: 0 with status: OK
+[2m2026-05-09T16:31:33.442906Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ConstantFolding modified: 0 with status: OK
+[2m2026-05-09T16:31:33.442936Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulAddFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.442962Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ReshapeFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.442967Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer FreeDimensionOverrideTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:33.442972Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GeluFusionL1 modified: 0 with status: OK
+[2m2026-05-09T16:31:33.442976Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer LayerNormFusionL1 modified: 0 with status: OK
+[2m2026-05-09T16:31:33.443006Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QDQPropagationTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:33.443030Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer WeightBiasQuantization modified: 0 with status: OK
+[2m2026-05-09T16:31:33.443057Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer EnsureUniqueDQForNodeUnit modified: 0 with status: OK
+[2m2026-05-09T16:31:33.443080Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer WhereDummyDq modified: 0 with status: OK
+[2m2026-05-09T16:31:33.443327Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Running graph optimizations in loop 1 time/s (Graph Optimizations Loop Level : 1)
+[2m2026-05-09T16:31:33.443368Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer Level2_RuleBasedTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:33.443498Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer TransposeOptimizer_CPUExecutionProvider modified: 0 with status: OK
+[2m2026-05-09T16:31:33.443527Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QDQS8ToU8Transformer modified: 0 with status: OK
+[2m2026-05-09T16:31:33.443587Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QDQSelectorActionTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:33.443614Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GemmActivationFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.443641Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulIntegerToFloatFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.443667Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer DynamicQuantizeMatMulFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.443697Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ConvActivationFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.443750Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GeluFusionL2 modified: 1 with status: OK
+[2m2026-05-09T16:31:33.444371Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Removing initializer '/encoder/layer.3/intermediate/intermediate_act_fn/Constant_2_output_0'. It is no longer used by any node.
+[2m2026-05-09T16:31:33.444380Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Removing initializer '/encoder/layer.3/intermediate/intermediate_act_fn/Constant_output_0'. It is no longer used by any node.
+[2m2026-05-09T16:31:33.444486Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer LayerNormFusionL2 modified: 1 with status: OK
+[2m2026-05-09T16:31:33.444952Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Removing initializer '/encoder/layer.5/output/LayerNorm/Constant_output_0'. It is no longer used by any node.
+[2m2026-05-09T16:31:33.444959Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Removing initializer '/encoder/layer.4/output/LayerNorm/Constant_1_output_0'. It is no longer used by any node.
+[2m2026-05-09T16:31:33.445005Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer SimplifiedLayerNormFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.445030Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer AttentionFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.445048Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer EmbedLayerNormFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.445053Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GatherSliceToSplitFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.445071Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GatherToSliceFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.445095Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatmulTransposeFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.445128Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer BiasGeluFusion modified: 1 with status: OK
+[2m2026-05-09T16:31:33.445579Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GroupQueryAttentionFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.445604Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulAddFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.445624Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer SkipLayerNormFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.445643Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer FastGeluFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.445661Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QuickGeluFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.445680Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer BiasSoftmaxFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.445697Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer BiasDropoutFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.445731Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulScaleFusion modified: 1 with status: OK
+[2m2026-05-09T16:31:33.446141Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Removing initializer '/encoder/layer.5/attention/self/Constant_12_output_0'. It is no longer used by any node.
+[2m2026-05-09T16:31:33.446186Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulActivationFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446210Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulNBitsFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446228Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QDQFinalCleanupTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446246Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer Level2_RuleBasedTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446264Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QDQS8ToU8Transformer modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446303Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QDQSelectorActionTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446320Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GemmActivationFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446336Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulIntegerToFloatFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446353Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer DynamicQuantizeMatMulFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446373Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ConvActivationFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446390Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GeluFusionL2 modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446407Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer LayerNormFusionL2 modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446428Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer SimplifiedLayerNormFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446450Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer AttentionFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446467Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer EmbedLayerNormFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446472Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GatherSliceToSplitFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446488Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GatherToSliceFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446512Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatmulTransposeFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446536Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer BiasGeluFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446553Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GroupQueryAttentionFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446572Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulAddFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446591Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer SkipLayerNormFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446609Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer FastGeluFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446626Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QuickGeluFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446643Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer BiasSoftmaxFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446660Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer BiasDropoutFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446681Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulScaleFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446697Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulActivationFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446717Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulNBitsFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446734Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QDQFinalCleanupTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446756Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer NchwcTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446807Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer NhwcTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446829Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ConvAddActivationFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446889Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer RemoveDuplicateCastTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446894Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer CastFloat16Transformer modified: 0 with status: OK
+[2m2026-05-09T16:31:33.446900Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MemcpyTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:33.447088Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Use DeviceBasedPartition as default
+[2m2026-05-09T16:31:33.451354Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Saving initialized tensors.
+[2m2026-05-09T16:31:33.451374Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:33.451384Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 24
+[2m2026-05-09T16:31:33.451392Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:33.451401Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 24
+[2m2026-05-09T16:31:33.451408Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:33.451419Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:33.451426Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 4
+[2m2026-05-09T16:31:33.451433Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:33.451438Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:33.451447Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 24
+[2m2026-05-09T16:31:33.451454Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 24
+[2m2026-05-09T16:31:33.451465Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 8
+[2m2026-05-09T16:31:33.451472Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:33.451479Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:33.451484Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:33.451493Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 24
+[2m2026-05-09T16:31:33.451507Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 8
+[2m2026-05-09T16:31:33.451517Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 4
+[2m2026-05-09T16:31:33.451522Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 8
+[2m2026-05-09T16:31:33.451527Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:33.451534Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 24
+[2m2026-05-09T16:31:33.451542Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:33.451547Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:33.451560Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:33.451567Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:33.451573Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:33.451583Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:33.451590Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:33.451597Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:33.451609Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Done saving initialized tensors
+[2m2026-05-09T16:31:33.451684Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:33.451899Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:33.452116Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:33.452353Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:33.452595Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:33.453462Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:33.454323Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:33.454535Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:33.454749Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:33.454990Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:33.455219Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:33.456054Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:33.456864Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:33.457073Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:33.457285Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:33.457495Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:33.457702Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:33.458481Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:33.459267Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:33.459482Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:33.459698Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:33.459921Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:33.460136Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:33.460933Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:33.461733Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:33.461942Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:33.462153Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:33.462371Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:33.462583Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:33.463383Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:33.464169Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:33.464381Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:33.464591Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:33.464792Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:33.464988Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:33.465773Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:33.466715Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Session successfully initialized.
+[2m2026-05-09T16:31:33.530664Z[0m [32m INFO[0m [2mknot::pipeline::embed[0m[2m:[0m Embedding model ready
+[2m2026-05-09T16:31:33.530775Z[0m [32m INFO[0m [2mknot::pipeline::runner[0m[2m:[0m Ingestion concurrency: 4 simultaneous batches
+[2m2026-05-09T16:31:33.530864Z[0m [32m INFO[0m [2mknot::pipeline::runner[0m[2m:[0m [Worker: Embedder] Stage 3: Embedding final batch #1 (3 entities)...
+[2m2026-05-09T16:31:33.530999Z[0m [32m INFO[0m [2mknot::pipeline::embed[0m[2m:[0m Embedding 3 entities (batch_size=64)…
+[2m2026-05-09T16:31:33.533275Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extending BFCArena for Cpu. bin_num:0 (requested) num_bytes: 16 (actual) rounded_bytes:256
+[2m2026-05-09T16:31:33.533324Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extended allocation by 1048576 bytes.
+[2m2026-05-09T16:31:33.533329Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Total allocated bytes: 43516656
+[2m2026-05-09T16:31:33.533334Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Allocated memory at 0x7cf7c8026c40 to 0x7cf7c8126c40
+[2m2026-05-09T16:31:33.534214Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extending BFCArena for Cpu. bin_num:9 (requested) num_bytes: 221184 (actual) rounded_bytes:221184
+[2m2026-05-09T16:31:33.534228Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extended allocation by 2097152 bytes.
+[2m2026-05-09T16:31:33.534233Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Total allocated bytes: 45613808
+[2m2026-05-09T16:31:33.534237Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Allocated memory at 0x7cf7c812ec80 to 0x7cf7c832ec80
+[2m2026-05-09T16:31:33.535135Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extending BFCArena for Cpu. bin_num:11 (requested) num_bytes: 884736 (actual) rounded_bytes:884736
+[2m2026-05-09T16:31:33.535147Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extended allocation by 4194304 bytes.
+[2m2026-05-09T16:31:33.535151Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Total allocated bytes: 49808112
+[2m2026-05-09T16:31:33.535155Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Allocated memory at 0x7cf7c833ecc0 to 0x7cf7c873ecc0
+[2m2026-05-09T16:31:33.546883Z[0m [32m INFO[0m [2mknot::pipeline::embed[0m[2m:[0m Embedding complete — 3 vectors produced
+[2m2026-05-09T16:31:33.547069Z[0m [32m INFO[0m [2mknot::pipeline::runner[0m[2m:[0m All 1 batches dispatched — waiting for ingestion workers to finish...
+[2m2026-05-09T16:31:33.547090Z[0m [32m INFO[0m [2mknot::pipeline::runner[0m[2m:[0m [Worker: Ingester] Ingesting batch #1 (3 entities)...
+[2m2026-05-09T16:31:33.547098Z[0m [32m INFO[0m [2mknot::pipeline::ingest::batch[0m[2m:[0m Ingesting batch of 3 entities…
+[2m2026-05-09T16:31:33.548559Z[0m [32m INFO[0m [2mknot::db::vector::upsert[0m[2m:[0m Upserted 3 vectors into Qdrant
+[2m2026-05-09T16:31:33.740194Z[0m [32m INFO[0m [2mknot::db::graph::upsert[0m[2m:[0m Upserted 3 entity nodes into Neo4j
+[2m2026-05-09T16:31:33.740244Z[0m [32m INFO[0m [2mknot::pipeline::ingest::batch[0m[2m:[0m Batch ingestion complete
+[2m2026-05-09T16:31:33.850680Z[0m [32m INFO[0m [2mknot::db::graph::query[0m[2m:[0m Found 0 repository dependencies for 'test-repo' (depth 3)
+[2m2026-05-09T16:31:33.850749Z[0m [32m INFO[0m [2mknot::pipeline::ingest::resolve[0m[2m:[0m Loading global entity context from Neo4j for relationship resolution...
+[2m2026-05-09T16:31:33.850765Z[0m [32m INFO[0m [2mknot::db::graph::upsert[0m[2m:[0m Loading entity mappings from Neo4j for 1 repo(s): test-repo
+[2m2026-05-09T16:31:33.915317Z[0m [32m INFO[0m [2mknot::db::graph::upsert[0m[2m:[0m Loaded 3 FQN mappings and 3 name mappings from 1 repo(s)
+[2m2026-05-09T16:31:33.915372Z[0m [32m INFO[0m [2mknot::pipeline::ingest::resolve[0m[2m:[0m Resolving reference intents with global context (3 FQNs, 3 names)...
+[2m2026-05-09T16:31:33.915597Z[0m [32m INFO[0m [2mknot::pipeline::ingest::resolve[0m[2m:[0m Creating typed relationships in Neo4j...
+[2m2026-05-09T16:31:33.994877Z[0m [32m INFO[0m [2mknot::db::graph::upsert[0m[2m:[0m Created 2 REFERENCES relationships in Neo4j
+[2m2026-05-09T16:31:34.042143Z[0m [32m INFO[0m [2mknot::db::graph::upsert[0m[2m:[0m Created 2 CALLS relationships in Neo4j
+[2m2026-05-09T16:31:34.042216Z[0m [32m INFO[0m [2mknot::pipeline::files[0m[2m:[0m Updating index state...
+[2m2026-05-09T16:31:34.042413Z[0m [32m INFO[0m [2mknot::pipeline::state[0m[2m:[0m Saved index state with 1 tracked files
+[2m2026-05-09T16:31:34.042424Z[0m [32m INFO[0m [2mknot::pipeline::files[0m[2m:[0m Incremental update complete! Processed 3 entities from 1 file(s).
+[2m2026-05-09T16:31:34.050450Z[0m [32m INFO[0m [2mknot_server::worker[0m[2m:[0m Worker: indexing pipeline complete for 'test-repo'
+[2m2026-05-09T16:31:34.050662Z[0m [32m INFO[0m [2mknot_server::worker[0m[2m:[0m Worker: status=idle for 'test-repo'
+[2m2026-05-09T16:31:34.050672Z[0m [32m INFO[0m [2mknot_server::worker[0m[2m:[0m Worker: job completed for 'test-repo'
+[2m2026-05-09T16:31:34.177022Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extending BFCArena for Cpu. bin_num:0 (requested) num_bytes: 16 (actual) rounded_bytes:256
+[2m2026-05-09T16:31:34.177074Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extended allocation by 1048576 bytes.
+[2m2026-05-09T16:31:34.177079Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Total allocated bytes: 43516656
+[2m2026-05-09T16:31:34.177084Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Allocated memory at 0x7cf7d8040e40 to 0x7cf7d8140e40
+[2m2026-05-09T16:31:34.739083Z[0m [32m INFO[0m [2mknot_server::handlers[0m[2m:[0m Registered repository 'sigtest' (url: /tmp/knot-e2e-workspace-1209819/fixtures/sigtest.git, auth: Ssh)
+[2m2026-05-09T16:31:34.739175Z[0m [32m INFO[0m [2mknot_server::worker[0m[2m:[0m Worker picked up job: Clone { repo_id: "sigtest" } for sigtest
+[2m2026-05-09T16:31:34.739262Z[0m [32m INFO[0m [2mknot_server::worker[0m[2m:[0m Worker: acquired file lock for 'sigtest'
+[2m2026-05-09T16:31:34.740538Z[0m [32m INFO[0m [2mknot_server::worker[0m[2m:[0m Worker: status=indexing for 'sigtest'
+[2m2026-05-09T16:31:34.740556Z[0m [32m INFO[0m [2mknot_server::worker[0m[2m:[0m Worker: cloning 'sigtest' from /tmp/knot-e2e-workspace-1209819/fixtures/sigtest.git
+[2m2026-05-09T16:31:34.740592Z[0m [32m INFO[0m [2mknot_server::git[0m[2m:[0m Cloning /tmp/knot-e2e-workspace-1209819/fixtures/sigtest.git to /tmp/knot-e2e-workspace-1209819/sigtest
+Cloning into '/tmp/knot-e2e-workspace-1209819/sigtest'...
+[2m2026-05-09T16:31:34.743496Z[0m [32m INFO[0m [2mknot_server::handlers[0m[2m:[0m Webhook validated for 'sigtest', enqueued Pull job
+done.
+[2m2026-05-09T16:31:34.745942Z[0m [32m INFO[0m [2mknot_server::git[0m[2m:[0m Clone of sigtest completed
+[2m2026-05-09T16:31:34.745956Z[0m [32m INFO[0m [2mknot_server::worker[0m[2m:[0m Worker: clone complete for 'sigtest'
+[2m2026-05-09T16:31:34.745978Z[0m [32m INFO[0m [2mknot::pipeline::state[0m[2m:[0m No existing index state found — will perform full indexing
+[2m2026-05-09T16:31:34.745985Z[0m [32m INFO[0m [2mknot_server::worker[0m[2m:[0m Worker: starting indexing pipeline for 'sigtest'
+[2m2026-05-09T16:31:34.746779Z[0m [32m INFO[0m [2mknot::pipeline::input[0m[2m:[0m Discovered 1 source files under '/tmp/knot-e2e-workspace-1209819/sigtest'
+[2m2026-05-09T16:31:34.746836Z[0m [32m INFO[0m [2mknot::pipeline::state[0m[2m:[0m File classification: 0 unchanged, 0 modified, 1 added, 0 deleted
+[2m2026-05-09T16:31:34.746843Z[0m [32m INFO[0m [2mknot::pipeline::runner[0m[2m:[0m File classification: 0 unchanged, 0 modified, 1 added, 0 deleted
+[2m2026-05-09T16:31:34.746856Z[0m [32m INFO[0m [2mknot::pipeline::runner[0m[2m:[0m Deleting 1 stale file(s) from databases (incremental mode)
+[2m2026-05-09T16:31:34.746866Z[0m [33m WARN[0m [2mknot::db::vector::delete[0m[2m:[0m Deleting 1 file(s) from repo 'sigtest' in Qdrant (incremental mode)
+[2m2026-05-09T16:31:34.746960Z[0m [33m WARN[0m [2mknot::db::graph::delete[0m[2m:[0m Deleting 1 file(s) from repo 'sigtest' in Neo4j (incremental mode)
+[2m2026-05-09T16:31:34.747854Z[0m [32m INFO[0m [2mknot_server::handlers[0m[2m:[0m Registered repository 'dup-test' (url: /tmp/knot-e2e-workspace-1209819/fixtures/dup-test.git, auth: Ssh)
+[2m2026-05-09T16:31:34.750424Z[0m [32m INFO[0m [2mknot::pipeline::runner[0m[2m:[0m Will parse and index 1 file(s) (added/modified)
+[2m2026-05-09T16:31:34.750465Z[0m [32m INFO[0m [2mknot::pipeline::runner[0m[2m:[0m Stage 2: Starting parallel parsing of 1 files...
+[2m2026-05-09T16:31:34.750556Z[0m [32m INFO[0m [2mknot::pipeline::embed[0m[2m:[0m Initialising fastembed model (AllMiniLML6V2)…
+[2m2026-05-09T16:31:34.750731Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Session Options {  execution_mode:0 execution_order:DEFAULT enable_profiling:0 optimized_model_filepath:"" enable_mem_pattern:1 enable_mem_reuse:1 enable_cpu_mem_arena:1 profile_file_prefix:onnxruntime_profile_ session_logid: session_log_severity_level:-1 session_log_verbosity_level:0 max_num_graph_transformation_steps:10 graph_optimization_level:3 intra_op_param:OrtThreadPoolParams { thread_pool_size: 32 auto_set_affinity: 0 allow_spinning: 0 dynamic_block_base_: 0 stack_size: 0 affinity_str:  set_denormal_as_zero: 0 } inter_op_param:OrtThreadPoolParams { thread_pool_size: 0 auto_set_affinity: 0 allow_spinning: 0 dynamic_block_base_: 0 stack_size: 0 affinity_str:  set_denormal_as_zero: 0 } use_per_session_threads:1 thread_pool_allow_spinning:1 use_deterministic_compute:0 ep_selection_policy:5 config_options: {  } }
+[2m2026-05-09T16:31:34.750752Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Creating and using per session threadpools since use_per_session_threads_ is true
+[2m2026-05-09T16:31:34.750759Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Dynamic block base set to 0
+[2m2026-05-09T16:31:34.763874Z[0m [32m INFO[0m [2mknot::pipeline::runner[0m[2m:[0m Stage 2: Parallel parsing complete.
+[2m2026-05-09T16:31:34.779380Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Initializing session.
+[2m2026-05-09T16:31:34.779423Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Creating BFCArena for Cpu with following configs: initial_chunk_size_bytes: 1048576 max_dead_bytes_per_chunk: 134217728 initial_growth_chunk_size_bytes: 2097152 max_power_of_two_extend_bytes: 1073741824 memory limit: 18446744073709551615 arena_extend_strategy: 0
+[2m2026-05-09T16:31:34.779495Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m This model does not have any local functions defined. AOT Inlining is not performed
+[2m2026-05-09T16:31:34.811537Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer EnsureUniqueDQForNodeUnit modified: 0 with status: OK
+[2m2026-05-09T16:31:34.811740Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer Level1_RuleBasedTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:34.811776Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer DoubleQDQPairsRemover modified: 0 with status: OK
+[2m2026-05-09T16:31:34.812097Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Total shared scalar initializer count: 132
+[2m2026-05-09T16:31:34.812105Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ConstantSharing modified: 1 with status: OK
+[2m2026-05-09T16:31:34.813230Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer CommonSubexpressionElimination modified: 1 with status: OK
+[2m2026-05-09T16:31:34.814036Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ConstantFolding modified: 0 with status: OK
+[2m2026-05-09T16:31:34.814080Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulAddFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.814127Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.0/attention/self/Reshape_output_0
+[2m2026-05-09T16:31:34.814147Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.0/attention/self/Reshape_2_output_0
+[2m2026-05-09T16:31:34.814155Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.0/attention/self/Reshape_1_output_0
+[2m2026-05-09T16:31:34.814164Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.0/attention/self/Reshape_3_output_0
+[2m2026-05-09T16:31:34.814173Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.1/attention/self/Reshape_output_0
+[2m2026-05-09T16:31:34.814181Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.1/attention/self/Reshape_2_output_0
+[2m2026-05-09T16:31:34.814195Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.1/attention/self/Reshape_1_output_0
+[2m2026-05-09T16:31:34.814205Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.1/attention/self/Reshape_3_output_0
+[2m2026-05-09T16:31:34.814213Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.2/attention/self/Reshape_output_0
+[2m2026-05-09T16:31:34.814221Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.2/attention/self/Reshape_2_output_0
+[2m2026-05-09T16:31:34.814229Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.2/attention/self/Reshape_1_output_0
+[2m2026-05-09T16:31:34.814238Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.2/attention/self/Reshape_3_output_0
+[2m2026-05-09T16:31:34.814246Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.3/attention/self/Reshape_output_0
+[2m2026-05-09T16:31:34.814254Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.3/attention/self/Reshape_2_output_0
+[2m2026-05-09T16:31:34.814261Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.3/attention/self/Reshape_1_output_0
+[2m2026-05-09T16:31:34.814270Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.3/attention/self/Reshape_3_output_0
+[2m2026-05-09T16:31:34.814279Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.4/attention/self/Reshape_output_0
+[2m2026-05-09T16:31:34.814287Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.4/attention/self/Reshape_2_output_0
+[2m2026-05-09T16:31:34.814295Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.4/attention/self/Reshape_1_output_0
+[2m2026-05-09T16:31:34.814304Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.4/attention/self/Reshape_3_output_0
+[2m2026-05-09T16:31:34.814312Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.5/attention/self/Reshape_output_0
+[2m2026-05-09T16:31:34.814320Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.5/attention/self/Reshape_2_output_0
+[2m2026-05-09T16:31:34.814331Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.5/attention/self/Reshape_1_output_0
+[2m2026-05-09T16:31:34.814340Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Fused reshape node: /encoder/layer.5/attention/self/Reshape_3_output_0
+[2m2026-05-09T16:31:34.814345Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Total fused reshape node count: 24
+[2m2026-05-09T16:31:34.814349Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ReshapeFusion modified: 1 with status: OK
+[2m2026-05-09T16:31:34.815001Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Removing initializer '/encoder/layer.5/attention/self/Constant_11_output_0'. It is no longer used by any node.
+[2m2026-05-09T16:31:34.815008Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Removing initializer '/encoder/layer.5/attention/self/Constant_10_output_0'. It is no longer used by any node.
+[2m2026-05-09T16:31:34.815017Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Removing initializer '/encoder/layer.5/attention/self/Constant_4_output_0'. It is no longer used by any node.
+[2m2026-05-09T16:31:34.815022Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Removing initializer '/encoder/layer.3/attention/self/Constant_15_output_0'. It is no longer used by any node.
+[2m2026-05-09T16:31:34.815048Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer FreeDimensionOverrideTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:34.815053Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GeluFusionL1 modified: 0 with status: OK
+[2m2026-05-09T16:31:34.815058Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer LayerNormFusionL1 modified: 0 with status: OK
+[2m2026-05-09T16:31:34.815097Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QDQPropagationTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:34.815122Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer WeightBiasQuantization modified: 0 with status: OK
+[2m2026-05-09T16:31:34.815149Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer EnsureUniqueDQForNodeUnit modified: 0 with status: OK
+[2m2026-05-09T16:31:34.815173Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer WhereDummyDq modified: 0 with status: OK
+[2m2026-05-09T16:31:34.815307Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer TransposeOptimizer modified: 0 with status: OK
+[2m2026-05-09T16:31:34.815367Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer Level1_RuleBasedTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:34.815391Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer DoubleQDQPairsRemover modified: 0 with status: OK
+[2m2026-05-09T16:31:34.815507Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer CommonSubexpressionElimination modified: 0 with status: OK
+[2m2026-05-09T16:31:34.815554Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ConstantFolding modified: 0 with status: OK
+[2m2026-05-09T16:31:34.815584Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulAddFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.815610Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ReshapeFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.815615Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer FreeDimensionOverrideTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:34.815619Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GeluFusionL1 modified: 0 with status: OK
+[2m2026-05-09T16:31:34.815624Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer LayerNormFusionL1 modified: 0 with status: OK
+[2m2026-05-09T16:31:34.815654Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QDQPropagationTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:34.815678Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer WeightBiasQuantization modified: 0 with status: OK
+[2m2026-05-09T16:31:34.815704Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer EnsureUniqueDQForNodeUnit modified: 0 with status: OK
+[2m2026-05-09T16:31:34.815728Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer WhereDummyDq modified: 0 with status: OK
+[2m2026-05-09T16:31:34.815962Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Running graph optimizations in loop 1 time/s (Graph Optimizations Loop Level : 1)
+[2m2026-05-09T16:31:34.816001Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer Level2_RuleBasedTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:34.816130Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer TransposeOptimizer_CPUExecutionProvider modified: 0 with status: OK
+[2m2026-05-09T16:31:34.816158Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QDQS8ToU8Transformer modified: 0 with status: OK
+[2m2026-05-09T16:31:34.816227Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QDQSelectorActionTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:34.816255Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GemmActivationFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.816282Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulIntegerToFloatFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.816307Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer DynamicQuantizeMatMulFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.816342Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ConvActivationFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.816392Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GeluFusionL2 modified: 1 with status: OK
+[2m2026-05-09T16:31:34.817004Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Removing initializer '/encoder/layer.3/intermediate/intermediate_act_fn/Constant_2_output_0'. It is no longer used by any node.
+[2m2026-05-09T16:31:34.817011Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Removing initializer '/encoder/layer.3/intermediate/intermediate_act_fn/Constant_output_0'. It is no longer used by any node.
+[2m2026-05-09T16:31:34.817115Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer LayerNormFusionL2 modified: 1 with status: OK
+[2m2026-05-09T16:31:34.817606Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Removing initializer '/encoder/layer.5/output/LayerNorm/Constant_output_0'. It is no longer used by any node.
+[2m2026-05-09T16:31:34.817616Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Removing initializer '/encoder/layer.4/output/LayerNorm/Constant_1_output_0'. It is no longer used by any node.
+[2m2026-05-09T16:31:34.817658Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer SimplifiedLayerNormFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.817683Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer AttentionFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.817701Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer EmbedLayerNormFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.817706Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GatherSliceToSplitFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.817723Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GatherToSliceFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.817748Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatmulTransposeFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.817781Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer BiasGeluFusion modified: 1 with status: OK
+[2m2026-05-09T16:31:34.818241Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GroupQueryAttentionFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.818265Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulAddFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.818286Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer SkipLayerNormFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.818305Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer FastGeluFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.818323Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QuickGeluFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.818341Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer BiasSoftmaxFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.818359Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer BiasDropoutFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.818394Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulScaleFusion modified: 1 with status: OK
+[2m2026-05-09T16:31:34.818812Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Removing initializer '/encoder/layer.5/attention/self/Constant_12_output_0'. It is no longer used by any node.
+[2m2026-05-09T16:31:34.818857Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulActivationFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.818879Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulNBitsFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.818897Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QDQFinalCleanupTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:34.818915Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer Level2_RuleBasedTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:34.818932Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QDQS8ToU8Transformer modified: 0 with status: OK
+[2m2026-05-09T16:31:34.818972Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QDQSelectorActionTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:34.818989Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GemmActivationFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819005Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulIntegerToFloatFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819022Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer DynamicQuantizeMatMulFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819043Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ConvActivationFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819059Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GeluFusionL2 modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819076Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer LayerNormFusionL2 modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819093Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer SimplifiedLayerNormFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819114Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer AttentionFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819131Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer EmbedLayerNormFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819136Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GatherSliceToSplitFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819152Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GatherToSliceFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819176Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatmulTransposeFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819203Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer BiasGeluFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819220Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GroupQueryAttentionFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819239Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulAddFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819258Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer SkipLayerNormFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819276Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer FastGeluFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819293Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QuickGeluFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819311Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer BiasSoftmaxFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819327Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer BiasDropoutFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819351Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulScaleFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819370Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulActivationFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819390Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulNBitsFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819407Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QDQFinalCleanupTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819429Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer NchwcTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819481Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer NhwcTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819502Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ConvAddActivationFusion modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819563Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer RemoveDuplicateCastTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819568Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer CastFloat16Transformer modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819574Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MemcpyTransformer modified: 0 with status: OK
+[2m2026-05-09T16:31:34.819780Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Use DeviceBasedPartition as default
+[2m2026-05-09T16:31:34.824055Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Saving initialized tensors.
+[2m2026-05-09T16:31:34.824076Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:34.824087Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:34.824093Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:34.824101Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:34.824108Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 8
+[2m2026-05-09T16:31:34.824118Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 4
+[2m2026-05-09T16:31:34.824125Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:34.824133Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 24
+[2m2026-05-09T16:31:34.824144Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 24
+[2m2026-05-09T16:31:34.824152Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 24
+[2m2026-05-09T16:31:34.824162Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:34.824170Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:34.824174Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:34.824186Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:34.824193Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:34.824200Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:34.824205Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 24
+[2m2026-05-09T16:31:34.824212Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:34.824224Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 24
+[2m2026-05-09T16:31:34.824230Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 24
+[2m2026-05-09T16:31:34.824242Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:34.824247Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:34.824252Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 4
+[2m2026-05-09T16:31:34.824261Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:34.824267Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:34.824272Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 8
+[2m2026-05-09T16:31:34.824280Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 8
+[2m2026-05-09T16:31:34.824287Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:34.824294Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 32
+[2m2026-05-09T16:31:34.824322Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Done saving initialized tensors
+[2m2026-05-09T16:31:34.824403Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:34.824610Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:34.824808Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:34.825005Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:34.825208Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:34.825995Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:34.826950Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:34.827152Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:34.827363Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:34.827556Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:34.827752Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:34.828479Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:34.829242Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:34.829455Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:34.829657Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:34.829860Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:34.830062Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:34.830831Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:34.831605Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:34.831792Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:34.831992Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:34.832198Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:34.832410Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:34.833166Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:34.833935Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:34.834135Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:34.834349Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:34.834553Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:34.834754Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:34.835517Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:34.836293Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:34.836498Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:34.836691Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:34.836883Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 589824
+[2m2026-05-09T16:31:34.837084Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:34.837872Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 2359296
+[2m2026-05-09T16:31:34.838791Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Session successfully initialized.
+[2m2026-05-09T16:31:34.900941Z[0m [32m INFO[0m [2mknot::pipeline::embed[0m[2m:[0m Embedding model ready
+[2m2026-05-09T16:31:34.901044Z[0m [32m INFO[0m [2mknot::pipeline::runner[0m[2m:[0m Ingestion concurrency: 4 simultaneous batches
+[2m2026-05-09T16:31:34.901145Z[0m [32m INFO[0m [2mknot::pipeline::runner[0m[2m:[0m [Worker: Embedder] Stage 3: Embedding final batch #1 (3 entities)...
+[2m2026-05-09T16:31:34.901271Z[0m [32m INFO[0m [2mknot::pipeline::embed[0m[2m:[0m Embedding 3 entities (batch_size=64)…
+[2m2026-05-09T16:31:34.902184Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extending BFCArena for Cpu. bin_num:0 (requested) num_bytes: 16 (actual) rounded_bytes:256
+[2m2026-05-09T16:31:34.902199Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extended allocation by 1048576 bytes.
+[2m2026-05-09T16:31:34.902204Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Total allocated bytes: 43516656
+[2m2026-05-09T16:31:34.902209Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Allocated memory at 0x7cf7c8026c40 to 0x7cf7c8126c40
+[2m2026-05-09T16:31:34.902895Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extending BFCArena for Cpu. bin_num:9 (requested) num_bytes: 216576 (actual) rounded_bytes:216576
+[2m2026-05-09T16:31:34.902906Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extended allocation by 2097152 bytes.
+[2m2026-05-09T16:31:34.902911Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Total allocated bytes: 45613808
+[2m2026-05-09T16:31:34.902915Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Allocated memory at 0x7cf7c812f1c0 to 0x7cf7c832f1c0
+[2m2026-05-09T16:31:34.903312Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extending BFCArena for Cpu. bin_num:11 (requested) num_bytes: 866304 (actual) rounded_bytes:866304
+[2m2026-05-09T16:31:34.903322Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extended allocation by 4194304 bytes.
+[2m2026-05-09T16:31:34.903326Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Total allocated bytes: 49808112
+[2m2026-05-09T16:31:34.903330Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Allocated memory at 0x7cf7c833f200 to 0x7cf7c873f200
+[2m2026-05-09T16:31:34.907842Z[0m [32m INFO[0m [2mknot_server::handlers[0m[2m:[0m Enqueued sync job for 'test-repo'
+[2m2026-05-09T16:31:34.913515Z[0m [32m INFO[0m [2mknot::pipeline::embed[0m[2m:[0m Embedding complete — 3 vectors produced
+[2m2026-05-09T16:31:34.913668Z[0m [32m INFO[0m [2mknot::pipeline::runner[0m[2m:[0m All 1 batches dispatched — waiting for ingestion workers to finish...
+[2m2026-05-09T16:31:34.913685Z[0m [32m INFO[0m [2mknot::pipeline::runner[0m[2m:[0m [Worker: Ingester] Ingesting batch #1 (3 entities)...
+[2m2026-05-09T16:31:34.913693Z[0m [32m INFO[0m [2mknot::pipeline::ingest::batch[0m[2m:[0m Ingesting batch of 3 entities…
+[2m2026-05-09T16:31:34.914998Z[0m [32m INFO[0m [2mknot::db::vector::upsert[0m[2m:[0m Upserted 3 vectors into Qdrant
+[2m2026-05-09T16:31:34.921852Z[0m [32m INFO[0m [2mknot_server::handlers[0m[2m:[0m Deleted repository 'test-repo'
+[2m2026-05-09T16:31:34.928967Z[0m [32m INFO[0m [2mknot::db::graph::upsert[0m[2m:[0m Upserted 3 entity nodes into Neo4j
+[2m2026-05-09T16:31:34.929007Z[0m [32m INFO[0m [2mknot::pipeline::ingest::batch[0m[2m:[0m Batch ingestion complete
+[2m2026-05-09T16:31:34.930524Z[0m [32m INFO[0m [2mknot_server[0m[2m:[0m Received SIGTERM, shutting down...
+[2m2026-05-09T16:31:34.930595Z[0m [32m INFO[0m [2mknot_server[0m[2m:[0m knot-server shut down gracefully

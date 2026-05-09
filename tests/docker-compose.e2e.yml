@@ -1,0 +1,34 @@
+services:
+  neo4j-e2e:
+    image: neo4j:5
+    container_name: knot_server_neo4j_e2e
+    ports:
+      - "17474:7474"
+      - "17687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/e2e_test_password
+      NEO4J_server_memory_heap_initial__size: 256m
+      NEO4J_server_memory_heap_max__size: 512m
+    volumes:
+      - neo4j_data_e2e:/data
+      - neo4j_logs_e2e:/logs
+    healthcheck:
+      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "e2e_test_password", "CALL db.ping()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  qdrant-e2e:
+    image: qdrant/qdrant:latest
+    container_name: knot_server_qdrant_e2e
+    ports:
+      - "16333:6333"
+      - "16334:6334"
+    volumes:
+      - qdrant_data_e2e:/qdrant/storage
+
+volumes:
+  neo4j_data_e2e:
+  neo4j_logs_e2e:
+  qdrant_data_e2e:
