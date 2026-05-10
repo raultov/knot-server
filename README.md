@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2024-brightgreen.svg)](https://www.rust-lang.org)
 
-**knot-server** (v0.1.0) is a distributed REST API and background task scheduler for managing and indexing Git repositories across a cluster. It sits on top of the core [knot](https://github.com/raultov/knot) indexing engine, transforming it from a single-machine CLI tool into a highly available, cluster-aware enterprise service.
+**knot-server** (v0.1.2) is a distributed REST API and background task scheduler for managing and indexing Git repositories across a cluster. It sits on top of the core [knot](https://github.com/raultov/knot) indexing engine, transforming it from a single-machine CLI tool into a highly available, cluster-aware enterprise service.
 
 With `knot-server`, you can register Git repositories via a REST API, trigger automatic codebase indexing through webhooks (GitHub, GitLab, Bitbucket), and query the vector (Qdrant) and graph (Neo4j) databases—all while coordinating work safely across multiple server instances via NFS/EFS workspace locks.
 
@@ -52,6 +52,73 @@ With `knot-server`, you can register Git repositories via a REST API, trigger au
 
 ---
 
+## 🤖 Using with AI Assistants (Cursor, Copilot, Claude, Gemini)
+
+`knot-server` transforms any LLM with terminal access (Cursor, GitHub Copilot,
+Claude Code, Gemini CLI, opencode, Cline, Aider) into a codebase-aware engineer.
+By teaching the LLM to call the REST API via `curl`, you give it **semantic
+understanding** of your entire codebase — far beyond what `grep` or file embeddings
+can provide.
+
+The AI learns **four code intelligence skills** that replace traditional text search:
+
+| # | Skill | Endpoint | Use Case |
+|---|-------|----------|----------|
+| 1 | **Semantic Search** | `/search?q=` | Find code by *meaning*, not exact text |
+| 2 | **Callers Analysis** | `/callers?entity=` | Impact analysis — who uses this function? |
+| 3 | **File Exploration** | `/explore?path=` | Get a file's structure without reading it |
+| 4 | **Dependency Graph** | `/deps` | Cross-repo dependencies |
+
+These skills teach the LLM to **always prefer knot-server `curl` calls over
+`grep`/`find`/`rg`** for code exploration, dramatically improving accuracy
+and reducing hallucinations.
+
+### Quick Install — One Command Per IDE
+
+Download the pre-built skill instructions directly into your project:
+
+**Cursor** (writes to `.cursorrules`):
+```bash
+curl -sL https://raw.githubusercontent.com/raultov/knot-server/master/skills/cursor-rules.md >> .cursorrules
+```
+
+**GitHub Copilot** (writes to `.github/copilot-instructions.md`):
+```bash
+mkdir -p .github && curl -sL https://raw.githubusercontent.com/raultov/knot-server/master/skills/copilot-instructions.md >> .github/copilot-instructions.md
+```
+
+**Claude Code / Gemini CLI / opencode / Cline / Aider** (generic system prompt):
+```bash
+curl -sL https://raw.githubusercontent.com/raultov/knot-server/master/skills/system-prompt.md > knot-skills.md
+# Then instruct your agent: "Read knot-skills.md and use those tools"
+```
+
+### How It Works
+
+Each skill file injects a **system prompt** into the LLM that defines:
+
+- **When** to use each endpoint (trigger phrases)
+- **How** to construct the `curl` command (parameters, `jq` filters)
+- **How** to interpret the JSON response (field meanings)
+
+The LLM learns to:
+1. Instead of `grep "authenticate"`, call `GET /api/repos/{id}/search?q=authentication+logic`
+2. Instead of searching for callers manually, call `GET /api/repos/{id}/callers?entity=handleRequest`
+3. Instead of `cat src/file.rs`, call `GET /api/repos/{id}/explore?path=src/file.rs` to get the outline first
+4. Before breaking a shared library, call `GET /api/repos/{id}/deps` to see the impact
+
+### Example: AI-Assisted Code Exploration
+
+```
+User: "Where is the password hashing logic?"
+AI (via knot-server):
+  curl "/api/repos/myproject/search?q=password+hashing" | jq
+  → Found `hash_password` in `src/auth/crypto.rs:142`
+  → Reads only lines 142-180 instead of entire file
+```
+
+---
+
 ## 🛠️ Installation
 
 ### Prerequisites
@@ -61,6 +128,16 @@ With `knot-server`, you can register Git repositories via a REST API, trigger au
 | Docker       | 20.10+  | For running Qdrant and Neo4j      |
 | qdrant       | 1.x     | Vector database (docker)          |
 | neo4j        | 5.x     | Graph database (docker)           |
+
+### 🐳 Official Docker Image
+
+The official Docker image is available on Docker Hub:
+**[`raultov/knot-server:latest`](https://hub.docker.com/r/raultov/knot-server)**
+
+This image is lightweight (`debian:trixie-slim` based) and comes pre-packaged
+with the `knot-server` binary, `git`, and SSH clients — everything needed to
+clone and index repositories. It is the recommended way to deploy `knot-server`
+in containerized environments (Docker, Docker Compose, or Kubernetes).
 
 ### Option A: Quick Install (curl)
 
@@ -78,37 +155,62 @@ curl -L https://github.com/raultov/knot-server/releases/latest/download/knot-ser
 
 For a specific version, replace `latest` with the version tag:
 ```bash
-# Example: install v0.1.0
-curl -L https://github.com/raultov/knot-server/releases/download/v0.1.0/knot-server-x86_64-linux.tar.gz \
+# Example: install v0.1.2
+curl -L https://github.com/raultov/knot-server/releases/download/v0.1.2/knot-server-x86_64-linux.tar.gz \
   | tar xz
 ```
 
-### Option B: Docker (Recommended)
+### Option B: Docker Compose (Pre-built Image)
 
-You can run `knot-server` alongside its dependencies using Docker Compose.
+The easiest way to run `knot-server` with its dependencies. Just download the
+`docker-compose.yml` file and run:
+
+```bash
+curl -O https://raw.githubusercontent.com/raultov/knot-server/master/docker-compose.yml
+docker compose up
+```
+
+This pulls the pre-built [`raultov/knot-server`](https://hub.docker.com/r/raultov/knot-server)
+image from Docker Hub along with Qdrant and Neo4j — no compilation needed.
 
 ```yaml
-version: '3.8'
-
 services:
   knot-server:
-    image: raultov/knot-server:0.1.0
+    image: raultov/knot-server:latest
     ports:
       - "3000:3000"
     environment:
       - KNOT_WORKSPACE_DIR=/var/lib/knot/repos
-      - KNOT_QDRANT_URL=http://qdrant:6334
-      - KNOT_NEO4J_URI=bolt://neo4j:7687
-      - KNOT_NEO4J_USER=neo4j
-      - KNOT_NEO4J_PASSWORD=your-secure-password
+      - KNOT_SERVER_QDRANT_URL=http://qdrant:6334
+      - KNOT_SERVER_NEO4J_URI=bolt://neo4j:7687
+      - KNOT_SERVER_NEO4J_USER=neo4j
+      - KNOT_NEO4J_PASSWORD=knotsecret
     volumes:
       - knot_workspace:/var/lib/knot/repos
-      - ~/.ssh:/root/.ssh:ro # Optional: for SSH git clone
+      - ${HOME}/.ssh:/root/.ssh:ro
     depends_on:
-      - qdrant
-      - neo4j
+      qdrant:
+        condition: service_started
+      neo4j:
+        condition: service_started
 
-  # Add qdrant and neo4j services here...
+  qdrant:
+    image: qdrant/qdrant:v1.16.2
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  neo4j:
+    image: neo4j:5.26-community
+    environment:
+      - NEO4J_AUTH=neo4j/knotsecret
+      - NEO4J_PLUGINS=["apoc"]
+    volumes:
+      - neo4j_data:/data
+
+volumes:
+  knot_workspace:
+  qdrant_data:
+  neo4j_data:
 ```
 
 ### Option C: Build from Source
@@ -130,12 +232,12 @@ cargo build --release
 | `KNOT_SERVER_PORT` | `3000` | Port the REST API binds to |
 | `KNOT_SERVER_BIND_ADDR` | `0.0.0.0` | Address the server binds to |
 | `KNOT_WORKSPACE_DIR` | `/var/lib/knot/repos` | Directory where Git repos are cloned & locks are managed. Ensure the user running the server has write access (e.g., `export KNOT_WORKSPACE_DIR=$HOME/.knot/repos`). |
-| `KNOT_QDRANT_URL` | `http://localhost:6334` | URL to the Qdrant instance |
-| `KNOT_QDRANT_COLLECTION`| `knot_entities` | Qdrant collection name |
-| `KNOT_NEO4J_URI` | `bolt://localhost:7687` | URI to the Neo4j instance |
-| `KNOT_NEO4J_USER` | `neo4j` | Neo4j username |
+| `KNOT_SERVER_QDRANT_URL` | `http://localhost:6334` | URL to the Qdrant instance |
+| `KNOT_SERVER_QDRANT_COLLECTION`| `knot_entities` | Qdrant collection name |
+| `KNOT_SERVER_NEO4J_URI` | `bolt://localhost:7687` | URI to the Neo4j instance |
+| `KNOT_SERVER_NEO4J_USER` | `neo4j` | Neo4j username |
 | `KNOT_NEO4J_PASSWORD` | *(required)* | Neo4j password |
-| `KNOT_EMBED_DIM` | `384` | Embedding dimension (must match the model) |
+| `KNOT_SERVER_EMBED_DIM` | `384` | Embedding dimension (must match the model) |
 | `KNOT_SERVER_RAYON_THREADS`| *(logical cores - 1)* | Number of threads for parallel parsing |
 | `KNOT_SERVER_POLL_INTERVAL_SECS` | `86400` (24h) | How often the background scheduler runs |
 | `KNOT_SERVER_MAX_INDEX_AGE_SECS` | `86400` (24h) | Age before a repository is automatically re-indexed |
@@ -152,6 +254,8 @@ Here is an end-to-end example of managing a repository with `knot-server` using 
 ```bash
 export KNOT_WORKSPACE_DIR=$HOME/.knot/repos
 export KNOT_NEO4J_PASSWORD=mysecret
+export KNOT_SERVER_QDRANT_URL=http://localhost:6334
+export KNOT_SERVER_NEO4J_URI=bolt://localhost:7687
 knot-server
 ```
 
@@ -208,9 +312,9 @@ services:
     image: raultov/knot-server:latest
     environment:
       - KNOT_WORKSPACE_DIR=/var/lib/knot/repos
-      - KNOT_QDRANT_URL=http://qdrant:6334
-      - KNOT_NEO4J_URI=bolt://neo4j:7687
-      - KNOT_NEO4J_USER=neo4j
+      - KNOT_SERVER_QDRANT_URL=http://qdrant:6334
+      - KNOT_SERVER_NEO4J_URI=bolt://neo4j:7687
+      - KNOT_SERVER_NEO4J_USER=neo4j
       - KNOT_NEO4J_PASSWORD=your-secure-password
     volumes:
       - knot_shared_workspace:/var/lib/knot/repos
@@ -242,9 +346,18 @@ volumes:
 
 ### Kubernetes
 
-In Kubernetes, the key requirement is a `PersistentVolumeClaim` with
-**`accessModes: [ReadWriteMany]`** (RWX). This allows all knot-server Pods to
-share the workspace and coordinate safely.
+You can deploy the official `raultov/knot-server:latest` image to Kubernetes
+with a standard `Deployment`.
+
+> **Reference:** The included [`docker-compose.yml`](docker-compose.yml) file is
+> the canonical reference for configuring `knot-server`. It documents the exact
+> environment variables, service dependencies (Qdrant + Neo4j), and volume
+> mounts you need to translate into Kubernetes Deployments, Services, and
+> ConfigMaps.
+
+In Kubernetes, the key requirement for horizontal scaling is a
+`PersistentVolumeClaim` with **`accessModes: [ReadWriteMany]`** (RWX). This
+allows all knot-server Pods to share the workspace and coordinate safely.
 
 ```yaml
 apiVersion: v1
@@ -275,17 +388,17 @@ spec:
     spec:
       containers:
         - name: knot-server
-          image: raultov/knot-server:0.1.0
+          image: raultov/knot-server:latest
           ports:
             - containerPort: 3000
           env:
             - name: KNOT_WORKSPACE_DIR
               value: /var/lib/knot/repos
-            - name: KNOT_QDRANT_URL
+            - name: KNOT_SERVER_QDRANT_URL
               value: http://qdrant.default.svc.cluster.local:6334
-            - name: KNOT_NEO4J_URI
+            - name: KNOT_SERVER_NEO4J_URI
               value: bolt://neo4j.default.svc.cluster.local:7687
-            - name: KNOT_NEO4J_USER
+            - name: KNOT_SERVER_NEO4J_USER
               value: neo4j
             - name: KNOT_NEO4J_PASSWORD
               valueFrom:

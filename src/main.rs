@@ -45,8 +45,24 @@ async fn main() -> anyhow::Result<()> {
     }
 
     tracing::info!("Connecting to Neo4j at {}...", cfg.neo4j_uri);
-    let graph_db = GraphDb::connect(&cfg.neo4j_uri, &cfg.neo4j_user, &cfg.neo4j_password).await?;
-    graph_db.ensure_indexes().await?;
+    let graph_db = loop {
+        match GraphDb::connect(&cfg.neo4j_uri, &cfg.neo4j_user, &cfg.neo4j_password).await {
+            Ok(db) => break db,
+            Err(e) => {
+                tracing::warn!("Neo4j connection attempt failed: {e}");
+                tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+            }
+        }
+    };
+    loop {
+        match graph_db.ensure_indexes().await {
+            Ok(()) => break,
+            Err(e) => {
+                tracing::warn!("Neo4j index creation failed: {e}");
+                tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+            }
+        }
+    }
     tracing::info!("Neo4j connection established");
 
     tracing::info!("Connecting to Qdrant at {}...", cfg.qdrant_url);
