@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2024-brightgreen.svg)](https://www.rust-lang.org)
 
-**knot-server** (v0.1.2) is a distributed REST API and background task scheduler for managing and indexing Git repositories across a cluster. It sits on top of the core [knot](https://github.com/raultov/knot) indexing engine, transforming it from a single-machine CLI tool into a highly available, cluster-aware enterprise service.
+**knot-server** (v0.1.3) is a distributed REST API and background task scheduler for managing and indexing Git repositories across a cluster. It sits on top of the core [knot](https://github.com/raultov/knot) indexing engine, transforming it from a single-machine CLI tool into a highly available, cluster-aware enterprise service.
 
 With `knot-server`, you can register Git repositories via a REST API, trigger automatic codebase indexing through webhooks (GitHub, GitLab, Bitbucket), and query the vector (Qdrant) and graph (Neo4j) databases—all while coordinating work safely across multiple server instances via NFS/EFS workspace locks.
 
@@ -141,17 +141,16 @@ in containerized environments (Docker, Docker Compose, or Kubernetes).
 
 ### Option A: Quick Install (curl)
 
-A single command that auto-detects your OS and architecture:
+A single command that auto-detects your OS and architecture — no `sudo` or
+manual platform selection needed:
 
 ```bash
-curl -L "https://github.com/raultov/knot-server/releases/latest/download/knot-server-$(uname -m | sed 's/arm64/aarch64/')-$(uname -s | tr '[:upper:]' '[:lower:]' | sed 's/darwin/macos/').tar.gz" \
-  | tar xz && sudo mv knot-server /usr/local/bin/
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/raultov/knot-server/releases/latest/download/knot-server-installer.sh | sh
 ```
 
 For a specific version, replace `latest` with the version tag:
 ```bash
-# Example: install v0.1.2 on Linux x86_64
-curl -L https://github.com/raultov/knot-server/releases/download/v0.1.2/knot-server-x86_64-linux.tar.gz | tar xz
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/raultov/knot-server/releases/download/v0.1.3/knot-server-installer.sh | sh
 ```
 
 ### Option B: Docker Compose (Pre-built Image)
