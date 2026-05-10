@@ -2,3 +2,11 @@
 
 .fastembed_cache/
 .knot/
+.e2e_data/
+
+# Test artifacts
+tests/.last-e2e-server.log
+/tmp/
+
+# Local knot workspace for dev
+/var/lib/knot/

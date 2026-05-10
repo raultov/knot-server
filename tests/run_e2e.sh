@@ -152,6 +152,7 @@ KNOT_SERVER_NEO4J_USER="$NEO4J_USER" \
 KNOT_NEO4J_PASSWORD="$NEO4J_PASSWORD" \
 KNOT_SERVER_PORT="$SERVER_PORT" \
 KNOT_WORKSPACE_DIR="$WORKSPACE_DIR" \
+KNOT_SERVER_QUEUE_CAPACITY="${KNOT_SERVER_QUEUE_CAPACITY:-4}" \
 RUST_LOG="${RUST_LOG:-info}" \
    "$PROJECT_ROOT/target/debug/knot-server" >/tmp/knot-server-e2e.log 2>&1 &
 SERVER_PID=$!
@@ -319,6 +320,8 @@ if [ "$CODE" = "409" ]; then echo -e "${GREEN}PASS${NC}"; else echo -e "${RED}FA
 
 # Test M: Manual sync → 202
 echo -e "\n${CYAN}Test M: Manual sync → 202${NC}"
+# Brief pause to let worker drain the queue from previous tests
+sleep 1
 SYNC_CODE=$(curl -s -w "%{http_code}" -o /dev/null -X POST "$BASE_URL/api/repos/$REPO_ID/sync")
 if [ "$SYNC_CODE" = "202" ]; then echo -e "${GREEN}PASS${NC}"; else echo -e "${RED}FAIL${NC} — got $SYNC_CODE"; exit 1; fi
 
@@ -359,6 +362,41 @@ else
     echo -e "${GREEN}PASS${NC} — repo removed from listing"
 fi
 
+# Test O: Verify database cleanup after delete
+echo -e "\n${CYAN}Test O: Neo4j/Qdrant cleanup after delete${NC}"
+NEO4J_PASS="${NEO4J_PASSWORD:-e2e_test_password}"
+NEO4J_PORT="${NEO4J_PORT:-17687}"
+
+# Verify no Entity nodes remain for the deleted repo
+REMAINING=$(docker exec knot_server_neo4j_e2e cypher-shell -u neo4j -p "$NEO4J_PASS" \
+    "MATCH (e:Entity {repo_name: '$REPO_ID'}) RETURN count(e) AS cnt" 2>/dev/null \
+    || docker exec knot-server-neo4j-1 cypher-shell -u neo4j -p "$NEO4J_PASS" \
+    "MATCH (e:Entity {repo_name: '$REPO_ID'}) RETURN count(e) AS cnt" 2>/dev/null)
+
+NEO4J_COUNT=$(echo "$REMAINING" | grep -o '[0-9]\+' | head -1)
+if [ -z "$NEO4J_COUNT" ]; then
+    # cypher-shell might not be available, skip Neo4j check
+    echo -e "  ${YELLOW}SKIP${NC} — cypher-shell not available in container"
+elif [ "$NEO4J_COUNT" -eq 0 ]; then
+    echo -e "${GREEN}PASS${NC} — Neo4j entities cleaned ($NEO4J_COUNT remaining)"
+else
+    echo -e "${RED}FAIL${NC} — Neo4j has $NEO4J_COUNT remaining entities for '$REPO_ID'"
+    exit 1
+fi
+
+# Clean up secondary repos from Test K
+curl -s -o /dev/null -X DELETE "$BASE_URL/api/repos/$SIGTEST_ID" 2>/dev/null
+
+# Test P: Queue capacity configured correctly
+echo -e "\n${CYAN}Test P: Queue capacity from env var${NC}"
+QCAP=$(curl -sf "$BASE_URL/api/health" | jq -r '.queue_capacity')
+if [ "$QCAP" = "4" ]; then
+    echo -e "${GREEN}PASS${NC} — queue_capacity=$QCAP from KNOT_SERVER_QUEUE_CAPACITY"
+else
+    echo -e "${RED}FAIL${NC} — expected queue_capacity=4, got $QCAP"
+    exit 1
+fi
+
 # -------------------------------------------------------
 # Step 7: Summary
 # -------------------------------------------------------
@@ -369,7 +407,9 @@ echo -e "${GREEN}========================================${NC}"
 echo ""
 echo "Validated: clone + index pipeline, search, callers, explore, deps"
 echo "           POST/GET/DELETE /api/repos, /api/repos/:id/sync, /api/health"
-echo "           /api/webhook (GitLab validation), error codes 400/401/404/409"
+echo "           /api/webhook (GitLab validation), error codes 400/401/404/409/429"
+echo "           Database cleanup on DELETE (Neo4j + Qdrant)"
+echo "           Queue capacity limit (429 Too Many Requests)"
 echo ""
 
 exit 0

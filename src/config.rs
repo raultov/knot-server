@@ -65,6 +65,9 @@ pub struct ServerConfig {
 
     #[arg(long, env = "KNOT_SERVER_MAX_INDEX_AGE_SECS", default_value_t = 86400)]
     pub max_index_age_secs: u64,
+
+    #[arg(long, env = "KNOT_SERVER_QUEUE_CAPACITY", default_value_t = 16)]
+    pub queue_capacity: usize,
 }
 
 impl ServerConfig {

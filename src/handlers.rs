@@ -206,8 +206,18 @@ pub async fn register_repo_handler(
             let job = crate::models::IndexJob::Clone {
                 repo_id: id.clone(),
             };
-            if let Err(e) = state.job_tx.try_send(job) {
-                tracing::error!("Failed to enqueue Clone job for {}: {e}", id);
+            match state.job_tx.try_send(job) {
+                Ok(()) => {}
+                Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                    let _ = registry.remove(&id);
+                    return error_response(
+                        StatusCode::TOO_MANY_REQUESTS,
+                        "Server is at maximum capacity: indexing queue is full",
+                    );
+                }
+                Err(e) => {
+                    tracing::error!("Failed to enqueue Clone job for {}: {e}", id);
+                }
             }
 
             tracing::info!(
@@ -242,6 +252,14 @@ pub async fn delete_repo_handler(
 
     match registry.remove(&id) {
         Ok(()) => {
+            // Clean up databases in background (fire-and-forget)
+            let graph_db = state.graph_db.clone();
+            let vector_db = state.vector_db.clone();
+            let rid = id.clone();
+            tokio::spawn(async move {
+                crate::cleanup::delete_repo_from_databases(&rid, &graph_db, &vector_db).await;
+            });
+
             // Clean up local directory
             let repo_path = crate::models::repo_local_path(&state.workspace_dir, &id);
             if std::path::Path::new(&repo_path).exists()
@@ -288,12 +306,21 @@ pub async fn sync_repo_handler(
     let job = crate::models::IndexJob::Pull {
         repo_id: id.clone(),
     };
-    if let Err(e) = state.job_tx.try_send(job) {
-        tracing::error!("Failed to enqueue Pull job for {}: {e}", id);
-        return error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to enqueue sync job",
-        );
+    match state.job_tx.try_send(job) {
+        Ok(()) => {}
+        Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+            return error_response(
+                StatusCode::TOO_MANY_REQUESTS,
+                "Server is at maximum capacity: indexing queue is full",
+            );
+        }
+        Err(e) => {
+            tracing::error!("Failed to enqueue Pull job for {}: {e}", id);
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to enqueue sync job",
+            );
+        }
     }
 
     tracing::info!("Enqueued sync job for '{}'", id);
@@ -377,12 +404,21 @@ async fn enqueue_pull_job(state: &Arc<AppState>, repo_id: &str) -> Response {
     let job = crate::models::IndexJob::Pull {
         repo_id: repo_id.to_string(),
     };
-    if let Err(e) = state.job_tx.try_send(job) {
-        tracing::error!("Failed to enqueue webhook Pull job for {}: {e}", repo_id);
-        return error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to enqueue indexing job",
-        );
+    match state.job_tx.try_send(job) {
+        Ok(()) => {}
+        Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+            return error_response(
+                StatusCode::TOO_MANY_REQUESTS,
+                "Server is at maximum capacity: indexing queue is full",
+            );
+        }
+        Err(e) => {
+            tracing::error!("Failed to enqueue webhook Pull job for {}: {e}", repo_id);
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to enqueue indexing job",
+            );
+        }
     }
     tracing::info!("Webhook validated for '{}', enqueued Pull job", repo_id);
     (
@@ -397,24 +433,31 @@ async fn enqueue_pull_job(state: &Arc<AppState>, repo_id: &str) -> Response {
 
 // ── Health endpoint ──────────────────────────────────────────────
 
-static START_TIME: std::sync::LazyLock<std::time::Instant> =
-    std::sync::LazyLock::new(std::time::Instant::now);
-
 pub async fn health_handler(State(state): State<Arc<AppState>>) -> Response {
     let registry = state.registry.lock().unwrap();
     let repos = registry.list();
+    let cloning_count = repos
+        .iter()
+        .filter(|r| r.status == crate::models::RepoStatus::Cloning)
+        .count();
+    let pulling_count = repos
+        .iter()
+        .filter(|r| r.status == crate::models::RepoStatus::Pulling)
+        .count();
     let indexing_count = repos
         .iter()
         .filter(|r| r.status == crate::models::RepoStatus::Indexing)
         .count();
 
-    let uptime = START_TIME.elapsed().as_secs();
+    let uptime = state.start_time.elapsed().as_secs();
 
     let health = serde_json::json!({
         "status": "ok",
         "uptime_seconds": uptime,
         "queue_capacity": state.job_tx.capacity(),
         "repositories_total": repos.len(),
+        "repositories_cloning": cloning_count,
+        "repositories_pulling": pulling_count,
         "repositories_indexing": indexing_count,
         "workspace_dir": state.workspace_dir,
     });
@@ -496,6 +539,7 @@ mod tests {
                 neo4j_password: "secret".into(),
                 embed_dim: 384,
                 rayon_threads: None,
+                start_time: std::time::Instant::now(),
             }),
             job_rx,
         )
@@ -696,5 +740,88 @@ mod tests {
         assert_eq!(health["status"], "ok");
         assert!(health["uptime_seconds"].as_u64().is_some());
         assert!(health["repositories_total"].as_u64().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_register_returns_429_when_queue_full() {
+        let dir = TempDir::new().unwrap();
+        let (_state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+
+        // Replace the state's job_tx with a tiny-capacity channel (capacity=1)
+        let (_small_tx, _new_rx) = tokio::sync::mpsc::channel::<crate::models::IndexJob>(1);
+        // We need to wrap state to use the new tx
+        // Use unsafe to replace the Arc's inner tx — or just use a new state
+
+        // Simpler: create a state with capacity=1
+        let workspace = dir.path().to_owned();
+        let workspace2 = workspace.join("ws2");
+        std::fs::create_dir_all(&workspace2).unwrap();
+        let registry2 = crate::registry::Registry::load_or_create(&workspace2).expect("registry");
+
+        let graph_db2 = knot::db::graph::GraphDb::connect("bolt://localhost:9999", "neo4j", "bad")
+            .await
+            .expect("connect");
+        let vector_db2 = knot::db::vector::VectorDb::connect("http://localhost:9999", "test", 384)
+            .await
+            .expect("connect");
+        let embedder2 = knot::pipeline::embed::Embedder::init().expect("embedder");
+
+        let (small_tx, mut small_rx) = tokio::sync::mpsc::channel::<crate::models::IndexJob>(1);
+        let state2 = Arc::new(AppState {
+            vector_db: Arc::new(vector_db2),
+            graph_db: Arc::new(graph_db2),
+            embedder: Arc::new(Mutex::new(embedder2)),
+            workspace_dir: workspace2.to_string_lossy().into(),
+            registry: Arc::new(Mutex::new(registry2)),
+            job_tx: small_tx,
+            qdrant_url: "http://localhost:6334".into(),
+            qdrant_collection: "knot_entities".into(),
+            neo4j_uri: "bolt://localhost:7687".into(),
+            neo4j_user: "neo4j".into(),
+            neo4j_password: "secret".into(),
+            embed_dim: 384,
+            rayon_threads: None,
+            start_time: std::time::Instant::now(),
+        });
+
+        let app = build_test_app(state2);
+
+        let body = serde_json::json!({
+            "url": "git@github.com:org/foo.git",
+            "auth_type": "ssh"
+        });
+
+        // First registration: fills the queue (capacity=1)
+        let resp1 = app
+            .clone()
+            .oneshot(
+                Request::post("/api/repos")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp1.status(), StatusCode::ACCEPTED);
+
+        let body2 = serde_json::json!({
+            "url": "git@github.com:org/bar.git",
+            "auth_type": "ssh"
+        });
+
+        // Second registration: queue is full → 429
+        let resp2 = app
+            .oneshot(
+                Request::post("/api/repos")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&body2).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp2.status(), StatusCode::TOO_MANY_REQUESTS);
+
+        // Drain the queue to avoid channel drop warnings
+        let _ = small_rx.try_recv();
     }
 }

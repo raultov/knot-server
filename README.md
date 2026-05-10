@@ -19,11 +19,19 @@ With `knot-server`, you can register Git repositories via a REST API, trigger au
   {
     "url": "https://github.com/raultov/knot.git",
     "name": "knot-core",
-    "branch": "master", // Optional, defaults to "main"
-    "auth": { "type": "none" } // Or {"type":"ssh", "key":"..."}, {"type":"https", "token":"..."}
+    "branch": "master",
+    "webhook_secret": "your-secret-token",
+    "auth": { "type": "none" }
   }
   ```
-- **`GET /api/repos`**: List all registered repositories, along with their current status (`pending`, `indexing`, `idle`, `error`) and last indexed timestamp.
+  | Field | Required | Description |
+  |-------|----------|-------------|
+  | `url` | Yes | Git repository URL (HTTPS, SSH, or local path) |
+  | `name` | No | Display name (auto-derived from URL if omitted) |
+  | `branch` | No | Branch to clone (defaults to `"main"`) |
+  | `webhook_secret` | No | Shared secret for validating webhook signatures (HMAC-SHA256 or token). **Required to use the `/api/webhook` endpoint.** |
+  | `auth` | No | Authentication method: `{"type": "ssh"}`, `{"type": "https", "token": "..."}`, or `{"type": "none"}` (default: `{"type": "ssh"}`) |
+- **`GET /api/repos`**: List all registered repositories, along with their current status (`cloning`, `pulling`, `indexing`, `idle`, `error`) and last indexed timestamp.
 - **`GET /api/repos/:id`**: Retrieve detailed information about a specific repository.
 - **`DELETE /api/repos/:id`**: Remove a repository from the registry and delete its local workspace. (No request body required).
 
@@ -110,6 +118,7 @@ cargo build --release
 | `KNOT_SERVER_RAYON_THREADS`| *(logical cores - 1)* | Number of threads for parallel parsing |
 | `KNOT_SERVER_POLL_INTERVAL_SECS` | `86400` (24h) | How often the background scheduler runs |
 | `KNOT_SERVER_MAX_INDEX_AGE_SECS` | `86400` (24h) | Age before a repository is automatically re-indexed |
+| `KNOT_SERVER_QUEUE_CAPACITY` | `16` | Maximum number of jobs in the background indexing queue. Returns `429 Too Many Requests` when full. |
 | `RUST_LOG` | `info` | Log level (`debug`, `info`, `warn`, `error`) |
 
 ---
@@ -132,7 +141,8 @@ curl -X POST http://localhost:3000/api/repos \
   -d '{
     "url": "https://github.com/raultov/knot.git",
     "name": "knot-core",
-    "branch": "master"
+    "branch": "master",
+    "webhook_secret": "my-webhook-secret"
   }'
 ```
 *The server will instantly clone the repository and queue it for indexing.*
@@ -156,7 +166,122 @@ curl -X POST http://localhost:3000/api/repos/knot-core/sync
 **6. Setup Git Webhooks**
 In your GitHub/GitLab repository settings, add a webhook pointing to:
 `http://your-server.com/api/webhook/knot-core`
-Whenever a push occurs, `knot-server` will automatically perform a fast incremental update.
+
+Set the **secret/token** to the same value as `webhook_secret` you used when registering
+the repository. Whenever a push occurs, `knot-server` will validate the signature and
+automatically perform a fast incremental update.
+
+---
+
+## 🚀 Cluster & High-Availability Deployment
+
+`knot-server` is designed to run in horizontal scale-out clusters. Multiple instances
+share a common workspace directory (NFS, EFS, or Kubernetes RWX PVC) and coordinate
+via file-based locks — no distributed consensus protocol required.
+
+### Docker Compose (Multi-Instance)
+
+```yaml
+services:
+  knot-server:
+    image: raultov/knot-server:latest
+    environment:
+      - KNOT_WORKSPACE_DIR=/var/lib/knot/repos
+      - KNOT_QDRANT_URL=http://qdrant:6334
+      - KNOT_NEO4J_URI=bolt://neo4j:7687
+      - KNOT_NEO4J_USER=neo4j
+      - KNOT_NEO4J_PASSWORD=your-secure-password
+    volumes:
+      - knot_shared_workspace:/var/lib/knot/repos
+      - ~/.ssh:/root/.ssh:ro
+    deploy:
+      replicas: 3
+    depends_on:
+      - qdrant
+      - neo4j
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  neo4j:
+    image: neo4j:5
+    environment:
+      - NEO4J_AUTH=neo4j/your-secure-password
+    volumes:
+      - neo4j_data:/data
+
+volumes:
+  knot_shared_workspace:
+    driver: local
+  qdrant_data:
+  neo4j_data:
+```
+
+### Kubernetes
+
+In Kubernetes, the key requirement is a `PersistentVolumeClaim` with
+**`accessModes: [ReadWriteMany]`** (RWX). This allows all knot-server Pods to
+share the workspace and coordinate safely.
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: knot-shared-workspace
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 50Gi
+  # storageClassName: nfs-client  # or efs-sc, cephfs, etc.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: knot-server
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: knot-server
+  template:
+    metadata:
+      labels:
+        app: knot-server
+    spec:
+      containers:
+        - name: knot-server
+          image: raultov/knot-server:0.1.0
+          ports:
+            - containerPort: 3000
+          env:
+            - name: KNOT_WORKSPACE_DIR
+              value: /var/lib/knot/repos
+            - name: KNOT_QDRANT_URL
+              value: http://qdrant.default.svc.cluster.local:6334
+            - name: KNOT_NEO4J_URI
+              value: bolt://neo4j.default.svc.cluster.local:7687
+            - name: KNOT_NEO4J_USER
+              value: neo4j
+            - name: KNOT_NEO4J_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: knot-secrets
+                  key: neo4j-password
+          volumeMounts:
+            - name: shared-workspace
+              mountPath: /var/lib/knot/repos
+      volumes:
+        - name: shared-workspace
+          persistentVolumeClaim:
+            claimName: knot-shared-workspace
+```
+
+Any Pod can receive webhook events or sync requests; the shared workspace
+(`repos.json`, `.knot.lock` files) ensures exactly-once processing per repository.
 
 ---
 

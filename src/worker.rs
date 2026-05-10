@@ -51,15 +51,20 @@ async fn process_repository(
         }
     };
 
-    // 2. Update status to indexing
+    // 2. Git operation
+    let exists = Path::new(&repo.local_path).join(".git").exists();
     {
         let mut registry = state.registry.lock().unwrap();
-        registry.update_status(&repo.id, crate::models::RepoStatus::Indexing)?;
-        tracing::info!("Worker: status=indexing for '{}'", repo.id);
+        if exists {
+            registry.update_status(&repo.id, crate::models::RepoStatus::Pulling)?;
+            tracing::info!("Worker: status=pulling for '{}'", repo.id);
+        } else {
+            registry.update_status(&repo.id, crate::models::RepoStatus::Cloning)?;
+            tracing::info!("Worker: status=cloning for '{}'", repo.id);
+        }
     }
 
-    // 3. Git operation
-    if Path::new(&repo.local_path).join(".git").exists() {
+    if exists {
         tracing::info!("Worker: pulling '{}' from {}", repo.id, repo.url);
         crate::git::run_git_pull(repo).await?;
         tracing::info!("Worker: pull complete for '{}'", repo.id);
@@ -67,6 +72,13 @@ async fn process_repository(
         tracing::info!("Worker: cloning '{}' from {}", repo.id, repo.url);
         crate::git::run_git_clone(repo).await?;
         tracing::info!("Worker: clone complete for '{}'", repo.id);
+    }
+
+    // 3. Update status to indexing
+    {
+        let mut registry = state.registry.lock().unwrap();
+        registry.update_status(&repo.id, crate::models::RepoStatus::Indexing)?;
+        tracing::info!("Worker: status=indexing for '{}'", repo.id);
     }
 
     // 4. Build knot Config programmatically
@@ -155,6 +167,7 @@ mod tests {
             neo4j_password: "secret".into(),
             embed_dim: 384,
             rayon_threads: None,
+            start_time: std::time::Instant::now(),
         })
     }
 

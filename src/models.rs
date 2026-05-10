@@ -12,6 +12,8 @@ pub enum AuthType {
 #[serde(rename_all = "lowercase")]
 pub enum RepoStatus {
     Idle,
+    Cloning,
+    Pulling,
     Indexing,
     Error,
 }
@@ -20,6 +22,8 @@ impl std::fmt::Display for RepoStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Idle => write!(f, "idle"),
+            Self::Cloning => write!(f, "cloning"),
+            Self::Pulling => write!(f, "pulling"),
             Self::Indexing => write!(f, "indexing"),
             Self::Error => write!(f, "error"),
         }
@@ -175,6 +179,8 @@ mod tests {
     #[test]
     fn test_repo_status_display() {
         assert_eq!(RepoStatus::Idle.to_string(), "idle");
+        assert_eq!(RepoStatus::Cloning.to_string(), "cloning");
+        assert_eq!(RepoStatus::Pulling.to_string(), "pulling");
         assert_eq!(RepoStatus::Indexing.to_string(), "indexing");
         assert_eq!(RepoStatus::Error.to_string(), "error");
     }

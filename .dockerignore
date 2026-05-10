@@ -1,0 +1,32 @@
+# Build artifacts
+target/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Test fixtures & temp
+tests/fixtures/
+tests/docker-compose.e2e.yml
+tests/run_e2e.sh
+tests/run_cluster_e2e.sh
+tests/.last-e2e-server.log
+
+# Documentation (not needed in image)
+knot-server-design.md
+
+# Local env
+.env
+
+# Workspace (local repos, repos.json.lock)
+/var/lib/knot/
+repos.json.lock

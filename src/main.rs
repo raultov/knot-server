@@ -1,3 +1,4 @@
+mod cleanup;
 mod config;
 mod git;
 mod handlers;
@@ -63,7 +64,9 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Registry loaded: {} repositories", registry.list().len());
 
     // Create job queue channel
-    let (job_tx, job_rx) = tokio::sync::mpsc::channel::<models::IndexJob>(16);
+    let (job_tx, job_rx) = tokio::sync::mpsc::channel::<models::IndexJob>(cfg.queue_capacity);
+
+    let start_time = std::time::Instant::now();
 
     let state = Arc::new(AppState {
         vector_db: Arc::new(vector_db),
@@ -79,6 +82,7 @@ async fn main() -> anyhow::Result<()> {
         neo4j_password: cfg.neo4j_password.clone(),
         embed_dim: cfg.embed_dim,
         rayon_threads: cfg.rayon_threads,
+        start_time,
     });
 
     // Spawn the worker loop
