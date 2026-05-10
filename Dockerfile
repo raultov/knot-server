@@ -1,8 +1,12 @@
-FROM rust:1-slim-bookworm AS builder
+FROM debian:trixie-slim AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config libssl-dev curl git ca-certificates g++ \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Rust via rustup (trixie's glibc 2.40+ is required by ort-sys)
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+ENV PATH="/root/.cargo/bin:${PATH}"
 
 WORKDIR /app
 COPY Cargo.toml Cargo.lock* ./
