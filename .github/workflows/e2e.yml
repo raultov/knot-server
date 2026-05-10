@@ -21,5 +21,11 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
+      - name: Configure Git identity
+        run: |
+          git config --global user.email "ci@knot-server.local"
+          git config --global user.name "knot-server CI"
+          git config --global init.defaultBranch master
+
       - name: Run E2E Test Suite
         run: ./tests/run_all_e2e.sh
