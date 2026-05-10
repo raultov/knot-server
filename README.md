@@ -141,23 +141,17 @@ in containerized environments (Docker, Docker Compose, or Kubernetes).
 
 ### Option A: Quick Install (curl)
 
-Download the latest pre-built binary from GitHub Releases:
+A single command that auto-detects your OS and architecture:
 
 ```bash
-# Linux (x86_64)
-curl -L https://github.com/raultov/knot-server/releases/latest/download/knot-server-x86_64-linux.tar.gz \
-  | tar xz && sudo mv knot-server /usr/local/bin/
-
-# macOS (Apple Silicon — M1/M2/M3)
-curl -L https://github.com/raultov/knot-server/releases/latest/download/knot-server-aarch64-macos.tar.gz \
+curl -L "https://github.com/raultov/knot-server/releases/latest/download/knot-server-$(uname -m | sed 's/arm64/aarch64/')-$(uname -s | tr '[:upper:]' '[:lower:]' | sed 's/darwin/macos/').tar.gz" \
   | tar xz && sudo mv knot-server /usr/local/bin/
 ```
 
 For a specific version, replace `latest` with the version tag:
 ```bash
-# Example: install v0.1.2
-curl -L https://github.com/raultov/knot-server/releases/download/v0.1.2/knot-server-x86_64-linux.tar.gz \
-  | tar xz
+# Example: install v0.1.2 on Linux x86_64
+curl -L https://github.com/raultov/knot-server/releases/download/v0.1.2/knot-server-x86_64-linux.tar.gz | tar xz
 ```
 
 ### Option B: Docker Compose (Pre-built Image)
