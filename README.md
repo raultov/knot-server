@@ -62,7 +62,28 @@ With `knot-server`, you can register Git repositories via a REST API, trigger au
 | qdrant       | 1.x     | Vector database (docker)          |
 | neo4j        | 5.x     | Graph database (docker)           |
 
-### Option A: Docker (Recommended)
+### Option A: Quick Install (curl)
+
+Download the latest pre-built binary from GitHub Releases:
+
+```bash
+# Linux (x86_64)
+curl -L https://github.com/raultov/knot-server/releases/latest/download/knot-server-x86_64-linux.tar.gz \
+  | tar xz && sudo mv knot-server /usr/local/bin/
+
+# macOS (Apple Silicon — M1/M2/M3)
+curl -L https://github.com/raultov/knot-server/releases/latest/download/knot-server-aarch64-macos.tar.gz \
+  | tar xz && sudo mv knot-server /usr/local/bin/
+```
+
+For a specific version, replace `latest` with the version tag:
+```bash
+# Example: install v0.1.0
+curl -L https://github.com/raultov/knot-server/releases/download/v0.1.0/knot-server-x86_64-linux.tar.gz \
+  | tar xz
+```
+
+### Option B: Docker (Recommended)
 
 You can run `knot-server` alongside its dependencies using Docker Compose.
 
@@ -90,7 +111,7 @@ services:
   # Add qdrant and neo4j services here...
 ```
 
-### Option B: Build from Source
+### Option C: Build from Source
 
 ```bash
 git clone https://github.com/raultov/knot-server
