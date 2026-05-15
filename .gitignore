@@ -10,3 +10,6 @@ tests/.last-e2e-server.log
 
 # Local knot workspace for dev
 /var/lib/knot/
+
+# Performance test logs
+*.csv
