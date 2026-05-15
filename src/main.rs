@@ -98,6 +98,8 @@ async fn main() -> anyhow::Result<()> {
         neo4j_password: cfg.neo4j_password.clone(),
         embed_dim: cfg.embed_dim,
         rayon_threads: cfg.rayon_threads,
+        batch_size: cfg.batch_size,
+        ingest_concurrency: cfg.ingest_concurrency,
         start_time,
     });
 

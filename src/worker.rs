@@ -92,14 +92,14 @@ async fn process_repository(
         neo4j_password: state.neo4j_password.clone(),
         custom_queries_path: None,
         embed_dim: state.embed_dim,
-        batch_size: 64,
+        batch_size: state.batch_size,
         clean: false,
         dependency_repos: Vec::new(),
         watch: false,
         dry_run: false,
         custom_ca_certs: None,
         output_format: knot::config::OutputFormat::Markdown,
-        ingest_concurrency: 4,
+        ingest_concurrency: state.ingest_concurrency,
         rayon_threads: state.rayon_threads,
         include_config_files: false,
     };
@@ -167,6 +167,8 @@ mod tests {
             neo4j_password: "secret".into(),
             embed_dim: 384,
             rayon_threads: None,
+            batch_size: 64,
+            ingest_concurrency: 4,
             start_time: std::time::Instant::now(),
         })
     }

@@ -21,5 +21,7 @@ pub struct AppState {
     pub neo4j_password: String,
     pub embed_dim: u64,
     pub rayon_threads: Option<usize>,
+    pub batch_size: usize,
+    pub ingest_concurrency: usize,
     pub start_time: std::time::Instant,
 }
