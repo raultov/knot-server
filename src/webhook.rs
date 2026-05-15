@@ -140,7 +140,7 @@ mod tests {
         let secret = "bb-secret";
         let body = b"bitbucket-payload";
         let header = "sha256=deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
-        assert!(!validate_bitbucket_signature(&header, body, secret));
+        assert!(!validate_bitbucket_signature(header, body, secret));
     }
 
     #[test]
