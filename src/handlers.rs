@@ -539,6 +539,8 @@ mod tests {
                 neo4j_password: "secret".into(),
                 embed_dim: 384,
                 rayon_threads: None,
+                batch_size: 64,
+                ingest_concurrency: 4,
                 start_time: std::time::Instant::now(),
             }),
             job_rx,
@@ -781,6 +783,8 @@ mod tests {
             neo4j_password: "secret".into(),
             embed_dim: 384,
             rayon_threads: None,
+            batch_size: 64,
+            ingest_concurrency: 4,
             start_time: std::time::Instant::now(),
         });
 
