@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2024-brightgreen.svg)](https://www.rust-lang.org)
 
-**knot-server** (v0.1.4) is a distributed REST API and background task scheduler for managing and indexing Git repositories across a cluster. It sits on top of the core [knot](https://github.com/raultov/knot) indexing engine, transforming it from a single-machine CLI tool into a highly available, cluster-aware enterprise service.
+**knot-server** (v0.1.5) is a distributed REST API and background task scheduler for managing and indexing Git repositories across a cluster. It sits on top of the core [knot](https://github.com/raultov/knot) indexing engine, transforming it from a single-machine CLI tool into a highly available, cluster-aware enterprise service.
 
 With `knot-server`, you can register Git repositories via a REST API, trigger automatic codebase indexing through webhooks (GitHub, GitLab, Bitbucket), and query the vector (Qdrant) and graph (Neo4j) databases—all while coordinating work safely across multiple server instances via NFS/EFS workspace locks.
 
@@ -150,7 +150,7 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/raultov/knot-server/rel
 
 For a specific version, replace `latest` with the version tag:
 ```bash
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/raultov/knot-server/releases/download/v0.1.4/knot-server-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/raultov/knot-server/releases/download/v0.1.5/knot-server-installer.sh | sh
 ```
 
 ### Option B: Docker Compose (Pre-built Image)
@@ -165,6 +165,22 @@ docker compose up
 
 This pulls the pre-built [`raultov/knot-server`](https://hub.docker.com/r/raultov/knot-server)
 image from Docker Hub along with Qdrant and Neo4j — no compilation needed.
+
+If you already have Neo4j and Qdrant running on your host machine (not in containers),
+use `--network host` so the container can reach them via `localhost`:
+
+```bash
+docker run --network host \
+  -v ${HOME}/.ssh:/root/.ssh:ro \
+  raultov/knot-server:latest \
+  --neo4j-password <your-password> \
+  --workspace-dir /var/lib/knot/repos
+```
+
+> **Note:** The `raultov/knot-server` image does **not** include Neo4j or Qdrant.
+> Running `docker run` without `--network host` and without pointing to external
+> databases will fail — the container defaults to `localhost` which refers to
+> itself, not your host.
 
 ```yaml
 services:
@@ -231,11 +247,73 @@ cargo build --release
 | `KNOT_SERVER_NEO4J_USER` | `neo4j` | Neo4j username |
 | `KNOT_NEO4J_PASSWORD` | *(required)* | Neo4j password |
 | `KNOT_SERVER_EMBED_DIM` | `384` | Embedding dimension (must match the model) |
-| `KNOT_SERVER_RAYON_THREADS`| *(logical cores - 1)* | Number of threads for parallel parsing |
+| `KNOT_SERVER_RAYON_THREADS`| *(all cores)* | Number of threads for parallel source code parsing. Reduces CPU usage when set to a low value (e.g. `2`). |
+| `KNOT_SERVER_BATCH_SIZE` | `64` | Number of code entities buffered in memory per indexing batch. Lower values reduce RAM usage. |
+| `KNOT_SERVER_INGEST_CONCURRENCY` | `4` | Number of concurrent async tasks for embedding computation and database ingestion. Lower values reduce RAM and CPU usage. |
 | `KNOT_SERVER_POLL_INTERVAL_SECS` | `86400` (24h) | How often the background scheduler runs |
 | `KNOT_SERVER_MAX_INDEX_AGE_SECS` | `86400` (24h) | Age before a repository is automatically re-indexed |
 | `KNOT_SERVER_QUEUE_CAPACITY` | `16` | Maximum number of jobs in the background indexing queue. Returns `429 Too Many Requests` when full. |
 | `RUST_LOG` | `info` | Log level (`debug`, `info`, `warn`, `error`) |
+
+---
+
+## 🎛️ Performance Tuning
+
+`knot-server` is highly parallel by default, which can cause high CPU and memory
+usage during indexing. Three environment variables control resource consumption:
+
+| Variable | Controls | Default | Effect of lowering |
+|----------|----------|---------|-------------------|
+| `KNOT_SERVER_RAYON_THREADS` | CPU | all cores | Fewer parallel parsers → lower CPU, slightly slower |
+| `KNOT_SERVER_BATCH_SIZE` | RAM | `64` | Fewer entities buffered in memory → lower RAM |
+| `KNOT_SERVER_INGEST_CONCURRENCY` | RAM + CPU | `4` | Fewer concurrent embedding + DB writes → lower RAM and CPU |
+
+### Preconfigured Profiles
+
+| Profile | RAYON_THREADS | BATCH_SIZE | INGEST_CONCURRENCY | Expected RAM | Expected CPU |
+|---------|---------------|------------|--------------------|--------------|--------------|
+| **Kubernetes / Low memory** | `2` | `16` | `1` | < 1 GiB | ~200% |
+| **Balanced** | `4` | `32` | `2` | ~2 GiB | ~400% |
+| **Maximum throughput** (default) | all cores | `64` | `4` | ~5 GiB | all cores |
+
+### Docker run with tuning
+
+```bash
+docker run --network host \
+  -v ${HOME}/.ssh:/root/.ssh:ro \
+  -e KNOT_SERVER_RAYON_THREADS=2 \
+  -e KNOT_SERVER_BATCH_SIZE=16 \
+  -e KNOT_SERVER_INGEST_CONCURRENCY=1 \
+  raultov/knot-server:latest \
+  --neo4j-password <your-password> \
+  --workspace-dir /var/lib/knot/repos
+```
+
+### Docker Compose with tuning
+
+```yaml
+services:
+  knot-server:
+    image: raultov/knot-server:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - KNOT_WORKSPACE_DIR=/var/lib/knot/repos
+      - KNOT_SERVER_QDRANT_URL=http://qdrant:6334
+      - KNOT_SERVER_NEO4J_URI=bolt://neo4j:7687
+      - KNOT_SERVER_NEO4J_USER=neo4j
+      - KNOT_NEO4J_PASSWORD=knotsecret
+      - KNOT_SERVER_RAYON_THREADS=2
+      - KNOT_SERVER_BATCH_SIZE=16
+      - KNOT_SERVER_INGEST_CONCURRENCY=1
+    volumes:
+      - knot_workspace:/var/lib/knot/repos
+    depends_on:
+      qdrant:
+        condition: service_started
+      neo4j:
+        condition: service_started
+```
 
 ---
 
@@ -309,6 +387,10 @@ services:
       - KNOT_SERVER_NEO4J_URI=bolt://neo4j:7687
       - KNOT_SERVER_NEO4J_USER=neo4j
       - KNOT_NEO4J_PASSWORD=your-secure-password
+      # Performance tuning (see Performance Tuning section)
+      # - KNOT_SERVER_RAYON_THREADS=2
+      # - KNOT_SERVER_BATCH_SIZE=16
+      # - KNOT_SERVER_INGEST_CONCURRENCY=1
     volumes:
       - knot_shared_workspace:/var/lib/knot/repos
       - ~/.ssh:/root/.ssh:ro
@@ -398,6 +480,19 @@ spec:
                 secretKeyRef:
                   name: knot-secrets
                   key: neo4j-password
+            - name: KNOT_SERVER_RAYON_THREADS
+              value: "2"
+            - name: KNOT_SERVER_BATCH_SIZE
+              value: "16"
+            - name: KNOT_SERVER_INGEST_CONCURRENCY
+              value: "1"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "1Gi"
+              cpu: "2000m"
           volumeMounts:
             - name: shared-workspace
               mountPath: /var/lib/knot/repos
