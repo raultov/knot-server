@@ -2,6 +2,8 @@ name: Docker Publish
 
 on:
   push:
+    branches:
+      - master
     tags:
       - "v*"
 
@@ -35,7 +37,7 @@ jobs:
     permissions:
       contents: read
     # Only push when Docker Hub secrets are configured
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master')
 
     steps:
       - name: Checkout repository
@@ -57,8 +59,10 @@ jobs:
           images: ${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=tag
+            type=ref,event=branch
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6

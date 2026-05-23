@@ -13,6 +13,7 @@ COPY Cargo.toml Cargo.lock* ./
 RUN mkdir src && echo 'fn main() {}' > src/main.rs
 RUN cargo fetch
 
+COPY assets/ assets/
 COPY src/ src/
 RUN cargo build --release && strip target/release/knot-server
 
