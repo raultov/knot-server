@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2024-brightgreen.svg)](https://www.rust-lang.org)
 
-**knot-server** (v0.1.5) is a distributed REST API and background task scheduler for managing and indexing Git repositories across a cluster. It sits on top of the core [knot](https://github.com/raultov/knot) indexing engine, transforming it from a single-machine CLI tool into a highly available, cluster-aware enterprise service.
+**knot-server** (v0.1.6) is a distributed REST API and background task scheduler for managing and indexing Git repositories across a cluster. It sits on top of the core [knot](https://github.com/raultov/knot) indexing engine, transforming it from a single-machine CLI tool into a highly available, cluster-aware enterprise service.
 
 With `knot-server`, you can register Git repositories via a REST API, trigger automatic codebase indexing through webhooks (GitHub, GitLab, Bitbucket), and query the vector (Qdrant) and graph (Neo4j) databases—all while coordinating work safely across multiple server instances via NFS/EFS workspace locks.
 
@@ -45,6 +45,40 @@ With `knot-server`, you can register Git repositories via a REST API, trigger au
 - **`GET /api/repos/:id/explore?path=...`**: File anatomy inspection. Quickly see all classes, interfaces, methods, and functions in a specific file.
 - **`GET /api/repos/:id/deps`**: View repository dependencies (transitive and reverse) across the indexed ecosystem.
 
+### 🧬 Graph Visualization (Web UI)
+- **`GET /graph`**: Interactive 3D codebase graph viewer. Open in your browser to visually explore entity relationships.
+  - **Dynamic Filtering**: Toggle relationship types (`Calls`, `Extends`, `Implements`, `Contains`, `References`, etc.) in real-time to focus on specific architectural patterns.
+  - **Performance Optimized**: Default overview mode excludes noisy child relationships (`CONTAINS`), reducing node count by up to 80% on large repositories while preserving behavioral flow.
+  - **Smart Tooltips**: Hover over nodes to see Fully Qualified Names (FQN), kind, file path, and line numbers.
+  - **Contextual Search**: Find entities by FQN or name; results include package/module context.
+- **`GET /api/repos/:id/graph?entity=...`**: Query the entity subgraph for a given repository root entity. Returns nodes and edges in JSON format for programmatic consumption.
+
+  | Parameter | Type | Default | Description |
+  |-----------|------|---------|-------------|
+  | `entity` | String | *optional* | Name or FQN of the root entity. If omitted, returns a repository overview. |
+  | `depth` | u32 | `2` | Traversal depth (1–5) |
+  | `relationships` | CSV | `CALLS,EXTENDS,IMPLEMENTS` | Edge types to follow. |
+  | `direction` | String | `both` | `outgoing`, `incoming`, or `both` |
+
+  **Note on Overview Mode:** When no `entity` is provided, the server identifies "entry points" (entities not contained by others) and traverses from them using the selected relationship types.
+
+  **Response** (`200 OK`):
+  ```json
+  {
+    "root_id": "abc123...",
+    "nodes": [
+      { "id": "...", "name": "handleRequest", "kind": "rust_function", "language": "rust", "file_path": "src/handler.rs", "start_line": 42, "signature": "fn handleRequest(req: Request) -> Response" }
+    ],
+    "edges": [
+      { "source": "...", "target": "...", "type": "CALLS" }
+    ],
+    "truncated": false,
+    "total_nodes_found": 15
+  }
+  ```
+
+- **`GET /api/repos/:id/graph/expand?entity=...&exclude=...`**: Same as `/graph` but with `depth=1` fixed, plus an `exclude` parameter (CSV of UUIDs) to skip nodes the frontend already has. Used by the graph viewer when clicking on unexpanded nodes.
+
 ### ⚙️ Cluster & Health
 - **`GET /api/health`**: Check the health of the server, including connections to Qdrant and Neo4j, and view repository statistics.
 - **Distributed Locking**: File-based locking (`.knot.lock`) allows multiple `knot-server` instances to share a single NFS/EFS workspace, ensuring only one instance indexes a given repository at a time.
@@ -68,6 +102,7 @@ The AI learns **four code intelligence skills** that replace traditional text se
 | 2 | **Callers Analysis** | `/callers?entity=` | Impact analysis — who uses this function? |
 | 3 | **File Exploration** | `/explore?path=` | Get a file's structure without reading it |
 | 4 | **Dependency Graph** | `/deps` | Cross-repo dependencies |
+| 5 | **Graph Visualization** | `/graph` | Interactive 3D entity relationship explorer |
 
 These skills teach the LLM to **always prefer knot-server `curl` calls over
 `grep`/`find`/`rg`** for code exploration, dramatically improving accuracy
@@ -150,7 +185,7 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/raultov/knot-server/rel
 
 For a specific version, replace `latest` with the version tag:
 ```bash
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/raultov/knot-server/releases/download/v0.1.5/knot-server-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/raultov/knot-server/releases/download/v0.1.6/knot-server-installer.sh | sh
 ```
 
 ### Option B: Docker Compose (Pre-built Image)
@@ -366,6 +401,11 @@ In your GitHub/GitLab repository settings, add a webhook pointing to:
 Set the **secret/token** to the same value as `webhook_secret` you used when registering
 the repository. Whenever a push occurs, `knot-server` will validate the signature and
 automatically perform a fast incremental update.
+
+**7. Explore the codebase visually**
+Open `http://localhost:3000/graph` in your browser. Select a repository from the
+dropdown, search for an entity, and click nodes to expand their call/relationship graph
+in 3D.
 
 ---
 

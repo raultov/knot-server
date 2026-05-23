@@ -10,7 +10,7 @@ use crate::registry::Registry;
 pub struct AppState {
     pub vector_db: Arc<VectorDb>,
     pub graph_db: Arc<GraphDb>,
-    pub embedder: Arc<Mutex<Embedder>>,
+    pub embedder: Option<Arc<Mutex<Embedder>>>,
     pub workspace_dir: String,
     pub registry: Arc<Mutex<Registry>>,
     pub job_tx: tokio::sync::mpsc::Sender<IndexJob>,

@@ -65,6 +65,19 @@ async fn main() -> anyhow::Result<()> {
     }
     tracing::info!("Neo4j connection established");
 
+    // Set shared fastembed cache dir so the pipeline runner reuses the model
+    // across all repos instead of downloading it per-repo.
+    let fastembed_cache_dir = Path::new(&cfg.workspace_dir).join("fastembed_cache");
+    let cache_str = fastembed_cache_dir
+        .to_str()
+        .expect("workspace_dir contains invalid UTF-8");
+    std::fs::create_dir_all(cache_str)?;
+    // SAFETY: called before any tokio threads exist
+    unsafe {
+        std::env::set_var("KNOT_FASTEMBED_CACHE_DIR", cache_str);
+    }
+    tracing::info!("Fastembed cache dir: {cache_str}");
+
     tracing::info!("Connecting to Qdrant at {}...", cfg.qdrant_url);
     let vector_db =
         VectorDb::connect(&cfg.qdrant_url, &cfg.qdrant_collection, cfg.embed_dim).await?;
@@ -72,7 +85,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Qdrant connection established");
 
     tracing::info!("Initializing embedding model...");
-    let embedder = Embedder::init()?;
+    let embedder = Embedder::init(fastembed_cache_dir)?;
     tracing::info!("Embedding model ready");
 
     tracing::info!("Loading repository registry from {}...", cfg.workspace_dir);
@@ -87,7 +100,7 @@ async fn main() -> anyhow::Result<()> {
     let state = Arc::new(AppState {
         vector_db: Arc::new(vector_db),
         graph_db: Arc::new(graph_db),
-        embedder: Arc::new(Mutex::new(embedder)),
+        embedder: Some(Arc::new(Mutex::new(embedder))),
         workspace_dir: cfg.workspace_dir.clone(),
         registry: Arc::new(Mutex::new(registry)),
         job_tx: job_tx.clone(),
@@ -145,8 +158,14 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/repos/{id}/callers", get(handlers::callers_handler))
         .route("/api/repos/{id}/explore", get(handlers::explore_handler))
         .route("/api/repos/{id}/deps", get(handlers::deps_handler))
+        .route("/api/repos/{id}/graph", get(handlers::graph_handler))
+        .route(
+            "/api/repos/{id}/graph/expand",
+            get(handlers::graph_expand_handler),
+        )
         .route("/api/webhook/{id}", post(handlers::webhook_handler))
         .route("/api/health", get(handlers::health_handler))
+        .route("/graph", get(handlers::graph_viewer_handler))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(format!("{}:{}", cfg.bind_addr, cfg.port)).await?;

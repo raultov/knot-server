@@ -151,12 +151,10 @@ mod tests {
             knot::db::vector::VectorDb::connect("http://localhost:9999", "test_collection", 384)
                 .await
                 .expect("connect for test vector db");
-        let embedder = knot::pipeline::embed::Embedder::init().expect("init embedder");
-
         Arc::new(crate::state::AppState {
             vector_db: Arc::new(vector_db),
             graph_db: Arc::new(graph_db),
-            embedder: Arc::new(Mutex::new(embedder)),
+            embedder: None,
             workspace_dir: workspace.to_string_lossy().into(),
             registry: Arc::new(Mutex::new(registry)),
             job_tx: tokio::sync::mpsc::channel(16).0,

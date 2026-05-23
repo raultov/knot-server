@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>knot — Graph Viewer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+      background: #0a0a0a;
+      color: #e0e0e0;
+      overflow: hidden;
+      height: 100vh;
+    }
+
+    #toolbar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      background: rgba(20, 20, 20, 0.95);
+      border-bottom: 1px solid #333;
+    }
+
+    #toolbar select, #toolbar input, #toolbar button {
+      padding: 6px 10px;
+      background: #1a1a1a;
+      color: #e0e0e0;
+      border: 1px solid #444;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+
+    #toolbar button:hover:not(:disabled) {
+      background: #2a2a2a;
+      border-color: #666;
+    }
+
+    #toolbar button:disabled, #toolbar input:disabled, #toolbar select:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    #search-results {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      margin-top: 4px;
+      background: #1a1a1a;
+      border: 1px solid #444;
+      border-radius: 4px;
+      max-height: 300px;
+      overflow-y: auto;
+      display: none;
+      min-width: 400px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    }
+
+    #search-results .result-item {
+      padding: 8px 12px;
+      cursor: pointer;
+      border-bottom: 1px solid #333;
+      font-size: 13px;
+      overflow-wrap: break-word;
+      word-break: break-all;
+    }
+
+    #search-results .result-item:hover {
+      background: #2a2a2a;
+    }
+
+    #search-results .result-kind {
+      color: #888;
+      font-size: 11px;
+    }
+
+    #graph-container {
+      width: 100vw;
+      height: 100vh;
+    }
+
+    #node-details {
+      position: fixed;
+      top: 50px;
+      right: 0;
+      width: 320px;
+      background: rgba(20, 20, 20, 0.95);
+      border-left: 1px solid #333;
+      padding: 16px;
+      height: calc(100vh - 50px);
+      overflow-y: auto;
+      font-size: 13px;
+    }
+
+    #node-details.hidden { display: none; }
+
+    #node-details h3 {
+      color: #fff;
+      margin-bottom: 8px;
+      word-break: break-all;
+    }
+
+    #node-details div {
+      margin-bottom: 6px;
+      color: #aaa;
+      overflow-wrap: break-word;
+      word-break: break-all;
+    }
+
+    #node-details pre {
+      background: #111;
+      padding: 8px;
+      border-radius: 4px;
+      overflow-x: auto;
+      font-size: 12px;
+      color: #8be9fd;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    #expand-btn {
+      margin-top: 12px;
+      padding: 6px 16px;
+      background: #1a5fb4;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    #expand-btn:hover { background: #2a6fd4; }
+
+    #rel-toggles {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      align-items: center;
+    }
+
+    #rel-toggles label {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-size: 11px;
+      color: #aaa;
+      cursor: pointer;
+      padding: 2px 6px;
+      border: 1px solid #444;
+      border-radius: 3px;
+      background: #1a1a1a;
+      user-select: none;
+    }
+
+    #rel-toggles label.active {
+      color: #fff;
+      border-color: #4A90D9;
+      background: #1a2a3a;
+    }
+
+    #status-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 4px 16px;
+      background: rgba(20, 20, 20, 0.9);
+      border-top: 1px solid #333;
+      font-size: 11px;
+      color: #888;
+      z-index: 100;
+    }
+  </style>
+</head>
+<body>
+  <div id="toolbar">
+    <select id="repo-select"><option value="">Loading repos...</option></select>
+    <select id="depth-select" title="Graph traversal depth">
+      <option value="1">Depth: 1</option>
+      <option value="2" selected>Depth: 2</option>
+      <option value="3">Depth: 3</option>
+      <option value="4">Depth: 4</option>
+      <option value="5">Depth: 5</option>
+    </select>
+    <div id="rel-toggles">
+      <label class="active" data-rel="CALLS">Calls</label>
+      <label class="active" data-rel="EXTENDS">Extends</label>
+      <label class="active" data-rel="IMPLEMENTS">Implements</label>
+      <label data-rel="CONTAINS">Contains</label>
+      <label data-rel="REFERENCES">References</label>
+      <label data-rel="MACRO_CALLS">Macro Calls</label>
+      <label data-rel="GENERIC_BOUND">Gen. Bounds</label>
+    </div>
+    <div style="position: relative; display: flex; gap: 8px; align-items: center;">
+      <input id="search-input" type="text" placeholder="Search entity..." disabled />
+      <button id="search-btn" disabled>Search</button>
+      <button id="clear-btn" class="hidden" title="Clear search and show full graph">✕ Clear</button>
+      <div id="search-results"></div>
+    </div>
+  </div>
+
+  <div id="graph-container"></div>
+
+  <div id="node-details" class="hidden">
+    <h3 id="detail-name"></h3>
+    <div id="detail-fqn" style="font-size:11px; color:#aaa; margin-bottom:8px; word-break:break-all;"></div>
+    <div id="detail-kind"></div>
+    <div id="detail-file"></div>
+    <div id="detail-line"></div>
+    <pre id="detail-signature"></pre>
+    <button id="expand-btn" class="hidden">Discover</button>
+    <p id="discover-hint" class="hidden" style="font-size:11px; color:#888; margin-top:6px;">Discovers and loads new nodes related to this entity using the selected depth.</p>
+  </div>
+
+  <div id="status-bar">Ready</div>
+
+  <script src="https://unpkg.com/3d-force-graph"></script>
+
+  <script>
+    // ── State ──────────────────────────────────────────────────
+    const state = {
+      repos: [],
+      selectedRepo: null,
+      graphData: { nodes: [], links: [] },
+      nodeMap: new Map(),
+      expandedNodes: new Set(),
+      selectedNode: null,
+      focusedEntity: null,
+      graph: null,
+    };
+
+    // ── Colores por kind ───────────────────────────────────────
+    const KIND_COLORS = {
+      rust_function:  '#FF6B35',
+      rust_method:    '#FF9F1C',
+      rust_struct:    '#2EC4B6',
+      rust_trait:     '#E71D36',
+      rust_impl:      '#011627',
+      rust_enum:      '#7B2D8E',
+      rust_module:    '#9B59B6',
+      rust_macro_def: '#F39C12',
+      class:          '#4A90D9',
+      method:         '#50C878',
+      interface:      '#FFD700',
+      function:       '#3178C6',
+      kotlin_class:   '#7F52FF',
+      kotlin_function:'#A855F7',
+      python_function:'#306998',
+      python_class:   '#FFD43B',
+      default:        '#666666',
+    };
+
+    function kindColor(kind) {
+      return KIND_COLORS[kind] || KIND_COLORS.default;
+    }
+
+    // ── API Client ─────────────────────────────────────────────
+    async function apiGet(path) {
+      const res = await fetch(path);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || 'HTTP ' + res.status);
+      }
+      return res.json();
+    }
+
+    function getActiveRelationships() {
+      var toggles = document.querySelectorAll('#rel-toggles label.active');
+      var rels = [];
+      for (var i = 0; i < toggles.length; i++) {
+        rels.push(toggles[i].getAttribute('data-rel'));
+      }
+      return rels.join(',');
+    }
+
+    function hasActiveRelationships() {
+      return document.querySelectorAll('#rel-toggles label.active').length > 0;
+    }
+
+    async function fetchRepos() {
+      const data = await apiGet('/api/repos');
+      return data.repositories || [];
+    }
+
+    async function fetchSubgraph(repoId, entity, entityId, depth, relationships, direction) {
+      depth = depth || parseInt(document.getElementById('depth-select')?.value) || 2;
+      relationships = relationships || getActiveRelationships();
+      direction = direction || 'both';
+      var params = new URLSearchParams({ depth: depth, relationships: relationships, direction: direction });
+      if (entityId) {
+        params.set('entity_id', entityId);
+      } else if (entity) {
+        params.set('entity', entity);
+      }
+      return apiGet('/api/repos/' + repoId + '/graph?' + params);
+    }
+
+    async function fetchExpandNode(repoId, entity, entityId, excludeUuids, depth, relationships, direction) {
+      depth = depth || 2;
+      relationships = relationships || getActiveRelationships();
+      direction = direction || 'both';
+      var params = new URLSearchParams({ depth: depth, relationships: relationships, direction: direction });
+      if (entityId) {
+        params.set('entity_id', entityId);
+      } else if (entity) {
+        params.set('entity', entity);
+      }
+      if (excludeUuids && excludeUuids.length > 0) {
+        params.set('exclude', excludeUuids.join(','));
+      }
+      return apiGet('/api/repos/' + repoId + '/graph/expand?' + params);
+    }
+
+    async function searchEntity(repoId, query, maxResults) {
+      return apiGet('/api/repos/' + repoId + '/search?q=' + encodeURIComponent(query) + '&max_results=' + (maxResults || 10));
+    }
+
+    // ── Graph Data Management ──────────────────────────────────
+    function mergeSubgraph(subgraph, isDiscovery) {
+      for (var i = 0; i < subgraph.nodes.length; i++) {
+        var node = subgraph.nodes[i];
+        if (!state.nodeMap.has(node.id)) {
+          var graphNode = {
+            id: node.id,
+            name: node.name,
+            kind: node.kind,
+            language: node.language,
+            filePath: node.file_path,
+            startLine: node.start_line,
+            signature: node.signature,
+            fqn: node.fqn,
+            color: kindColor(node.kind),
+          };
+          state.nodeMap.set(node.id, graphNode);
+          state.graphData.nodes.push(graphNode);
+        }
+      }
+
+      var existingEdges = new Map();
+      for (var j = 0; j < state.graphData.links.length; j++) {
+        var l = state.graphData.links[j];
+        var s = l.source.id || l.source;
+        var t = l.target.id || l.target;
+        existingEdges.set(s + '->' + t, l);
+      }
+
+      for (var k = 0; k < subgraph.edges.length; k++) {
+        var edge = subgraph.edges[k];
+        var key = edge.source + '->' + edge.target;
+        var link = existingEdges.get(key);
+        if (!link) {
+          state.graphData.links.push({
+            source: edge.source,
+            target: edge.target,
+            type: edge.type,
+            isNewDiscovery: isDiscovery || false,
+          });
+          existingEdges.set(key, true); // Prevent duplicates in same batch
+        } else if (isDiscovery) {
+          link.isNewDiscovery = true;
+        }
+      }
+    }
+
+    function resetGraph() {
+      state.graphData = { nodes: [], links: [] };
+      state.nodeMap.clear();
+      state.expandedNodes.clear();
+      state.selectedNode = null;
+    }
+
+    // ── 3D Graph Initialization ────────────────────────────────
+    function initGraph() {
+      var container = document.getElementById('graph-container');
+
+      state.graph = ForceGraph3D()(container)
+        .graphData(state.graphData)
+        .nodeLabel(function(n) {
+          var label = '<div style="background: rgba(0,0,0,0.8); padding: 4px 8px; border-radius: 4px; border: 1px solid #444;">';
+          label += '<strong style="color: #fff;">' + (n.fqn || n.name) + '</strong>';
+          label += '<div style="font-size: 11px; color: #aaa;">' + n.kind + '</div>';
+          if (n.filePath) {
+             label += '<div style="font-size: 10px; color: #888;">' + n.filePath + ':' + (n.startLine || '?') + '</div>';
+          }
+          label += '</div>';
+          return label;
+        })
+        .nodeColor(function(n) { return n.id === state.focusedEntity ? '#FFD700' : n.color; })
+        .nodeVal(function(n) { return n.id === state.focusedEntity ? 5 : (state.expandedNodes.has(n.id) ? 3 : 1); })
+        .nodeOpacity(0.9)
+        .linkDirectionalArrowLength(6)
+        .linkDirectionalArrowRelPos(1)
+        .linkCurvature(0.1)
+        .linkColor(function(l) { return l.isNewDiscovery ? 'rgba(80,200,120,0.9)' : 'rgba(100,160,255,0.8)'; })
+        .linkWidth(1.5)
+        .backgroundColor('#0a0a0a')
+        .warmupTicks(100)
+        .cooldownTicks(200)
+        .onNodeClick(handleNodeClick)
+        .onNodeHover(handleNodeHover)
+        .onBackgroundClick(function() { hideNodeDetails(); });
+
+      window.addEventListener('resize', function() {
+        state.graph.width(window.innerWidth).height(window.innerHeight);
+      });
+    }
+
+    function refreshGraph() {
+      if (state.graph) {
+        state.graph.graphData(state.graphData);
+      }
+    }
+
+    // ── Event Handlers ─────────────────────────────────────────
+    function handleNodeClick(node) {
+      state.focusedEntity = node.id;
+      document.getElementById('clear-btn').classList.remove('hidden');
+      showNodeDetails(node);
+    }
+
+    function handleNodeHover(node) {
+      document.body.style.cursor = node ? 'pointer' : 'default';
+    }
+
+    function showNodeDetails(node) {
+      state.selectedNode = node;
+      var panel = document.getElementById('node-details');
+      panel.classList.remove('hidden');
+      document.getElementById('detail-name').textContent = node.name;
+      
+      var detailFqn = document.getElementById('detail-fqn');
+      if (node.fqn && node.fqn !== node.name) {
+        detailFqn.textContent = node.fqn;
+        detailFqn.style.display = 'block';
+      } else {
+        detailFqn.style.display = 'none';
+      }
+
+      document.getElementById('detail-kind').textContent = 'Kind: ' + node.kind;
+      var filePath = node.filePath || '(unknown)';
+      var detailFile = document.getElementById('detail-file');
+      detailFile.textContent = 'File: ' + filePath;
+      detailFile.title = filePath;
+      document.getElementById('detail-line').textContent = 'Line: ' + (node.startLine || '?');
+
+      var sigPre = document.getElementById('detail-signature');
+      if (node.signature) {
+        sigPre.textContent = node.signature;
+        sigPre.style.display = '';
+      } else {
+        sigPre.style.display = 'none';
+      }
+
+      var expandBtn = document.getElementById('expand-btn');
+      var hint = document.getElementById('discover-hint');
+      if (state.expandedNodes.has(node.id)) {
+        expandBtn.classList.add('hidden');
+        hint.classList.add('hidden');
+      } else {
+        expandBtn.classList.remove('hidden');
+        hint.classList.remove('hidden');
+      }
+    }
+
+    function hideNodeDetails() {
+      document.getElementById('node-details').classList.add('hidden');
+      state.selectedNode = null;
+    }
+
+    function setStatus(msg) {
+      document.getElementById('status-bar').textContent = msg;
+    }
+
+    function refreshGraphWithFilters() {
+      if (!state.selectedRepo) return;
+
+      if (state.focusedEntity) {
+        reloadFocusedEntity();
+      } else {
+        resetGraph();
+        refreshGraph();
+        loadOverview(state.selectedRepo);
+      }
+    }
+
+    // ── DOM Wiring ─────────────────────────────────────────────
+    document.addEventListener('DOMContentLoaded', async function() {
+      initGraph();
+
+      try {
+        state.repos = await fetchRepos();
+        var select = document.getElementById('repo-select');
+        select.innerHTML = '<option value="">-- Select repository --</option>';
+        for (var i = 0; i < state.repos.length; i++) {
+          var repo = state.repos[i];
+          var opt = document.createElement('option');
+          opt.value = repo.id;
+          opt.textContent = repo.id + ' (' + repo.status + ')';
+          select.appendChild(opt);
+        }
+      } catch (err) {
+        setStatus('Error loading repos: ' + err.message);
+      }
+
+      var savedDepth = localStorage.getItem('knotGraphDepth');
+      if (savedDepth) {
+        document.getElementById('depth-select').value = savedDepth;
+      }
+
+      document.getElementById('depth-select').addEventListener('change', function() {
+        localStorage.setItem('knotGraphDepth', this.value);
+        if (state.selectedRepo) {
+          if (state.focusedEntity) {
+            reloadFocusedEntity();
+          } else {
+            resetGraph();
+            refreshGraph();
+            loadOverview(state.selectedRepo);
+          }
+        }
+      });
+
+      // Relationship toggle handlers
+      var relToggles = document.querySelectorAll('#rel-toggles label');
+      for (var i = 0; i < relToggles.length; i++) {
+        relToggles[i].addEventListener('click', function() {
+          this.classList.toggle('active');
+          refreshGraphWithFilters();
+        });
+      }
+
+      document.getElementById('repo-select').addEventListener('change', function(e) {
+        state.selectedRepo = e.target.value || null;
+        var hasRepo = !!state.selectedRepo;
+        document.getElementById('search-input').disabled = !hasRepo;
+        document.getElementById('search-btn').disabled = !hasRepo;
+        resetGraph();
+        refreshGraph();
+        hideNodeDetails();
+        if (hasRepo) {
+          setStatus('Loading entities for ' + state.selectedRepo + '...');
+          loadOverview(state.selectedRepo);
+        } else {
+          setStatus('No repository selected');
+        }
+      });
+
+      var searchInput = document.getElementById('search-input');
+      var searchBtn = document.getElementById('search-btn');
+      var searchResults = document.getElementById('search-results');
+
+      async function doSearch() {
+        var query = searchInput.value.trim();
+        if (!query || !state.selectedRepo) return;
+
+        setStatus('Searching "' + query + '"...');
+        searchResults.style.display = 'none';
+
+        try {
+          var results = await searchEntity(state.selectedRepo, query);
+          if (!results || results.length === 0) {
+            setStatus('No entities found');
+            return;
+          }
+
+          searchResults.innerHTML = '';
+          for (var i = 0; i < results.length; i++) {
+            var r = results[i];
+            var div = document.createElement('div');
+            div.className = 'result-item';
+            
+            // Show FQN if available, otherwise just name
+            var displayName = r.fqn || r.name;
+            
+            div.innerHTML =
+              '<strong>' + displayName + '</strong>' +
+              ' <span class="result-kind">' + r.kind + '</span>' +
+              '<br><small>' + r.file_path + ':' + r.start_line + '</small>';
+            (function(entity) {
+              div.addEventListener('click', function() { selectEntity(entity); });
+            })(r);
+            searchResults.appendChild(div);
+          }
+          searchResults.style.display = 'block';
+          setStatus('Found ' + results.length + ' results');
+        } catch (err) {
+          setStatus('Search error: ' + err.message);
+        }
+      }
+
+      searchBtn.addEventListener('click', doSearch);
+      searchInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') doSearch();
+      });
+
+      document.addEventListener('click', function(e) {
+        if (!searchResults.contains(e.target) && e.target !== searchInput) {
+          searchResults.style.display = 'none';
+        }
+      });
+
+      document.getElementById('expand-btn').addEventListener('click', async function() {
+        var node = state.selectedNode;
+        if (!node || state.expandedNodes.has(node.id)) return;
+
+        var depth = parseInt(document.getElementById('depth-select').value) || 2;
+
+        setStatus('Discovering neighbors of ' + node.name + ' (depth=' + depth + ')...');
+        try {
+          var subgraph = await fetchExpandNode(
+            state.selectedRepo, null, node.id, [],
+            depth
+          );
+          state.expandedNodes.add(node.id);
+          mergeSubgraph(subgraph, true);
+          refreshGraph();
+          document.getElementById('expand-btn').classList.add('hidden');
+          document.getElementById('discover-hint').classList.add('hidden');
+          setStatus('Discovered ' + node.name + ': +' + subgraph.nodes.length + ' nodes, +' + subgraph.edges.length + ' edges');
+        } catch (err) {
+          setStatus('Error discovering: ' + err.message);
+        }
+      });
+
+      document.getElementById('clear-btn').addEventListener('click', function() {
+        clearFocusedEntity();
+      });
+    });
+
+    async function loadOverview(repoId, stripEdges) {
+      var strip = stripEdges || !hasActiveRelationships();
+      var fetchRels = strip ? 'CONTAINS' : getActiveRelationships();
+      try {
+        var depth = parseInt(document.getElementById('depth-select').value) || 2;
+        var overview = await apiGet('/api/repos/' + repoId + '/graph?depth=' + depth + '&relationships=' + encodeURIComponent(fetchRels));
+        if (!overview.nodes || overview.nodes.length === 0) {
+          setStatus('No entities found in ' + repoId);
+          return;
+        }
+
+        if (strip) {
+          overview.edges = [];
+        }
+
+        mergeSubgraph(overview);
+
+        refreshGraph();
+
+        setTimeout(function() {
+          state.graph.zoomToFit(400);
+        }, 1200);
+
+        setStatus('Loaded ' + overview.nodes.length + ' entities, ' + overview.edges.length + ' edges');
+      } catch (err) {
+        setStatus('Error loading overview: ' + err.message);
+      }
+    }
+
+    async function selectEntity(entity) {
+      document.getElementById('search-results').style.display = 'none';
+      setStatus('Loading graph for ' + entity.name + '...');
+
+      resetGraph();
+      refreshGraph();
+
+      try {
+        var subgraph = await fetchSubgraph(state.selectedRepo, null, entity.uuid);
+        if (subgraph.root_id) {
+          state.expandedNodes.add(subgraph.root_id);
+          state.focusedEntity = subgraph.root_id;
+          document.getElementById('clear-btn').classList.remove('hidden');
+        }
+        mergeSubgraph(subgraph);
+        refreshGraph();
+
+        setTimeout(function() {
+          state.graph.zoomToFit(400);
+        }, 500);
+
+        var info = subgraph.truncated
+          ? ' (truncated: ' + subgraph.total_nodes_found + ' total)'
+          : '';
+        setStatus('Loaded: ' + subgraph.nodes.length + ' nodes, ' + subgraph.edges.length + ' edges' + info);
+      } catch (err) {
+        setStatus('Error loading graph: ' + err.message);
+      }
+    }
+
+    async function reloadFocusedEntity() {
+      if (!state.focusedEntity) return;
+      var relationships = getActiveRelationships();
+      if (!relationships) {
+        setStatus('No relationship types selected');
+        return;
+      }
+      resetGraph();
+      refreshGraph();
+      var depth = parseInt(document.getElementById('depth-select').value) || 2;
+      try {
+        var subgraph = await fetchSubgraph(state.selectedRepo, null, state.focusedEntity, depth, relationships);
+        if (subgraph.root_id) {
+          state.expandedNodes.add(subgraph.root_id);
+        }
+        mergeSubgraph(subgraph);
+        refreshGraph();
+        setTimeout(function() {
+          state.graph.zoomToFit(400);
+        }, 500);
+        setStatus('Reloaded with depth ' + depth + ': ' + subgraph.nodes.length + ' nodes, ' + subgraph.edges.length + ' edges');
+      } catch (err) {
+        setStatus('Error reloading: ' + err.message);
+      }
+    }
+
+    function clearFocusedEntity() {
+      state.focusedEntity = null;
+      document.getElementById('clear-btn').classList.add('hidden');
+      document.getElementById('search-input').value = '';
+      hideNodeDetails();
+      resetGraph();
+      refreshGraph();
+      if (state.selectedRepo) {
+        loadOverview(state.selectedRepo);
+      }
+    }
+  </script>
+</body>
+</html>

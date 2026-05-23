@@ -248,6 +248,195 @@ if [ "$INDEXED_OK" = "true" ]; then
         exit 1
     fi
 
+    # ── Test G1: Graph endpoint with real data ──
+    echo -e "\n${CYAN}Test G1: Graph endpoint returns subgraph for indexed entity${NC}"
+    RESP=$(curl -s "http://localhost:${SERVER_PORT}/api/repos/${REPO_ID}/graph?entity=UserService")
+    ROOT_ID=$(echo "$RESP" | jq -r '.root_id')
+    NODE_COUNT=$(echo "$RESP" | jq '.nodes | length')
+    HAS_USER_SERVICE=$(echo "$RESP" | jq '[.nodes[] | select(.name == "UserService")] | length')
+
+    if [ "$ROOT_ID" != "null" ] && [ "$NODE_COUNT" -ge 1 ] && [ "$HAS_USER_SERVICE" -ge 1 ]; then
+      echo -e "${GREEN}PASS${NC}: root_id=$ROOT_ID, nodes=$NODE_COUNT"
+    else
+      echo -e "${RED}FAIL${NC}: root_id=$ROOT_ID, nodes=$NODE_COUNT, has_UserService=$HAS_USER_SERVICE"
+      echo "Response: $RESP"
+      exit 1
+    fi
+
+    # ── Test G2: Graph endpoint with depth and relationships params ──
+    echo -e "\n${CYAN}Test G2: Graph endpoint with depth and relationships params${NC}"
+    CODE=$(curl -s -w "%{http_code}" -o /tmp/g2.json \
+      "http://localhost:${SERVER_PORT}/api/repos/${REPO_ID}/graph?entity=UserService&depth=3&relationships=CALLS,CONTAINS")
+    NODE_COUNT=$(jq '.nodes | length' /tmp/g2.json)
+
+    if [ "$CODE" = "200" ] && [ "$NODE_COUNT" -ge 1 ]; then
+      echo -e "${GREEN}PASS${NC}: status=$CODE, nodes=$NODE_COUNT"
+    else
+      echo -e "${RED}FAIL${NC}: status=$CODE, nodes=$NODE_COUNT"
+      cat /tmp/g2.json
+      exit 1
+    fi
+
+    # ── Test G3: Graph endpoint with direction=outgoing ──
+    echo -e "\n${CYAN}Test G3: Graph endpoint with direction=outgoing${NC}"
+    CODE=$(curl -s -w "%{http_code}" -o /tmp/g3.json \
+      "http://localhost:${SERVER_PORT}/api/repos/${REPO_ID}/graph?entity=UserService&direction=outgoing")
+
+    if [ "$CODE" = "200" ] && jq -e '.nodes | length >= 1' /tmp/g3.json > /dev/null; then
+      echo -e "${GREEN}PASS${NC}: status=$CODE"
+    else
+      echo -e "${RED}FAIL${NC}: status=$CODE"
+      cat /tmp/g3.json
+      exit 1
+    fi
+
+    # ── Test G4: Graph endpoint with nonexistent entity returns empty ──
+    echo -e "\n${CYAN}Test G4: Graph endpoint with nonexistent entity returns empty${NC}"
+    RESP=$(curl -s "http://localhost:${SERVER_PORT}/api/repos/${REPO_ID}/graph?entity=NonExistentEntity12345")
+    NODE_COUNT=$(echo "$RESP" | jq '.nodes | length')
+    TOTAL=$(echo "$RESP" | jq '.total_nodes_found')
+
+    if [ "$NODE_COUNT" = "0" ] && [ "$TOTAL" = "0" ]; then
+      echo -e "${GREEN}PASS${NC}: empty result as expected"
+    else
+      echo -e "${RED}FAIL${NC}: expected empty, got nodes=$NODE_COUNT total=$TOTAL"
+      exit 1
+    fi
+
+    # ── Test G5: Graph expand endpoint returns data ──
+    echo -e "\n${CYAN}Test G5: Graph expand endpoint returns data${NC}"
+    CODE=$(curl -s -w "%{http_code}" -o /tmp/g5.json \
+      "http://localhost:${SERVER_PORT}/api/repos/${REPO_ID}/graph/expand?entity=UserService")
+    NODE_COUNT=$(jq '.nodes | length' /tmp/g5.json)
+
+    if [ "$CODE" = "200" ] && [ "$NODE_COUNT" -ge 1 ]; then
+      echo -e "${GREEN}PASS${NC}: status=$CODE, nodes=$NODE_COUNT"
+    else
+      echo -e "${RED}FAIL${NC}: status=$CODE, nodes=$NODE_COUNT"
+      cat /tmp/g5.json
+      exit 1
+    fi
+
+    # ── Test G6: Graph expand with exclude filters nodes ──
+    echo -e "\n${CYAN}Test G6: Graph expand with exclude filters nodes${NC}"
+    US_UUID=$(curl -s "http://localhost:${SERVER_PORT}/api/repos/${REPO_ID}/graph?entity=UserService" \
+      | jq -r '[.nodes[] | select(.name == "UserService")][0].id')
+
+    RESP=$(curl -s "http://localhost:${SERVER_PORT}/api/repos/${REPO_ID}/graph/expand?entity=UserService&exclude=${US_UUID}")
+    EXCLUDED=$(echo "$RESP" | jq --arg uuid "$US_UUID" '[.nodes[] | select(.id == $uuid)] | length')
+
+    if [ "$EXCLUDED" = "0" ]; then
+      echo -e "${GREEN}PASS${NC}: excluded node not in result"
+    else
+      echo -e "${RED}FAIL${NC}: excluded node still present"
+      echo "Response: $RESP"
+      exit 1
+    fi
+
+    # ── Test G7: Graph viewer HTML is served ──
+    echo -e "\n${CYAN}Test G7: Graph viewer HTML is served${NC}"
+    CODE=$(curl -s -w "%{http_code}" -o /tmp/g7.html "http://localhost:${SERVER_PORT}/graph")
+    HAS_DOCTYPE=$(grep -c '<!DOCTYPE html>' /tmp/g7.html || true)
+    HAS_FORCE=$(grep -c 'ForceGraph3D' /tmp/g7.html || true)
+
+    if [ "$CODE" = "200" ] && [ "$HAS_DOCTYPE" -ge 1 ] && [ "$HAS_FORCE" -ge 1 ]; then
+      echo -e "${GREEN}PASS${NC}: HTML viewer served correctly"
+    else
+      echo -e "${RED}FAIL${NC}: status=$CODE, doctype=$HAS_DOCTYPE, forcegraph=$HAS_FORCE"
+      exit 1
+    fi
+
+    # ── Test G8: Graph endpoint rejects invalid relationship type ──
+    echo -e "\n${CYAN}Test G8: Graph endpoint rejects invalid relationship type${NC}"
+    CODE=$(curl -s -w "%{http_code}" -o /tmp/g8.json \
+      "http://localhost:${SERVER_PORT}/api/repos/${REPO_ID}/graph?entity=UserService&relationships=INVALID_REL")
+
+    if [ "$CODE" = "400" ] && jq -e '.error' /tmp/g8.json > /dev/null; then
+      echo -e "${GREEN}PASS${NC}: invalid relationship rejected with 400 Bad Request"
+    else
+      echo -e "${RED}FAIL${NC}: status=$CODE"
+      cat /tmp/g8.json
+      exit 1
+    fi
+
+    # ── Test G9: Graph node response schema validation ──
+    echo -e "\n${CYAN}Test G9: Graph node response schema validation${NC}"
+    RESP=$(curl -s "http://localhost:${SERVER_PORT}/api/repos/${REPO_ID}/graph?entity=UserService")
+    NODE_COUNT=$(echo "$RESP" | jq '.nodes | length')
+    FULL_NODES=$(echo "$RESP" | jq '[.nodes[] | select(has("id") and has("name") and has("kind") and has("language") and has("file_path") and has("start_line") and has("signature"))] | length')
+
+    if [ "$FULL_NODES" = "$NODE_COUNT" ] && [ "$NODE_COUNT" -ge 1 ]; then
+      echo -e "${GREEN}PASS${NC}: all $NODE_COUNT nodes match schema"
+    else
+      echo -e "${RED}FAIL${NC}: schema validation failed ($FULL_NODES / $NODE_COUNT)"
+      echo "$RESP" | jq '.nodes[0]'
+      exit 1
+    fi
+
+    # ── Test G10: Graph overview — all entities without entity param ──
+    echo -e "\n${CYAN}Test G10: Graph overview returns all entities (no entity param, default relationships)${NC}"
+    CODE=$(curl -s -w "%{http_code}" -o /tmp/g10.json \
+      "http://localhost:${SERVER_PORT}/api/repos/${REPO_ID}/graph")
+    NODE_COUNT=$(jq '.nodes | length' /tmp/g10.json)
+    EDGE_COUNT=$(jq '.edges | length' /tmp/g10.json)
+    ROOT_ID=$(jq -r '.root_id' /tmp/g10.json)
+
+    # Default overview uses CALLS,EXTENDS,IMPLEMENTS (no CONTAINS traversal).
+    # For a tiny fixture repo, only root entities are returned.
+    if [ "$CODE" = "200" ] && [ "$NODE_COUNT" -ge 1 ] && [ "$ROOT_ID" = "null" ]; then
+      echo -e "${GREEN}PASS${NC}: status=$CODE, nodes=$NODE_COUNT, edges=$EDGE_COUNT, root_id=null"
+    else
+      echo -e "${RED}FAIL${NC}: status=$CODE, nodes=$NODE_COUNT, edges=$EDGE_COUNT, root_id=$ROOT_ID"
+      cat /tmp/g10.json
+      exit 1
+    fi
+
+    # ── Test G11: Overview with explicit relationships including CONTAINS ──
+    echo -e "\n${CYAN}Test G11: Graph overview with explicit relationships including CONTAINS${NC}"
+    CODE=$(curl -s -w "%{http_code}" -o /tmp/g11.json \
+      "http://localhost:${SERVER_PORT}/api/repos/${REPO_ID}/graph?relationships=CALLS,CONTAINS")
+    G11_NODES=$(jq '.nodes | length' /tmp/g11.json)
+    G11_EDGES=$(jq '.edges | length' /tmp/g11.json)
+    G10_NODES=$(jq '.nodes | length' /tmp/g10.json)
+    ROOT_ID=$(jq -r '.root_id' /tmp/g11.json)
+
+    # CONTAINS filters which nodes are considered roots (excludes nodes that are
+    # contained by something). For a single-file fixture with no CONTAINS edges,
+    # the result may be the same size or different depending on graph structure.
+    if [ "$CODE" = "200" ] && [ "$G11_NODES" -ge 1 ] && [ "$ROOT_ID" = "null" ]; then
+      echo -e "${GREEN}PASS${NC}: CALLS,CONTAINS (nodes=$G11_NODES, edges=$G11_EDGES) returns valid overview"
+    else
+      echo -e "${RED}FAIL${NC}: status=$CODE, CALLS+CONTAINS_nodes=$G11_NODES, default_nodes=$G10_NODES, root_id=$ROOT_ID"
+      cat /tmp/g11.json
+      exit 1
+    fi
+
+    # ── Test G12: Overview rejects invalid relationship type ──
+    echo -e "\n${CYAN}Test G12: Graph overview rejects invalid relationship type${NC}"
+    CODE=$(curl -s -w "%{http_code}" -o /tmp/g12.json \
+      "http://localhost:${SERVER_PORT}/api/repos/${REPO_ID}/graph?relationships=INVALID,BAD")
+
+    if [ "$CODE" = "400" ] && jq -e '.error' /tmp/g12.json > /dev/null; then
+      echo -e "${GREEN}PASS${NC}: overview invalid relationship rejected with 400"
+    else
+      echo -e "${RED}FAIL${NC}: status=$CODE"
+      cat /tmp/g12.json
+      exit 1
+    fi
+
+    # ── Test G13: Expand endpoint rejects invalid relationship type ──
+    echo -e "\n${CYAN}Test G13: Graph expand rejects invalid relationship type${NC}"
+    CODE=$(curl -s -w "%{http_code}" -o /tmp/g13.json \
+      "http://localhost:${SERVER_PORT}/api/repos/${REPO_ID}/graph/expand?entity=UserService&relationships=INVALID_REL")
+
+    if [ "$CODE" = "400" ] && jq -e '.error' /tmp/g13.json > /dev/null; then
+      echo -e "${GREEN}PASS${NC}: expand invalid relationship rejected with 400"
+    else
+      echo -e "${RED}FAIL${NC}: status=$CODE"
+      cat /tmp/g13.json
+      exit 1
+    fi
+
     # Test F: List repos shows status idle
     echo -e "\n${CYAN}Test F: List contains indexed repo${NC}"
     LIST=$(curl -sf "$BASE_URL/api/repos")
@@ -367,16 +556,26 @@ echo -e "\n${CYAN}Test O: Neo4j/Qdrant cleanup after delete${NC}"
 NEO4J_PASS="${NEO4J_PASSWORD:-e2e_test_password}"
 NEO4J_PORT="${NEO4J_PORT:-17687}"
 
-# Verify no Entity nodes remain for the deleted repo
-REMAINING=$(docker exec knot_server_neo4j_e2e cypher-shell -u neo4j -p "$NEO4J_PASS" \
-    "MATCH (e:Entity {repo_name: '$REPO_ID'}) RETURN count(e) AS cnt" 2>/dev/null \
-    || docker exec knot-server-neo4j-1 cypher-shell -u neo4j -p "$NEO4J_PASS" \
-    "MATCH (e:Entity {repo_name: '$REPO_ID'}) RETURN count(e) AS cnt" 2>/dev/null)
+check_neo4j_cleanup() {
+    local container="$1"
+    local output
+    output=$(docker exec "$container" cypher-shell -u neo4j -p "$NEO4J_PASS" \
+        "MATCH (e:Entity {repo_name: '$REPO_ID'}) RETURN count(e) AS cnt" 2>/dev/null) || return 1
+    echo "$output" | grep -o '[0-9]\+' | head -1
+}
 
-NEO4J_COUNT=$(echo "$REMAINING" | grep -o '[0-9]\+' | head -1)
+NEO4J_COUNT=""
+for container in knot_server_neo4j_e2e knot-server-neo4j-1; do
+    if docker ps --format '{{.Names}}' | grep -q "^${container}$"; then
+        NEO4J_COUNT=$(check_neo4j_cleanup "$container")
+        if [ -n "$NEO4J_COUNT" ]; then
+            break
+        fi
+    fi
+done
+
 if [ -z "$NEO4J_COUNT" ]; then
-    # cypher-shell might not be available, skip Neo4j check
-    echo -e "  ${YELLOW}SKIP${NC} — cypher-shell not available in container"
+    echo -e "  ${YELLOW}SKIP${NC} — cypher-shell not available or container not running"
 elif [ "$NEO4J_COUNT" -eq 0 ]; then
     echo -e "${GREEN}PASS${NC} — Neo4j entities cleaned ($NEO4J_COUNT remaining)"
 else
