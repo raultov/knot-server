@@ -177,6 +177,7 @@ pub struct GraphParams {
     pub depth: Option<u32>,
     pub relationships: Option<String>,
     pub direction: Option<String>,
+    pub kinds: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -187,6 +188,7 @@ pub struct GraphExpandParams {
     pub relationships: Option<String>,
     pub direction: Option<String>,
     pub exclude: Option<String>,
+    pub kinds: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -235,6 +237,114 @@ const VALID_RELATIONSHIPS: &[&str] = &[
 
 const DEFAULT_RELATIONSHIPS_OVERVIEW: &str = "CALLS,EXTENDS,IMPLEMENTS";
 const DEFAULT_RELATIONSHIPS_SUBGRAPH: &str = "CALLS,REFERENCES,CONTAINS";
+
+const KIND_CATEGORY_CLASSES: &[&str] = &[
+    "class",
+    "kotlin_class",
+    "kotlin_object",
+    "kotlin_companion_object",
+    "rust_struct",
+    "rust_enum",
+    "rust_union",
+    "rust_impl",
+    "rust_module",
+    "python_class",
+    "cpp_class",
+    "c_struct",
+    "cpp_namespace",
+    "groovy_class",
+    "groovy_enum",
+    "enum",
+];
+
+const KIND_CATEGORY_INTERFACES: &[&str] = &[
+    "interface",
+    "kotlin_interface",
+    "rust_trait",
+    "groovy_interface",
+    "groovy_trait",
+];
+
+const KIND_CATEGORY_FUNCTIONS: &[&str] = &[
+    "method",
+    "function",
+    "kotlin_function",
+    "kotlin_method",
+    "kotlin_property",
+    "rust_function",
+    "rust_method",
+    "rust_macro_def",
+    "rust_type_alias",
+    "rust_constant",
+    "rust_static",
+    "rust_macro_invoke",
+    "python_function",
+    "python_method",
+    "python_module",
+    "python_constant",
+    "c_function",
+    "cpp_method",
+    "macro_definition",
+    "scss_function",
+    "scss_mixin",
+    "scss_variable",
+    "groovy_method",
+    "groovy_function",
+    "groovy_property",
+    "constant",
+];
+
+/// All valid kind category names accepted by the `kinds` query parameter.
+const VALID_KIND_CATEGORIES: &[&str] = &["classes", "interfaces", "functions", "other"];
+
+/// Default visible kinds for the overview graph.
+const DEFAULT_VISIBLE_KINDS: &str = "classes,interfaces";
+
+/// Parse the `kinds` query parameter into a flat list of entity kind strings.
+///
+/// Returns the list of kind strings that should be visible, or an error if any
+/// category name is invalid.
+fn parse_kinds(kinds: &str) -> Result<Vec<&str>, String> {
+    let cats: Vec<&str> = if kinds.trim().is_empty() {
+        DEFAULT_VISIBLE_KINDS.split(',').map(str::trim).collect()
+    } else {
+        kinds.split(',').map(str::trim).collect()
+    };
+
+    for cat in &cats {
+        if !VALID_KIND_CATEGORIES.contains(cat) {
+            return Err(format!(
+                "Invalid kind category '{}'. Valid values: {}",
+                cat,
+                VALID_KIND_CATEGORIES.join(", ")
+            ));
+        }
+    }
+
+    let mut visible = Vec::new();
+    for cat in cats {
+        match cat {
+            "classes" => visible.extend_from_slice(KIND_CATEGORY_CLASSES),
+            "interfaces" => visible.extend_from_slice(KIND_CATEGORY_INTERFACES),
+            "functions" => visible.extend_from_slice(KIND_CATEGORY_FUNCTIONS),
+            "other" => {
+                // "other" means: any kind not explicitly in classes, interfaces, or functions.
+                // We don't expand it here — the Cypher query will handle it via exclusion.
+            }
+            _ => {}
+        }
+    }
+
+    Ok(visible)
+}
+
+/// Returns true if the "other" category is explicitly listed in `kinds`.
+fn includes_other(kinds: &str) -> bool {
+    if kinds.trim().is_empty() {
+        return DEFAULT_VISIBLE_KINDS.contains("other");
+    }
+    kinds.split(',').any(|c| c.trim() == "other")
+}
 
 fn subgraph_to_response(result: knot::models::SubgraphResult) -> GraphResponse {
     GraphResponse {
@@ -316,11 +426,14 @@ pub async fn graph_handler(
         }
     }
 
-    let entity_name = if let Some(uuid) = &params.entity_id
+    // Determine entity_name and entity_uuid from params
+    let (entity_name, entity_uuid) = if let Some(uuid) = &params.entity_id
         && !uuid.trim().is_empty()
     {
+        // UUID provided — pass it directly to the subgraph query.
+        // We still need a name for backward compatibility, so resolve it.
         match resolve_uuid_to_name(&state, uuid, &id).await {
-            Ok(Some(name)) => Some(name),
+            Ok(Some(name)) => (Some(name), Some(uuid.clone())),
             Ok(None) => {
                 return error_response(
                     StatusCode::NOT_FOUND,
@@ -336,8 +449,8 @@ pub async fn graph_handler(
         }
     } else {
         match &params.entity {
-            Some(e) if !e.trim().is_empty() => Some(e.clone()),
-            _ => None,
+            Some(e) if !e.trim().is_empty() => (Some(e.clone()), None),
+            _ => (None, None),
         }
     };
 
@@ -357,6 +470,18 @@ pub async fn graph_handler(
                 }
             };
 
+            let kinds_str = params.kinds.as_deref().unwrap_or(DEFAULT_VISIBLE_KINDS);
+            let visible_kinds = match parse_kinds(kinds_str) {
+                Ok(kinds) => kinds,
+                Err(msg) => return error_response(StatusCode::BAD_REQUEST, msg),
+            };
+            let include_oth = includes_other(kinds_str);
+            let kind_filter: Option<&[&str]> = if include_oth {
+                None
+            } else {
+                Some(visible_kinds.as_slice())
+            };
+
             match knot::cli_tools::run_get_subgraph(
                 &entity_name,
                 &id,
@@ -365,11 +490,25 @@ pub async fn graph_handler(
                 direction,
                 None,
                 &state.graph_db,
+                entity_uuid.as_deref(),
+                kind_filter,
             )
             .await
             {
                 Ok(result) => {
-                    let response = subgraph_to_response(result);
+                    let mut response = subgraph_to_response(result);
+
+                    let connected_uuids: std::collections::HashSet<&str> = response
+                        .edges
+                        .iter()
+                        .flat_map(|e| vec![e.source.as_str(), e.target.as_str()])
+                        .collect();
+
+                    response.nodes.retain(|n| {
+                        Some(&n.id) == response.root_id.as_ref()
+                            || connected_uuids.contains(n.id.as_str())
+                    });
+
                     (StatusCode::OK, Json(response)).into_response()
                 }
                 Err(e) => error_response(
@@ -391,7 +530,18 @@ pub async fn graph_handler(
                 }
             };
 
-            match fetch_all_entities(&state, &id, depth, &relationships).await {
+            let kinds_str = params.kinds.as_deref().unwrap_or(DEFAULT_VISIBLE_KINDS);
+            let visible_kinds = match parse_kinds(kinds_str) {
+                Ok(kinds) => kinds,
+                Err(msg) => {
+                    return error_response(StatusCode::BAD_REQUEST, msg);
+                }
+            };
+            let other = includes_other(kinds_str);
+
+            match fetch_all_entities(&state, &id, depth, &relationships, &visible_kinds, other)
+                .await
+            {
                 Ok(response) => (StatusCode::OK, Json(response)).into_response(),
                 Err(e) => error_response(
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -425,24 +575,29 @@ async fn fetch_all_entities(
     repo_id: &str,
     depth: u32,
     relationships: &[&str],
+    visible_kinds: &[&str],
+    include_other: bool,
 ) -> anyhow::Result<GraphResponse> {
     let graph = neo4rs::Graph::new(&state.neo4j_uri, &state.neo4j_user, &state.neo4j_password)
         .context("Failed to connect to Neo4j")?;
 
     let rel_filter = relationships.join("|");
 
-    let node_q = query(&format!(
+    let node_q_str = format!(
         "MATCH (root:Entity {{repo_name: $repo_name}})
          WHERE NOT ()-[:CONTAINS]->(root)
          MATCH (root)-[:{rel_filter}*0..{depth}]->(e:Entity)
          RETURN DISTINCT e.uuid, e.name, e.kind, e.fqn, e.signature, e.file_path, e.start_line"
-    ))
-    .param("repo_name", repo_id);
+    );
+
+    let node_q = query(&node_q_str).param("repo_name", repo_id);
 
     let mut rows = graph
         .execute(node_q)
         .await
         .context("Neo4j node query failed")?;
+
+    let visible_set: std::collections::HashSet<&str> = visible_kinds.iter().copied().collect();
 
     let mut nodes = Vec::new();
     while let Ok(Some(row)) = rows.next().await {
@@ -451,7 +606,13 @@ async fn fetch_all_entities(
         if uuid.is_empty() || name.is_empty() {
             continue;
         }
-        let kind = row.get::<String>("e.kind").ok();
+        let kind: Option<String> = row.get::<String>("e.kind").ok();
+        if let Some(ref k) = kind
+            && !include_other
+            && !visible_set.contains(k.as_str())
+        {
+            continue;
+        }
         let language = kind
             .as_ref()
             .and_then(|k| k.split('_').next().map(|s| s.to_string()));
@@ -467,17 +628,48 @@ async fn fetch_all_entities(
         });
     }
 
+    let node_uuids: std::collections::HashSet<&str> = nodes.iter().map(|n| n.id.as_str()).collect();
+
     let total = nodes.len();
 
-    let edge_q = query(&format!(
-        "MATCH (root:Entity {{repo_name: $repo_name}})
-         WHERE NOT ()-[:CONTAINS]->(root)
-         MATCH (root)-[:{rel_filter}*0..{depth}]->(a:Entity)
-         MATCH (a)-[r:{rel_filter}]->(b:Entity)
-         WHERE b.repo_name = $repo_name
-         RETURN DISTINCT a.uuid AS source, b.uuid AS target, type(r) AS rel"
-    ))
-    .param("repo_name", repo_id);
+    let edge_q = if visible_set.is_empty() && !include_other {
+        String::from("RETURN DISTINCT '' AS source, '' AS target, '' AS rel LIMIT 0")
+    } else {
+        let visible_list = visible_kinds
+            .iter()
+            .map(|k| format!("'{}'", k))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        if include_other {
+            format!(
+                "MATCH (a:Entity {{repo_name: $repo_name}})-[r:{rel_filter}]->(b:Entity {{repo_name: $repo_name}})
+                 RETURN DISTINCT a.uuid AS source, b.uuid AS target, type(r) AS rel"
+            )
+        } else {
+            format!(
+                "MATCH (a:Entity {{repo_name: $repo_name}})-[r:{rel_filter}]->(b:Entity {{repo_name: $repo_name}})
+                 WHERE a.kind IN [{visible_list}] AND b.kind IN [{visible_list}]
+                 RETURN DISTINCT a.uuid AS source, b.uuid AS target, type(r) AS rel
+
+                 UNION
+
+                 MATCH (m1:Entity {{repo_name: $repo_name}})-[r:{rel_filter}]->(m2:Entity {{repo_name: $repo_name}})
+                 WHERE NOT m1.kind IN [{visible_list}]
+                   AND NOT m2.kind IN [{visible_list}]
+                   AND m1.enclosing_class <> ''
+                   AND m2.enclosing_class <> ''
+                 MATCH (c1:Entity {{name: m1.enclosing_class, repo_name: $repo_name}})
+                 MATCH (c2:Entity {{name: m2.enclosing_class, repo_name: $repo_name}})
+                 WHERE c1.kind IN [{visible_list}]
+                   AND c2.kind IN [{visible_list}]
+                   AND c1.uuid <> c2.uuid
+                 RETURN DISTINCT c1.uuid AS source, c2.uuid AS target, type(r) AS rel"
+            )
+        }
+    };
+
+    let edge_q = query(&edge_q).param("repo_name", repo_id);
 
     let mut edge_rows = graph
         .execute(edge_q)
@@ -490,6 +682,15 @@ async fn fetch_all_entities(
             row.get::<String>("target"),
             row.get::<String>("rel"),
         ) {
+            if source.is_empty()
+                || target.is_empty()
+                || rel.is_empty()
+                || source == target
+                || !node_uuids.contains(source.as_str())
+                || !node_uuids.contains(target.as_str())
+            {
+                continue;
+            }
             edges.push(GraphEdgeResponse {
                 source,
                 target,
@@ -522,11 +723,11 @@ pub async fn graph_expand_handler(
         }
     }
 
-    let entity_name = if let Some(uuid) = &params.entity_id
+    let (entity_name, entity_uuid) = if let Some(uuid) = &params.entity_id
         && !uuid.trim().is_empty()
     {
         match resolve_uuid_to_name(&state, uuid, &id).await {
-            Ok(Some(name)) => Some(name),
+            Ok(Some(name)) => (Some(name), Some(uuid.clone())),
             Ok(None) => {
                 return error_response(
                     StatusCode::NOT_FOUND,
@@ -542,8 +743,8 @@ pub async fn graph_expand_handler(
         }
     } else {
         match &params.entity {
-            Some(e) if !e.trim().is_empty() => Some(e.clone()),
-            _ => None,
+            Some(e) if !e.trim().is_empty() => (Some(e.clone()), None),
+            _ => (None, None),
         }
     };
 
@@ -581,6 +782,18 @@ pub async fn graph_expand_handler(
 
     let depth = params.depth.unwrap_or(2).clamp(1, 5);
 
+    let kinds_str = params.kinds.as_deref().unwrap_or(DEFAULT_VISIBLE_KINDS);
+    let visible_kinds = match parse_kinds(kinds_str) {
+        Ok(kinds) => kinds,
+        Err(msg) => return error_response(StatusCode::BAD_REQUEST, msg),
+    };
+    let include_oth = includes_other(kinds_str);
+    let kind_filter: Option<&[&str]> = if include_oth {
+        None
+    } else {
+        Some(visible_kinds.as_slice())
+    };
+
     match knot::cli_tools::run_get_subgraph(
         &entity_name,
         &id,
@@ -589,18 +802,28 @@ pub async fn graph_expand_handler(
         direction,
         None,
         &state.graph_db,
+        entity_uuid.as_deref(),
+        kind_filter,
     )
     .await
     {
         Ok(mut result) => {
             if !exclude_uuids.is_empty() {
                 result.nodes.retain(|n| !exclude_uuids.contains(&n.uuid));
-                result.edges.retain(|e| {
-                    !exclude_uuids.contains(&e.source_uuid)
-                        && !exclude_uuids.contains(&e.target_uuid)
-                });
             }
-            let response = subgraph_to_response(result);
+
+            let mut response = subgraph_to_response(result);
+
+            let connected_uuids: std::collections::HashSet<&str> = response
+                .edges
+                .iter()
+                .flat_map(|e| vec![e.source.as_str(), e.target.as_str()])
+                .collect();
+
+            response.nodes.retain(|n| {
+                Some(&n.id) == response.root_id.as_ref() || connected_uuids.contains(n.id.as_str())
+            });
+
             (StatusCode::OK, Json(response)).into_response()
         }
         Err(e) => error_response(
@@ -621,6 +844,15 @@ pub async fn graph_viewer_handler() -> Response {
         GRAPH_VIEWER_HTML,
     )
         .into_response()
+}
+
+pub async fn favicon_handler() -> Response {
+    const FAVICON_BYTES: &[u8] = include_bytes!("../assets/favicon.png");
+
+    Response::builder()
+        .header("content-type", "image/png")
+        .body(axum::body::Body::from(FAVICON_BYTES))
+        .unwrap()
 }
 
 // ── Repository management endpoints ─────────────────────────────
@@ -1016,7 +1248,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_search_missing_query_returns_400() {
+    async fn test_register_duplicate_returns_409() {
         let dir = TempDir::new().unwrap();
         let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
         let app = build_test_app(state);
@@ -1152,7 +1384,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_webhook_missing_signature_returns_401() {
+    async fn test_webhook_nonexistent_repo_no_auth_returns_404() {
         let dir = TempDir::new().unwrap();
         let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
         let app = build_test_app(state);
@@ -1431,5 +1663,322 @@ mod tests {
 
         // Drain the queue to avoid channel drop warnings
         let _ = small_rx.try_recv();
+    }
+
+    #[tokio::test]
+    async fn test_search_missing_query_returns_400() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        let response = app
+            .oneshot(
+                Request::get("/api/repos/any-repo/search")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_callers_missing_entity_returns_400() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        let response = app
+            .oneshot(
+                Request::get("/api/repos/any-repo/callers")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_explore_missing_path_returns_400() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        let response = app
+            .oneshot(
+                Request::get("/api/repos/any-repo/explore")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_list_repos_returns_empty() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        let response = app
+            .oneshot(Request::get("/api/repos").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body_bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert!(json["repositories"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_graph_invalid_relationship_returns_400() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        let body = serde_json::json!({
+            "url": "git@github.com:org/repo.git",
+            "auth_type": "ssh"
+        });
+        let res = app
+            .clone()
+            .oneshot(
+                Request::post("/api/repos")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let body_bytes = axum::body::to_bytes(res.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let repo_id = json["id"].as_str().unwrap();
+
+        let response = app
+            .oneshot(
+                Request::get(format!("/api/repos/{repo_id}/graph?relationships=INVALID"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_graph_invalid_kind_returns_400() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        let body = serde_json::json!({
+            "url": "git@github.com:org/repo.git",
+            "auth_type": "ssh"
+        });
+        let res = app
+            .clone()
+            .oneshot(
+                Request::post("/api/repos")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let body_bytes = axum::body::to_bytes(res.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let repo_id = json["id"].as_str().unwrap();
+
+        let response = app
+            .oneshot(
+                Request::get(format!("/api/repos/{repo_id}/graph?kinds=INVALID"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_graph_expand_invalid_kind_returns_400() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        let body = serde_json::json!({
+            "url": "git@github.com:org/repo.git",
+            "auth_type": "ssh"
+        });
+        let res = app
+            .clone()
+            .oneshot(
+                Request::post("/api/repos")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let body_bytes = axum::body::to_bytes(res.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let repo_id = json["id"].as_str().unwrap();
+
+        let response = app
+            .oneshot(
+                Request::get(format!(
+                    "/api/repos/{repo_id}/graph/expand?entity=test&kinds=INVALID"
+                ))
+                .body(Body::empty())
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_graph_subgraph_invalid_kind_returns_400() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        let body = serde_json::json!({
+            "url": "git@github.com:org/repo.git",
+            "auth_type": "ssh"
+        });
+        let res = app
+            .clone()
+            .oneshot(
+                Request::post("/api/repos")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let body_bytes = axum::body::to_bytes(res.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let repo_id = json["id"].as_str().unwrap();
+
+        let response = app
+            .oneshot(
+                Request::get(format!(
+                    "/api/repos/{repo_id}/graph?entity=some_func&kinds=INVALID"
+                ))
+                .body(Body::empty())
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn test_parse_kinds_empty_uses_default() {
+        let result = parse_kinds("").unwrap();
+        assert!(!result.is_empty());
+        assert!(result.contains(&"class"));
+        assert!(result.contains(&"interface"));
+        assert!(result.contains(&"rust_struct"));
+        assert!(result.contains(&"rust_trait"));
+        assert!(!result.contains(&"function"));
+    }
+
+    #[test]
+    fn test_parse_kinds_invalid_returns_error() {
+        let result = parse_kinds("INVALID");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid kind category"));
+    }
+
+    #[test]
+    fn test_parse_kinds_classes_expands() {
+        let result = parse_kinds("classes").unwrap();
+        assert!(!result.is_empty());
+        for k in KIND_CATEGORY_CLASSES {
+            assert!(result.contains(k), "missing kind: {}", k);
+        }
+    }
+
+    #[test]
+    fn test_parse_kinds_interfaces_expands() {
+        let result = parse_kinds("interfaces").unwrap();
+        assert!(!result.is_empty());
+        for k in KIND_CATEGORY_INTERFACES {
+            assert!(result.contains(k), "missing kind: {}", k);
+        }
+    }
+
+    #[test]
+    fn test_parse_kinds_functions_expands() {
+        let result = parse_kinds("functions").unwrap();
+        assert!(!result.is_empty());
+        for k in KIND_CATEGORY_FUNCTIONS {
+            assert!(result.contains(k), "missing kind: {}", k);
+        }
+    }
+
+    #[test]
+    fn test_parse_kinds_other_returns_empty_visible() {
+        let result = parse_kinds("other").unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_parse_kinds_multiple_categories() {
+        let result = parse_kinds("classes,interfaces,other").unwrap();
+        assert!(result.contains(&"class"));
+        assert!(result.contains(&"interface"));
+        assert!(!result.contains(&"function"));
+    }
+
+    #[test]
+    fn test_includes_other_empty_default() {
+        assert!(!includes_other(""));
+    }
+
+    #[test]
+    fn test_includes_other_explicit() {
+        assert!(includes_other("other"));
+    }
+
+    #[test]
+    fn test_includes_other_not_present() {
+        assert!(!includes_other("classes"));
+        assert!(!includes_other("classes,interfaces"));
+        assert!(!includes_other("functions"));
+    }
+
+    #[test]
+    fn test_includes_other_mixed() {
+        assert!(includes_other("classes,other"));
+        assert!(includes_other("classes,interfaces,other"));
+        assert!(includes_other("other,functions"));
     }
 }

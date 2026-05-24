@@ -1,6 +1,6 @@
 [package]
 name = "knot-server"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2024"
 description = "Distributed REST API server for knot codebase indexing. Manages Git repositories across a cluster with shared workspace coordination."
 authors = ["Raul Tovar <raultov@protonmail.com>"]
@@ -18,7 +18,7 @@ inherits = "release"
 lto = "thin"
 
 [dependencies]
-knot = "1.3.5"
+knot = "1.3.8"
 axum = "0.8"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
@@ -32,6 +32,7 @@ rayon = "1"
 hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
+base64 = "0.22"
 neo4rs = "0.9.0-rc.9"
 
 [dev-dependencies]

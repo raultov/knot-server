@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2024-brightgreen.svg)](https://www.rust-lang.org)
 
-**knot-server** (v0.1.6) is a distributed REST API and background task scheduler for managing and indexing Git repositories across a cluster. It sits on top of the core [knot](https://github.com/raultov/knot) indexing engine, transforming it from a single-machine CLI tool into a highly available, cluster-aware enterprise service.
+**knot-server** (v0.1.7) is a distributed REST API and background task scheduler for managing and indexing Git repositories across a cluster. It sits on top of the core [knot](https://github.com/raultov/knot) indexing engine, transforming it from a single-machine CLI tool into a highly available, cluster-aware enterprise service.
 
 With `knot-server`, you can register Git repositories via a REST API, trigger automatic codebase indexing through webhooks (GitHub, GitLab, Bitbucket), and query the vector (Qdrant) and graph (Neo4j) databases—all while coordinating work safely across multiple server instances via NFS/EFS workspace locks.
 
@@ -47,8 +47,13 @@ With `knot-server`, you can register Git repositories via a REST API, trigger au
 
 ### 🧬 Graph Visualization (Web UI)
 - **`GET /graph`**: Interactive 3D codebase graph viewer. Open in your browser to visually explore entity relationships.
-  - **Dynamic Filtering**: Toggle relationship types (`Calls`, `Extends`, `Implements`, `Contains`, `References`, etc.) in real-time to focus on specific architectural patterns.
-  - **Performance Optimized**: Default overview mode excludes noisy child relationships (`CONTAINS`), reducing node count by up to 80% on large repositories while preserving behavioral flow.
+  - **Dynamic Filtering**: Real-time toggles for relationship types (`Calls`, `Extends`, `Implements`, `Contains`, etc.) and entity kinds (`Classes`, `Interfaces`, `Functions`).
+  - **Node Interaction**: 
+    - **Click**: Automatically discover and expand neighbors.
+    - **Focus on Entity**: Isolate a specific entity and its deep relationship subgraph.
+    - **Back to Overview**: Return to the global entry-points view.
+  - **High-Contrast Selection**: The currently selected node is highlighted in white for maximum visibility.
+  - **Performance Optimized**: Default overview mode excludes noisy child relationships (`CONTAINS`), while focused mode uses physical hierarchy edges to maintain connectivity.
   - **Smart Tooltips**: Hover over nodes to see Fully Qualified Names (FQN), kind, file path, and line numbers.
   - **Contextual Search**: Find entities by FQN or name; results include package/module context.
 - **`GET /api/repos/:id/graph?entity=...`**: Query the entity subgraph for a given repository root entity. Returns nodes and edges in JSON format for programmatic consumption.
@@ -59,8 +64,9 @@ With `knot-server`, you can register Git repositories via a REST API, trigger au
   | `depth` | u32 | `2` | Traversal depth (1–5) |
   | `relationships` | CSV | `CALLS,EXTENDS,IMPLEMENTS` | Edge types to follow. |
   | `direction` | String | `both` | `outgoing`, `incoming`, or `both` |
+  | `kinds` | CSV | `classes,interfaces` | Entity types to include. |
 
-  **Note on Overview Mode:** When no `entity` is provided, the server identifies "entry points" (entities not contained by others) and traverses from them using the selected relationship types.
+  **Note on Overview Mode:** When no `entity` is provided, the server identifies "entry points" (entities not contained by others) and traverses from them using the selected relationship types. Disconnected nodes are automatically pruned in focused views.
 
   **Response** (`200 OK`):
   ```json

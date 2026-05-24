@@ -165,6 +165,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/api/webhook/{id}", post(handlers::webhook_handler))
         .route("/api/health", get(handlers::health_handler))
+        .route("/favicon.ico", get(handlers::favicon_handler))
         .route("/graph", get(handlers::graph_viewer_handler))
         .with_state(state);
 
