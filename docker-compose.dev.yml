@@ -1,0 +1,11 @@
+# docker-compose.dev.yml
+# Development overlay — extends docker-compose.yml to build the image from source
+# instead of pulling from DockerHub.
+#
+# Usage (from the repo root):
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml build
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+services:
+  knot-server:
+    build: .

@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2024-brightgreen.svg)](https://www.rust-lang.org)
 
-**knot-server** (v0.1.7) is a distributed REST API and background task scheduler for managing and indexing Git repositories across a cluster. It sits on top of the core [knot](https://github.com/raultov/knot) indexing engine, transforming it from a single-machine CLI tool into a highly available, cluster-aware enterprise service.
+**knot-server** (v0.1.8) is a distributed REST API and background task scheduler for managing and indexing Git repositories across a cluster. It sits on top of the core [knot](https://github.com/raultov/knot) indexing engine, transforming it from a single-machine CLI tool into a highly available, cluster-aware enterprise service.
 
 With `knot-server`, you can register Git repositories via a REST API, trigger automatic codebase indexing through webhooks (GitHub, GitLab, Bitbucket), and query the vector (Qdrant) and graph (Neo4j) databases—all while coordinating work safely across multiple server instances via NFS/EFS workspace locks.
 
@@ -201,21 +201,62 @@ The easiest way to run `knot-server` with its dependencies. Just download the
 
 ```bash
 curl -O https://raw.githubusercontent.com/raultov/knot-server/master/docker-compose.yml
+# Create the required empty placeholder directory (only needed once)
+mkdir -p ~/.knot/empty
 docker compose up
 ```
 
 This pulls the pre-built [`raultov/knot-server`](https://hub.docker.com/r/raultov/knot-server)
 image from Docker Hub along with Qdrant and Neo4j — no compilation needed.
 
+#### SSH credentials for private repositories
+
+The container copies your SSH keys at startup and fixes permissions automatically
+(avoiding the `Bad owner or permissions` error that occurs with a direct bind-mount
+into `/root/.ssh`).
+
+By default it uses `~/.ssh`. Override with `KNOT_SSH_KEYS_DIR`:
+
+```bash
+# Use a specific key directory (e.g. corporate Bitbucket keys)
+KNOT_SSH_KEYS_DIR=/path/to/your/ssh/keys docker compose up
+```
+
+#### Indexing local repositories
+
+To index a repository that lives on your host machine instead of a remote URL,
+mount the parent directory into the container **at the same absolute path** so
+that paths you pass to the API resolve transparently:
+
+```bash
+# Expose your entire workspace so /home/raultov/workspace/... works inside the container
+KNOT_LOCAL_REPOS_DIR=/home/raultov/workspace docker compose up
+```
+
+Then register the repo with its local path:
+
+```bash
+curl -X POST http://localhost:3000/api/repos \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "/home/raultov/workspace/github/ui",
+    "name": "ui",
+    "branch": "master",
+    "auth": { "type": "none" }
+  }'
+```
+
+> **Note:** `KNOT_LOCAL_REPOS_DIR` is mounted **read-only**. The server will
+> read the existing repo from that path — it skips `git clone` because `.git`
+> already exists — and index it in place.
+
 If you already have Neo4j and Qdrant running on your host machine (not in containers),
 use `--network host` so the container can reach them via `localhost`:
 
 ```bash
 docker run --network host \
-  -v ${HOME}/.ssh:/root/.ssh:ro \
-  raultov/knot-server:latest \
-  --neo4j-password <your-password> \
-  --workspace-dir /var/lib/knot/repos
+  -v ${HOME}/.ssh:/tmp/ssh_keys:ro \
+  raultov/knot-server:latest
 ```
 
 > **Note:** The `raultov/knot-server` image does **not** include Neo4j or Qdrant.
@@ -223,53 +264,42 @@ docker run --network host \
 > databases will fail — the container defaults to `localhost` which refers to
 > itself, not your host.
 
-```yaml
-services:
-  knot-server:
-    image: raultov/knot-server:latest
-    ports:
-      - "3000:3000"
-    environment:
-      - KNOT_WORKSPACE_DIR=/var/lib/knot/repos
-      - KNOT_SERVER_QDRANT_URL=http://qdrant:6334
-      - KNOT_SERVER_NEO4J_URI=bolt://neo4j:7687
-      - KNOT_SERVER_NEO4J_USER=neo4j
-      - KNOT_NEO4J_PASSWORD=knotsecret
-    volumes:
-      - knot_workspace:/var/lib/knot/repos
-      - ${HOME}/.ssh:/root/.ssh:ro
-    depends_on:
-      qdrant:
-        condition: service_started
-      neo4j:
-        condition: service_started
-
-  qdrant:
-    image: qdrant/qdrant:v1.16.2
-    volumes:
-      - qdrant_data:/qdrant/storage
-
-  neo4j:
-    image: neo4j:5.26-community
-    environment:
-      - NEO4J_AUTH=neo4j/knotsecret
-      - NEO4J_PLUGINS=["apoc"]
-    volumes:
-      - neo4j_data:/data
-
-volumes:
-  knot_workspace:
-  qdrant_data:
-  neo4j_data:
-```
-
 ### Option C: Build from Source
+
+Clone the repository and build the binary:
 
 ```bash
 git clone https://github.com/raultov/knot-server
 cd knot-server
 cargo build --release
 ```
+
+#### Running with Docker Compose from source
+
+The repo includes `docker-compose.dev.yml`, a development overlay that adds
+`build: .` on top of `docker-compose.yml`. Use it when you want docker compose
+to build the image locally instead of pulling from DockerHub:
+
+```bash
+# Build the image from source
+docker compose -f docker-compose.yml -f docker-compose.dev.yml build
+
+# Start the full stack using the locally built image
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+# Rebuild and start in one step
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+
+# With local repos exposed (see "Indexing local repositories" above)
+KNOT_LOCAL_REPOS_DIR=/home/user/workspace \
+  docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+```
+
+> **Tip:** You can add a shell alias to avoid repeating the `-f` flags:
+> ```bash
+> alias dc-dev='docker compose -f docker-compose.yml -f docker-compose.dev.yml'
+> dc-dev up --build
+> ```
 
 ---
 
@@ -295,6 +325,15 @@ cargo build --release
 | `KNOT_SERVER_MAX_INDEX_AGE_SECS` | `86400` (24h) | Age before a repository is automatically re-indexed |
 | `KNOT_SERVER_QUEUE_CAPACITY` | `16` | Maximum number of jobs in the background indexing queue. Returns `429 Too Many Requests` when full. |
 | `RUST_LOG` | `info` | Log level (`debug`, `info`, `warn`, `error`) |
+
+### Docker Compose Host Variables
+
+These variables are consumed by `docker compose` itself (not by the server binary) to configure volume mounts:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KNOT_SSH_KEYS_DIR` | `~/.ssh` | Directory of SSH keys to make available inside the container. Keys are copied to `/root/.ssh` with correct ownership and permissions at startup. |
+| `KNOT_LOCAL_REPOS_DIR` | `~/.knot/empty` | Host directory to mount at the same absolute path inside the container (read-only). Set this to the parent directory of any local repos you want to index by path. |
 
 ---
 

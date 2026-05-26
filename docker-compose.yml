@@ -12,7 +12,10 @@ services:
       - KNOT_NEO4J_PASSWORD=knotsecret
     volumes:
       - knot_workspace:/var/lib/knot/repos
-      - ${HOME}/.ssh:/root/.ssh:ro
+      - ${KNOT_SSH_KEYS_DIR:-${HOME}/.ssh}:/tmp/ssh_keys:ro
+      # Mount local repos directory at the same path so absolute paths passed to the API work transparently.
+      # Example: KNOT_LOCAL_REPOS_DIR=/home/raultov/workspace docker compose up
+      - ${KNOT_LOCAL_REPOS_DIR:-${HOME}/.knot/empty}:${KNOT_LOCAL_REPOS_DIR:-${HOME}/.knot/empty}:ro
     depends_on:
       qdrant:
         condition: service_started
