@@ -10,11 +10,19 @@ services:
       - KNOT_NEO4J_USER=neo4j
     # Change this password for production deployments
       - KNOT_NEO4J_PASSWORD=knotsecret
+      # SSH agent forwarding — required for passphrase-protected keys (common in corporate environments)
+      - SSH_AUTH_SOCK=/ssh-agent
     volumes:
       - knot_workspace:/var/lib/knot/repos
+      # fastembed model cache: must live inside KNOT_WORKSPACE_DIR (knot-server builds the path as
+      # $KNOT_WORKSPACE_DIR/fastembed_cache, ignoring any separate KNOT_FASTEMBED_CACHE_DIR variable)
+      - fastembed_cache:/var/lib/knot/repos/fastembed_cache
       - ${KNOT_SSH_KEYS_DIR:-${HOME}/.ssh}:/tmp/ssh_keys:ro
+      # Forward the host SSH agent so passphrase-protected keys work inside the container
+      - ${SSH_AUTH_SOCK}:/ssh-agent:ro
       # Mount local repos directory at the same path so absolute paths passed to the API work transparently.
-      # Example: KNOT_LOCAL_REPOS_DIR=/home/raultov/workspace docker compose up
+      # Set KNOT_LOCAL_REPOS_DIR in .env or prefix the command:
+      #   KNOT_LOCAL_REPOS_DIR=/home/user/workspace docker compose up
       - ${KNOT_LOCAL_REPOS_DIR:-${HOME}/.knot/empty}:${KNOT_LOCAL_REPOS_DIR:-${HOME}/.knot/empty}:ro
     depends_on:
       qdrant:
@@ -38,5 +46,6 @@ services:
 
 volumes:
   knot_workspace:
+  fastembed_cache:
   qdrant_data:
   neo4j_data:

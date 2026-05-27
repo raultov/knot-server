@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2024-brightgreen.svg)](https://www.rust-lang.org)
 
-**knot-server** (v0.1.8) is a distributed REST API and background task scheduler for managing and indexing Git repositories across a cluster. It sits on top of the core [knot](https://github.com/raultov/knot) indexing engine, transforming it from a single-machine CLI tool into a highly available, cluster-aware enterprise service.
+**knot-server** (v0.1.9) is a distributed REST API and background task scheduler for managing and indexing Git repositories across a cluster. It sits on top of the core [knot](https://github.com/raultov/knot) indexing engine, transforming it from a single-machine CLI tool into a highly available, cluster-aware enterprise service.
 
 With `knot-server`, you can register Git repositories via a REST API, trigger automatic codebase indexing through webhooks (GitHub, GitLab, Bitbucket), and query the vector (Qdrant) and graph (Neo4j) databases—all while coordinating work safely across multiple server instances via NFS/EFS workspace locks.
 
@@ -201,6 +201,8 @@ The easiest way to run `knot-server` with its dependencies. Just download the
 
 ```bash
 curl -O https://raw.githubusercontent.com/raultov/knot-server/master/docker-compose.yml
+curl -O https://raw.githubusercontent.com/raultov/knot-server/master/.env.example
+cp .env.example .env          # edit .env to set KNOT_LOCAL_REPOS_DIR etc.
 # Create the required empty placeholder directory (only needed once)
 mkdir -p ~/.knot/empty
 docker compose up
@@ -222,14 +224,41 @@ By default it uses `~/.ssh`. Override with `KNOT_SSH_KEYS_DIR`:
 KNOT_SSH_KEYS_DIR=/path/to/your/ssh/keys docker compose up
 ```
 
+##### Passphrase-protected keys (corporate / enterprise environments)
+
+Copying SSH key files alone is not enough when keys are protected by a
+passphrase — the `ssh-agent` running on the host must be forwarded into the
+container. The `docker-compose.yml` does this automatically by mounting the
+host socket:
+
+```yaml
+environment:
+  - SSH_AUTH_SOCK=/ssh-agent
+volumes:
+  - ${SSH_AUTH_SOCK}:/ssh-agent:ro
+```
+
+Make sure your host `ssh-agent` is running and the key is loaded before
+starting the stack (`ssh-add ~/.ssh/id_rsa`).
+
 #### Indexing local repositories
 
 To index a repository that lives on your host machine instead of a remote URL,
 mount the parent directory into the container **at the same absolute path** so
-that paths you pass to the API resolve transparently:
+that paths you pass to the API resolve transparently.
+
+The easiest way is to set `KNOT_LOCAL_REPOS_DIR` in the `.env` file (copy
+`.env.example` as a starting point):
 
 ```bash
-# Expose your entire workspace so /home/raultov/workspace/... works inside the container
+# .env
+KNOT_LOCAL_REPOS_DIR=/home/raultov/workspace
+```
+
+Then just run `docker compose up`. Alternatively, prefix the variable on the
+command line:
+
+```bash
 KNOT_LOCAL_REPOS_DIR=/home/raultov/workspace docker compose up
 ```
 
@@ -328,11 +357,13 @@ KNOT_LOCAL_REPOS_DIR=/home/user/workspace \
 
 ### Docker Compose Host Variables
 
-These variables are consumed by `docker compose` itself (not by the server binary) to configure volume mounts:
+These variables are consumed by `docker compose` itself (not by the server binary) to configure volume mounts.
+Copy `.env.example` to `.env` and set the values there so you do not have to prefix them on every `docker compose up`.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `KNOT_SSH_KEYS_DIR` | `~/.ssh` | Directory of SSH keys to make available inside the container. Keys are copied to `/root/.ssh` with correct ownership and permissions at startup. |
+| `KNOT_SSH_KEYS_DIR` | `~/.ssh` | Directory of SSH key *files* to make available inside the container. Keys are copied to `/root/.ssh` with correct ownership and permissions at startup. |
+| `SSH_AUTH_SOCK` | *(host socket)* | Path to the host SSH agent socket. Forwarded into the container at `/ssh-agent` so passphrase-protected keys work without re-entering the passphrase. Requires the host `ssh-agent` to be running with the key already loaded (`ssh-add`). |
 | `KNOT_LOCAL_REPOS_DIR` | `~/.knot/empty` | Host directory to mount at the same absolute path inside the container (read-only). Set this to the parent directory of any local repos you want to index by path. |
 
 ---
