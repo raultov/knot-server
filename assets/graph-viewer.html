@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>knot — Graph Viewer</title>
+  <title>knot — Graph Viewer (knot-server v{{KNOT_SERVER_VERSION}})</title>
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="/favicon.ico?v=3">
   <style>
@@ -209,6 +209,14 @@
       font-size: 11px;
       color: #888;
       z-index: 100;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    #version-badge {
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      color: #666;
     }
   </style>
 </head>
@@ -260,7 +268,10 @@
     <button id="back-btn" class="hidden">Back to Overview</button>
   </div>
 
-  <div id="status-bar">Ready</div>
+  <div id="status-bar">
+    <span id="status-text">Ready</span>
+    <span id="version-badge">knot-server v{{KNOT_SERVER_VERSION}}</span>
+  </div>
 
   <script src="https://unpkg.com/3d-force-graph"></script>
 
@@ -555,7 +566,7 @@
     }
 
     function setStatus(msg) {
-      document.getElementById('status-bar').textContent = msg;
+      document.getElementById('status-text').textContent = msg;
     }
 
     function refreshGraphWithFilters() {

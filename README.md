@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2024-brightgreen.svg)](https://www.rust-lang.org)
 
-**knot-server** (v0.1.10) is a distributed REST API and background task scheduler for managing and indexing Git repositories across a cluster. It sits on top of the core [knot](https://github.com/raultov/knot) indexing engine, transforming it from a single-machine CLI tool into a highly available, cluster-aware enterprise service.
+**knot-server** (v0.1.11) is a distributed REST API and background task scheduler for managing and indexing Git repositories across a cluster. It sits on top of the core [knot](https://github.com/raultov/knot) indexing engine, transforming it from a single-machine CLI tool into a highly available, cluster-aware enterprise service.
 
 With `knot-server`, you can register Git repositories via a REST API, trigger automatic codebase indexing through webhooks (GitHub, GitLab, Bitbucket), and query the vector (Qdrant) and graph (Neo4j) databases—all while coordinating work safely across multiple server instances via NFS/EFS workspace locks.
 
@@ -31,7 +31,7 @@ With `knot-server`, you can register Git repositories via a REST API, trigger au
   | `branch` | No | Branch to clone (defaults to `"main"`) |
   | `webhook_secret` | No | Shared secret for validating webhook signatures (HMAC-SHA256 or token). **Required to use the `/api/webhook` endpoint.** |
   | `auth` | No | Authentication method: `{"type": "ssh"}`, `{"type": "https", "token": "..."}`, or `{"type": "none"}` (default: `{"type": "ssh"}`) |
-- **`GET /api/repos`**: List all registered repositories, along with their current status (`cloning`, `pulling`, `indexing`, `idle`, `error`) and last indexed timestamp.
+- **`GET /api/repos`**: List all registered repositories, along with their current status (`pending`, `cloning`, `pulling`, `indexing`, `indexed`, `error`) and last indexed timestamp.
 - **`GET /api/repos/:id`**: Retrieve detailed information about a specific repository.
 - **`DELETE /api/repos/:id`**: Remove a repository from the registry and delete its local workspace. (No request body required).
 
@@ -191,7 +191,7 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/raultov/knot-server/rel
 
 For a specific version, replace `latest` with the version tag:
 ```bash
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/raultov/knot-server/releases/download/v0.1.10/knot-server-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/raultov/knot-server/releases/download/v0.1.11/knot-server-installer.sh | sh
 ```
 
 ### Option B: Docker Compose (Pre-built Image)
@@ -462,7 +462,7 @@ curl -X POST http://localhost:3000/api/repos \
 ```bash
 curl http://localhost:3000/api/repos/knot-core
 ```
-*Wait until `"status": "idle"`.*
+*Wait until `"status": "indexed"`.*
 
 **4. Perform a semantic search**
 ```bash

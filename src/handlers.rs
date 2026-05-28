@@ -835,13 +835,17 @@ pub async fn graph_expand_handler(
 
 // ── Graph viewer endpoint ────────────────────────────────────────
 
-const GRAPH_VIEWER_HTML: &str = include_str!("../assets/graph-viewer.html");
+const GRAPH_VIEWER_HTML_TEMPLATE: &str = include_str!("../assets/graph-viewer.html");
+
+static GRAPH_VIEWER_HTML: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    GRAPH_VIEWER_HTML_TEMPLATE.replace("{{KNOT_SERVER_VERSION}}", env!("CARGO_PKG_VERSION"))
+});
 
 pub async fn graph_viewer_handler() -> Response {
     (
         StatusCode::OK,
         [("content-type", "text/html; charset=utf-8")],
-        GRAPH_VIEWER_HTML,
+        GRAPH_VIEWER_HTML.as_str(),
     )
         .into_response()
 }
@@ -895,7 +899,7 @@ pub async fn register_repo_handler(
         branch: body.branch.clone(),
         webhook_secret: body.webhook_secret.clone(),
         last_indexed: None,
-        status: crate::models::RepoStatus::Idle,
+        status: crate::models::RepoStatus::Pending,
     };
 
     let mut registry = state.registry.lock().unwrap();
@@ -1550,6 +1554,15 @@ mod tests {
         let body = String::from_utf8(body_bytes.to_vec()).unwrap();
         assert!(body.contains("<!DOCTYPE html>"));
         assert!(body.contains("ForceGraph3D"));
+        assert!(
+            !body.contains("{{KNOT_SERVER_VERSION}}"),
+            "version placeholder was not substituted"
+        );
+        assert!(
+            body.contains(env!("CARGO_PKG_VERSION")),
+            "package version absent from HTML"
+        );
+        assert!(body.contains("knot-server v"), "version badge malformed");
     }
 
     #[tokio::test]
