@@ -64,4 +64,4 @@ curl -s "http://localhost:3000/api/repos/<REPO_ID>/deps" | jq
 - For `/callers` with common names, include a signature fragment (e.g., `"process(Request"`).
 - Use `/explore` to identify target line ranges before reading files.
 - If a repo returns `"status": "error"` or is not listed, register it first.
-- Wait for `"status": "idle"` after registration before running queries.
+- Wait for `"status": "indexed"` after registration before running queries.

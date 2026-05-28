@@ -21,7 +21,7 @@ curl -s http://localhost:3000/api/repos | jq '.repositories[] | {id, status, url
 ```
 
 Pick the `id` of the repository you want to query. The `status` field must be
-`"idle"` for code intelligence endpoints to return results.
+`"indexed"` for code intelligence endpoints to return results.
 
 ---
 
@@ -165,6 +165,6 @@ curl -s http://localhost:3000/api/health | jq
    line range you need, then read only that section. This conserves context
    window tokens.
 4. **If a repo is not indexed**, register it first with `POST /api/repos`,
-   wait for `"status": "idle"`, then query it.
+   wait for `"status": "indexed"`, then query it.
 5. **Always pipe JSON output through `jq`** to select only the fields you
    need. Avoid dumping raw JSON into the context window.

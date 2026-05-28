@@ -121,9 +121,9 @@ async fn process_repository(
     // 7. Update registry
     {
         let mut registry = state.registry.lock().unwrap();
-        registry.update_status(&repo.id, crate::models::RepoStatus::Idle)?;
+        registry.update_status(&repo.id, crate::models::RepoStatus::Indexed)?;
         registry.update_last_indexed(&repo.id)?;
-        tracing::info!("Worker: status=idle for '{}'", repo.id);
+        tracing::info!("Worker: status=indexed for '{}'", repo.id);
     }
 
     tracing::info!("Worker: job completed for '{}'", repo.id);
@@ -234,7 +234,7 @@ mod tests {
             branch: "main".into(),
             webhook_secret: None,
             last_indexed: None,
-            status: RepoStatus::Idle,
+            status: RepoStatus::Indexed,
         };
 
         // Should fail during git clone but not panic

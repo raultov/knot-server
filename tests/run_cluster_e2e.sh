@@ -199,16 +199,16 @@ register_repo "repo-beta" "$REPO_BETA" > /dev/null
 register_repo "repo-gamma" "$REPO_GAMMA" > /dev/null
 echo "  Repos registered: alpha, beta, gamma"
 
-# Wait for them to be indexed (status idle)
-wait_for_idle() {
+# Wait for them to be indexed (status indexed)
+wait_for_indexed() {
     local repo_name="$1"
     local port="$2"
     local base="http://localhost:$port"
     for i in $(seq 1 60); do
         local status
         status=$(curl -sf "$base/api/repos/$repo_name" | jq -r '.status')
-        if [ "$status" = "idle" ]; then
-            echo "  $repo_name → idle"
+        if [ "$status" = "indexed" ]; then
+            echo "  $repo_name → indexed"
             return 0
         elif [ "$status" = "error" ]; then
             echo -e "${RED}$repo_name → error (check server logs)${NC}"
@@ -216,15 +216,15 @@ wait_for_idle() {
         fi
         sleep 1
     done
-    echo -e "${YELLOW}$repo_name → still not idle after 60s${NC}"
+    echo -e "${YELLOW}$repo_name → still not indexed after 60s${NC}"
     return 0
 }
 
-wait_for_idle "repo-alpha" "$SERVER_A_PORT" || true
-wait_for_idle "repo-beta" "$SERVER_A_PORT" || true
-wait_for_idle "repo-gamma" "$SERVER_A_PORT" || true
+wait_for_indexed "repo-alpha" "$SERVER_A_PORT" || true
+wait_for_indexed "repo-beta" "$SERVER_A_PORT" || true
+wait_for_indexed "repo-gamma" "$SERVER_A_PORT" || true
 
-# Verify all 3 are in the registry with idle status
+# Verify all 3 are in the registry with indexed status
 LIST_A=$(curl -sf "$BASE_A/api/repos")
 assert_contains "$LIST_A" '"repo-alpha"' "repo-alpha registered on A"
 assert_contains "$LIST_A" '"repo-beta"' "repo-beta registered on A"
@@ -233,9 +233,9 @@ assert_contains "$LIST_A" '"repo-gamma"' "repo-gamma registered on A"
 STATUS_A_ALPHA=$(echo "$LIST_A" | jq -r '.repositories[] | select(.id=="repo-alpha") | .status')
 STATUS_A_BETA=$(echo "$LIST_A" | jq -r '.repositories[] | select(.id=="repo-beta") | .status')
 STATUS_A_GAMMA=$(echo "$LIST_A" | jq -r '.repositories[] | select(.id=="repo-gamma") | .status')
-assert_status "$STATUS_A_ALPHA" "idle" "repo-alpha is idle on A"
-assert_status "$STATUS_A_BETA" "idle" "repo-beta is idle on A"
-assert_status "$STATUS_A_GAMMA" "idle" "repo-gamma is idle on A"
+assert_status "$STATUS_A_ALPHA" "indexed" "repo-alpha is indexed on A"
+assert_status "$STATUS_A_BETA" "indexed" "repo-beta is indexed on A"
+assert_status "$STATUS_A_GAMMA" "indexed" "repo-gamma is indexed on A"
 
 # ── Step 3: Start Instance B ─────────────────────────────────────
 echo -e "\n${YELLOW}[3/5] Starting Instance B (port $SERVER_B_PORT)...${NC}"
@@ -319,7 +319,7 @@ echo -e "\n${YELLOW}[5/5] Waiting for B to detect stale lock and recover...${NC}
 # should detect the orphaned lock within ~6 seconds. When it does:
 #   1. It logs "Stale lock detected" and removes the lock file
 #   2. It enqueues a Pull job
-#   3. The worker processes it (pull + index) and sets status=idle
+#   3. The worker processes it (pull + index) and sets status=indexed
 #
 # We verify by checking B's server log for the recovery messages.
 # Note: after processing, the worker creates a fresh .knot.lock
@@ -350,9 +350,9 @@ assert_contains "$(tail -50 "$SERVER_B_LOG")" "job completed for 'repo-alpha'" "
 STATUS_B1=$(curl -sf "$BASE_B/api/repos/repo-alpha" | jq -r '.status')
 STATUS_B2=$(curl -sf "$BASE_B/api/repos/repo-beta" | jq -r '.status')
 STATUS_B3=$(curl -sf "$BASE_B/api/repos/repo-gamma" | jq -r '.status')
-assert_status "$STATUS_B1" "idle" "repo-alpha is idle on B after recovery"
-assert_status "$STATUS_B2" "idle" "repo-beta still idle (unaffected)"
-assert_status "$STATUS_B3" "idle" "repo-gamma still idle (unaffected)"
+assert_status "$STATUS_B1" "indexed" "repo-alpha is indexed on B after recovery"
+assert_status "$STATUS_B2" "indexed" "repo-beta still indexed (unaffected)"
+assert_status "$STATUS_B3" "indexed" "repo-gamma still indexed (unaffected)"
 
 # ── Summary ──────────────────────────────────────────────────────
 echo ""

@@ -161,7 +161,7 @@ mod tests {
             branch: "main".into(),
             webhook_secret: None,
             last_indexed: None,
-            status: crate::models::RepoStatus::Idle,
+            status: crate::models::RepoStatus::Indexed,
         };
 
         run_git_clone(&repo).await.unwrap();
@@ -183,7 +183,7 @@ mod tests {
             branch: "main".into(),
             webhook_secret: None,
             last_indexed: None,
-            status: crate::models::RepoStatus::Idle,
+            status: crate::models::RepoStatus::Indexed,
         };
 
         run_git_clone(&repo).await.unwrap();
@@ -226,7 +226,7 @@ mod tests {
             branch: "main".into(),
             webhook_secret: None,
             last_indexed: None,
-            status: crate::models::RepoStatus::Idle,
+            status: crate::models::RepoStatus::Indexed,
         };
         let result = run_git_pull(&repo).await;
         assert!(result.is_err());
@@ -246,7 +246,7 @@ mod tests {
             branch: "main".into(),
             webhook_secret: None,
             last_indexed: None,
-            status: crate::models::RepoStatus::Idle,
+            status: crate::models::RepoStatus::Indexed,
         };
 
         run_git_clone(&repo).await.unwrap();

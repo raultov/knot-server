@@ -109,5 +109,5 @@ curl -s http://localhost:3000/api/health | jq
 4. **Use `/deps`** to understand cross-repo relationships before breaking changes.
 5. **Always pipe through `jq`** to extract only relevant fields — never dump raw
    JSON into the context.
-6. **If a repo is not indexed**, register it, wait for `"status": "idle"`,
+6. **If a repo is not indexed**, register it, wait for `"status": "indexed"`,
    then query it.

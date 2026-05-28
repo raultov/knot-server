@@ -181,7 +181,7 @@ mod tests {
             branch: "main".to_string(),
             webhook_secret: None,
             last_indexed: None,
-            status: RepoStatus::Idle,
+            status: RepoStatus::Indexed,
         }
     }
 

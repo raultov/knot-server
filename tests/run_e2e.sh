@@ -204,7 +204,7 @@ else
     exit 1
 fi
 
-# Test D: Wait for indexing to complete (status=idle, last_indexed not null)
+# Test D: Wait for indexing to complete (status=indexed, last_indexed not null)
 echo -e "\n${CYAN}Test D: Wait for indexing completion${NC}"
 INDEXED_OK=false
 for i in $(seq 1 60); do
@@ -212,7 +212,7 @@ for i in $(seq 1 60); do
     STATUS=$(echo "$REPO_JSON" | jq -r '.status')
     LAST_INDEXED=$(echo "$REPO_JSON" | jq -r '.last_indexed')
 
-    if [ "$STATUS" = "idle" ] && [ "$LAST_INDEXED" != "null" ] && [ -n "$LAST_INDEXED" ]; then
+    if [ "$STATUS" = "indexed" ] && [ "$LAST_INDEXED" != "null" ] && [ -n "$LAST_INDEXED" ]; then
         echo -e "${GREEN}PASS${NC} — indexing complete (last_indexed: $LAST_INDEXED)"
         INDEXED_OK=true
         break
@@ -437,13 +437,13 @@ if [ "$INDEXED_OK" = "true" ]; then
       exit 1
     fi
 
-    # Test F: List repos shows status idle
+    # Test F: List repos shows status indexed
     echo -e "\n${CYAN}Test F: List contains indexed repo${NC}"
     LIST=$(curl -sf "$BASE_URL/api/repos")
-    if echo "$LIST" | jq -e ".repositories[] | select(.id == \"$REPO_ID\" and .status == \"idle\")" > /dev/null 2>&1; then
-        echo -e "${GREEN}PASS${NC} — repo has status idle"
+    if echo "$LIST" | jq -e ".repositories[] | select(.id == \"$REPO_ID\" and .status == \"indexed\")" > /dev/null 2>&1; then
+        echo -e "${GREEN}PASS${NC} — repo has status indexed"
     else
-        echo -e "${RED}FAIL${NC} — repo status is not idle"
+        echo -e "${RED}FAIL${NC} — repo status is not indexed"
         echo "$LIST" | jq ".repositories[] | {id, status, last_indexed}"
         exit 1
     fi
@@ -519,8 +519,8 @@ echo -e "\n${CYAN}  Waiting for sync to complete...${NC}"
 for i in $(seq 1 30); do
     REPO_JSON=$(curl -sf "$BASE_URL/api/repos/$REPO_ID")
     STATUS=$(echo "$REPO_JSON" | jq -r '.status')
-    if [ "$STATUS" = "idle" ]; then
-        echo -e "  ${GREEN}sync complete (status: idle)${NC}"
+    if [ "$STATUS" = "indexed" ]; then
+        echo -e "  ${GREEN}sync complete (status: indexed)${NC}"
         break
     elif [ "$STATUS" = "error" ]; then
         echo -e "  ${YELLOW}sync returned error (acceptable for unchanged repo, continuing)${NC}"

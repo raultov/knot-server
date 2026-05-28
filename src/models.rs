@@ -11,7 +11,9 @@ pub enum AuthType {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum RepoStatus {
-    Idle,
+    Pending,
+    #[serde(alias = "idle")]
+    Indexed,
     Cloning,
     Pulling,
     Indexing,
@@ -21,7 +23,8 @@ pub enum RepoStatus {
 impl std::fmt::Display for RepoStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Idle => write!(f, "idle"),
+            Self::Pending => write!(f, "pending"),
+            Self::Indexed => write!(f, "indexed"),
             Self::Cloning => write!(f, "cloning"),
             Self::Pulling => write!(f, "pulling"),
             Self::Indexing => write!(f, "indexing"),
@@ -51,7 +54,7 @@ fn default_branch() -> String {
 }
 
 fn default_status() -> RepoStatus {
-    RepoStatus::Idle
+    RepoStatus::Indexed
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -178,11 +181,23 @@ mod tests {
 
     #[test]
     fn test_repo_status_display() {
-        assert_eq!(RepoStatus::Idle.to_string(), "idle");
+        assert_eq!(RepoStatus::Pending.to_string(), "pending");
+        assert_eq!(RepoStatus::Indexed.to_string(), "indexed");
         assert_eq!(RepoStatus::Cloning.to_string(), "cloning");
         assert_eq!(RepoStatus::Pulling.to_string(), "pulling");
         assert_eq!(RepoStatus::Indexing.to_string(), "indexing");
         assert_eq!(RepoStatus::Error.to_string(), "error");
+    }
+
+    #[test]
+    fn test_repo_status_deserialization_alias() {
+        let json = r#"{"status": "idle"}"#;
+        #[derive(Deserialize)]
+        struct Wrapper {
+            status: RepoStatus,
+        }
+        let parsed: Wrapper = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.status, RepoStatus::Indexed);
     }
 
     #[test]

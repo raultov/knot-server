@@ -46,7 +46,7 @@ needs `#[derive(utoipa::ToSchema)]`.
 | Struct/Enum | Role | Notes |
 |-------------|------|-------|
 | `AuthType` | Enum (`ssh`, `https`) | Add `#[derive(ToSchema)]` |
-| `RepoStatus` | Enum (`idle`, `cloning`, `pulling`, `indexing`, `error`) | Add `#[derive(ToSchema)]` |
+| `RepoStatus` | Enum (`pending`, `indexed`, `cloning`, `pulling`, `indexing`, `error`) | Add `#[derive(ToSchema)]` |
 | `RepoEntry` | Response body for `GET /api/repos/:id` and items in list | Add `#[derive(ToSchema)]`. Mark `webhook_secret` with `#[schema(write_only)]` so it doesn't leak in docs. |
 | `RegisterRepoRequest` | Request body for `POST /api/repos` | Add `#[derive(ToSchema)]`. Add `#[schema(example = ...)]` for `url` and `branch`. |
 | `RegisterRepoResponse` | Response body for `POST /api/repos` | Add `#[derive(ToSchema)]` |
