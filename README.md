@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2024-brightgreen.svg)](https://www.rust-lang.org)
 
-**knot-server** (v0.1.9) is a distributed REST API and background task scheduler for managing and indexing Git repositories across a cluster. It sits on top of the core [knot](https://github.com/raultov/knot) indexing engine, transforming it from a single-machine CLI tool into a highly available, cluster-aware enterprise service.
+**knot-server** (v0.1.10) is a distributed REST API and background task scheduler for managing and indexing Git repositories across a cluster. It sits on top of the core [knot](https://github.com/raultov/knot) indexing engine, transforming it from a single-machine CLI tool into a highly available, cluster-aware enterprise service.
 
 With `knot-server`, you can register Git repositories via a REST API, trigger automatic codebase indexing through webhooks (GitHub, GitLab, Bitbucket), and query the vector (Qdrant) and graph (Neo4j) databases—all while coordinating work safely across multiple server instances via NFS/EFS workspace locks.
 
@@ -191,7 +191,7 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/raultov/knot-server/rel
 
 For a specific version, replace `latest` with the version tag:
 ```bash
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/raultov/knot-server/releases/download/v0.1.6/knot-server-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/raultov/knot-server/releases/download/v0.1.10/knot-server-installer.sh | sh
 ```
 
 ### Option B: Docker Compose (Pre-built Image)
@@ -354,6 +354,10 @@ KNOT_LOCAL_REPOS_DIR=/home/user/workspace \
 | `KNOT_SERVER_MAX_INDEX_AGE_SECS` | `86400` (24h) | Age before a repository is automatically re-indexed |
 | `KNOT_SERVER_QUEUE_CAPACITY` | `16` | Maximum number of jobs in the background indexing queue. Returns `429 Too Many Requests` when full. |
 | `RUST_LOG` | `info` | Log level (`debug`, `info`, `warn`, `error`) |
+
+> **Note:** When using Docker Compose, export `KNOT_SERVER_PORT` _before_ `docker compose up`
+> so the port mapping in `docker-compose.yml` also changes (defaults to `3000:3000`).
+> Example: `KNOT_SERVER_PORT=8080 docker compose up`
 
 ### Docker Compose Host Variables
 
