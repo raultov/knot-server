@@ -1,6 +1,6 @@
 [package]
 name = "knot-server"
-version = "0.1.13"
+version = "0.1.14"
 edition = "2024"
 description = "Distributed REST API server for knot codebase indexing. Manages Git repositories across a cluster with shared workspace coordination."
 authors = ["Raul Tovar <raultov@protonmail.com>"]
@@ -34,6 +34,9 @@ sha2 = "0.10"
 hex = "0.4"
 base64 = "0.22"
 neo4rs = "0.9.0-rc.9"
+utoipa = { version = "5", features = ["axum_extras"] }
+utoipa-axum = "0.2"
+utoipa-swagger-ui = { version = "9", features = ["axum"] }
 
 [dev-dependencies]
 tempfile = "3"

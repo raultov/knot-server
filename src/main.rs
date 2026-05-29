@@ -13,8 +13,7 @@ mod worker;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use axum::Router;
-use axum::routing::{get, post};
+use axum::routing::get;
 use knot::db::graph::{ConnectExt, GraphDb};
 use knot::db::vector::{VectorConnectExt, VectorDb};
 use knot::pipeline::embed::Embedder;
@@ -22,6 +21,10 @@ use registry::Registry;
 use state::AppState;
 use tokio::signal;
 use tracing_subscriber::EnvFilter;
+use utoipa::OpenApi;
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
+use utoipa_swagger_ui::SwaggerUi;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -144,29 +147,51 @@ async fn main() -> anyhow::Result<()> {
         max_index_age
     );
 
-    let app = Router::new()
-        .route(
-            "/api/repos",
-            get(handlers::list_repos_handler).post(handlers::register_repo_handler),
-        )
-        .route(
-            "/api/repos/{id}",
-            get(handlers::get_repo_handler).delete(handlers::delete_repo_handler),
-        )
-        .route("/api/repos/{id}/sync", post(handlers::sync_repo_handler))
-        .route("/api/repos/{id}/search", get(handlers::search_handler))
-        .route("/api/repos/{id}/callers", get(handlers::callers_handler))
-        .route("/api/repos/{id}/explore", get(handlers::explore_handler))
-        .route("/api/repos/{id}/deps", get(handlers::deps_handler))
-        .route("/api/repos/{id}/graph", get(handlers::graph_handler))
-        .route(
-            "/api/repos/{id}/graph/expand",
-            get(handlers::graph_expand_handler),
-        )
-        .route("/api/webhook/{id}", post(handlers::webhook_handler))
-        .route("/api/health", get(handlers::health_handler))
+    #[derive(OpenApi)]
+    #[openapi(
+        info(
+            title = "knot-server",
+            version = env!("CARGO_PKG_VERSION"),
+            description = "REST API for managing and indexing Git repositories. Provides semantic search, caller analysis, file exploration, dependency graphs, and interactive 3D visualization.",
+            license(name = "MIT", url = "https://github.com/raultov/knot-server/blob/master/LICENSE"),
+        ),
+        tags(
+            (name = "Repositories", description = "Register, list, inspect, and delete Git repositories"),
+            (name = "Search", description = "Semantic search, caller analysis, file exploration, and dependency lookup"),
+            (name = "Graph", description = "Entity relationship subgraph queries"),
+            (name = "Indexing", description = "Trigger manual sync and re-indexing"),
+            (name = "Webhooks", description = "Git provider webhook endpoints (GitHub, GitLab, Bitbucket)"),
+            (name = "Health", description = "Server health and statistics"),
+        ),
+    )]
+    struct ApiDoc;
+
+    // Build API routes with automatic OpenAPI spec collection
+    let (api_router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
+        .routes(routes!(
+            handlers::list_repos_handler,
+            handlers::register_repo_handler
+        ))
+        .routes(routes!(
+            handlers::get_repo_handler,
+            handlers::delete_repo_handler
+        ))
+        .routes(routes!(handlers::sync_repo_handler))
+        .routes(routes!(handlers::search_handler))
+        .routes(routes!(handlers::callers_handler))
+        .routes(routes!(handlers::explore_handler))
+        .routes(routes!(handlers::deps_handler))
+        .routes(routes!(handlers::graph_handler))
+        .routes(routes!(handlers::graph_expand_handler))
+        .routes(routes!(handlers::webhook_handler))
+        .routes(routes!(handlers::health_handler))
+        .split_for_parts();
+
+    // Merge the generated API routes with non-API routes and Swagger UI
+    let app = api_router
         .route("/favicon.ico", get(handlers::favicon_handler))
         .route("/graph", get(handlers::graph_viewer_handler))
+        .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", api))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(format!("{}:{}", cfg.bind_addr, cfg.port)).await?;

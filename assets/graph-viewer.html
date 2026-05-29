@@ -214,6 +214,24 @@
       align-items: center;
     }
 
+    #api-docs-link {
+      margin-left: auto;
+      padding: 6px 14px;
+      background: #1a5fb4;
+      color: #fff;
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 600;
+      border: 1px solid #2a6fd4;
+      border-radius: 4px;
+      transition: background 0.15s, transform 0.1s;
+    }
+
+    #api-docs-link:hover {
+      background: #2a6fd4;
+      transform: translateY(-1px);
+    }
+
     #version-badge {
       font-family: ui-monospace, SFMono-Regular, monospace;
       color: #666;
@@ -253,6 +271,7 @@
       <button id="clear-btn" class="hidden" title="Clear search and show full graph">✕ Clear</button>
       <div id="search-results"></div>
     </div>
+    <a id="api-docs-link" href="/docs" target="_blank" title="Open the REST API console — register repos, run searches, browse the graph API">Manage Repos ↗</a>
   </div>
 
   <div id="graph-container"></div>

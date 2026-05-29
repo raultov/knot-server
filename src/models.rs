@@ -1,14 +1,15 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use utoipa::ToSchema;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum AuthType {
     Ssh,
     Https,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum RepoStatus {
     Pending,
@@ -33,7 +34,7 @@ impl std::fmt::Display for RepoStatus {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RepoEntry {
     pub id: String,
     pub url: String,
@@ -42,6 +43,7 @@ pub struct RepoEntry {
     #[serde(default = "default_branch")]
     pub branch: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(write_only)]
     pub webhook_secret: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_indexed: Option<String>,
@@ -78,13 +80,19 @@ impl IndexJob {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct RegisterRepoRequest {
+    /// Git repository URL (HTTPS, SSH, or local absolute path)
+    #[schema(example = "https://github.com/raultov/knot.git")]
     pub url: String,
+    /// Authentication method
     #[serde(default = "default_auth_type")]
     pub auth_type: AuthType,
+    /// Branch to clone
+    #[schema(example = "master")]
     #[serde(default = "default_branch")]
     pub branch: String,
+    /// Shared secret for webhook signature validation (HMAC-SHA256)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub webhook_secret: Option<String>,
 }
@@ -93,13 +101,13 @@ fn default_auth_type() -> AuthType {
     AuthType::Ssh
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct RegisterRepoResponse {
     pub id: String,
     pub message: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct RepoListResponse {
     pub repositories: Vec<RepoEntry>,
 }

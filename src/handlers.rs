@@ -7,11 +7,12 @@ use axum::response::{IntoResponse, Response};
 use neo4rs::query;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use utoipa::{IntoParams, ToSchema};
 
-use crate::models::{RegisterRepoRequest, RegisterRepoResponse, RepoListResponse};
+use crate::models::{RegisterRepoRequest, RegisterRepoResponse, RepoEntry, RepoListResponse};
 use crate::state::AppState;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct ErrorResponse {
     error: String,
 }
@@ -28,12 +29,31 @@ fn error_response(status: StatusCode, message: impl Into<String>) -> Response {
 
 // ── Read endpoints ──────────────────────────────────────────────
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
 pub struct SearchParams {
+    /// The search query string
+    #[param(example = "authentication logic")]
     pub q: Option<String>,
+    /// Maximum number of results to return
+    #[param(example = 5)]
     pub max_results: Option<usize>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/repos/{id}/search",
+    tag = "Search",
+    params(
+        ("id" = String, Path, description = "Repository ID"),
+        SearchParams,
+    ),
+    responses(
+        (status = 200, description = "Search results", body = serde_json::Value),
+        (status = 400, description = "Missing or invalid query parameter", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse),
+    ),
+    description = "Semantic + structural search. Find code by meaning, class name, method signature, or docstrings.",
+)]
 pub async fn search_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -74,11 +94,28 @@ pub async fn search_handler(
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
 pub struct CallersParams {
+    /// Name of the entity to find callers for
+    #[param(example = "handleRequest")]
     pub entity: Option<String>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/repos/{id}/callers",
+    tag = "Search",
+    params(
+        ("id" = String, Path, description = "Repository ID"),
+        CallersParams,
+    ),
+    responses(
+        (status = 200, description = "Caller analysis results", body = serde_json::Value),
+        (status = 400, description = "Missing or invalid query parameter", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse),
+    ),
+    description = "Find all callers referencing a specific entity. Returns reverse dependency graph.",
+)]
 pub async fn callers_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -103,11 +140,29 @@ pub async fn callers_handler(
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
 pub struct ExploreParams {
+    /// Relative file path within the repository
+    #[param(example = "src/main.rs")]
     pub path: Option<String>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/repos/{id}/explore",
+    tag = "Search",
+    params(
+        ("id" = String, Path, description = "Repository ID"),
+        ExploreParams,
+    ),
+    responses(
+        (status = 200, description = "File exploration results", body = serde_json::Value),
+        (status = 400, description = "Missing or invalid query parameter", body = ErrorResponse),
+        (status = 404, description = "Repository not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse),
+    ),
+    description = "Explore a file's architecture. Returns all classes, methods, and properties with signatures.",
+)]
 pub async fn explore_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -145,12 +200,31 @@ pub async fn explore_handler(
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
 pub struct DepsParams {
+    /// Reverse the dependency lookup (who depends on this repo vs what this repo depends on)
+    #[param(example = false)]
     pub reverse: Option<bool>,
+    /// Maximum traversal depth for transitive dependencies
+    #[param(example = 3)]
     pub max_depth: Option<u32>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/repos/{id}/deps",
+    tag = "Search",
+    params(
+        ("id" = String, Path, description = "Repository ID"),
+        DepsParams,
+    ),
+    responses(
+        (status = 200, description = "Dependency lookup results", body = serde_json::Value),
+        (status = 400, description = "Missing or invalid query parameter", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse),
+    ),
+    description = "Cross-repository dependency lookup. Shows which repos depend on this one or vice versa.",
+)]
 pub async fn deps_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -170,28 +244,51 @@ pub async fn deps_handler(
 
 // ── Graph (subgraph) endpoints ───────────────────────────────────
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
 pub struct GraphParams {
+    /// Entity name to center the graph on (optional; omit for overview)
+    #[param(example = "handleRequest")]
     pub entity: Option<String>,
+    /// Entity UUID to center the graph on (optional; alternative to entity name)
     pub entity_id: Option<String>,
+    /// Graph traversal depth (1-5)
+    #[param(example = 2)]
     pub depth: Option<u32>,
+    /// Comma-separated relationship types to include
+    #[param(example = "CALLS,EXTENDS,IMPLEMENTS")]
     pub relationships: Option<String>,
+    /// Graph traversal direction: incoming, outgoing, or both
+    #[param(example = "both")]
     pub direction: Option<String>,
+    /// Comma-separated kind categories: classes, interfaces, functions, other
+    #[param(example = "classes,interfaces")]
     pub kinds: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
 pub struct GraphExpandParams {
+    /// Entity name to expand from
+    #[param(example = "handleRequest")]
     pub entity: Option<String>,
+    /// Entity UUID to expand from (alternative to entity name)
     pub entity_id: Option<String>,
+    /// Graph traversal depth (1-5)
+    #[param(example = 2)]
     pub depth: Option<u32>,
+    /// Comma-separated relationship types to include
+    #[param(example = "CALLS,REFERENCES,CONTAINS")]
     pub relationships: Option<String>,
+    /// Graph traversal direction: incoming, outgoing, or both
+    #[param(example = "both")]
     pub direction: Option<String>,
+    /// Comma-separated entity UUIDs to exclude from results
     pub exclude: Option<String>,
+    /// Comma-separated kind categories: classes, interfaces, functions, other
+    #[param(example = "classes,interfaces")]
     pub kinds: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct GraphNodeResponse {
     id: String,
     name: String,
@@ -203,7 +300,7 @@ struct GraphNodeResponse {
     start_line: Option<i64>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct GraphEdgeResponse {
     source: String,
     target: String,
@@ -211,7 +308,7 @@ struct GraphEdgeResponse {
     edge_type: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct GraphResponse {
     root_id: Option<String>,
     nodes: Vec<GraphNodeResponse>,
@@ -411,6 +508,22 @@ fn parse_relationships(relationships: &str) -> Result<Vec<&str>, String> {
     Ok(parsed)
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/repos/{id}/graph",
+    tag = "Graph",
+    params(
+        ("id" = String, Path, description = "Repository ID"),
+        GraphParams,
+    ),
+    responses(
+        (status = 200, description = "Graph overview or subgraph results", body = GraphResponse),
+        (status = 400, description = "Missing or invalid query parameter", body = ErrorResponse),
+        (status = 404, description = "Repository or entity not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse),
+    ),
+    description = "Query entity relationship graph. Without entity/entity_id returns an overview; with one returns a subgraph centered on that entity.",
+)]
 pub async fn graph_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -708,6 +821,22 @@ async fn fetch_all_entities(
     })
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/repos/{id}/graph/expand",
+    tag = "Graph",
+    params(
+        ("id" = String, Path, description = "Repository ID"),
+        GraphExpandParams,
+    ),
+    responses(
+        (status = 200, description = "Expanded subgraph results", body = GraphResponse),
+        (status = 400, description = "Missing or invalid query parameter", body = ErrorResponse),
+        (status = 404, description = "Repository or entity not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse),
+    ),
+    description = "Expand a graph node to discover its neighbors. Supports excluding already-visible UUIDs for incremental graph expansion.",
+)]
 pub async fn graph_expand_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -861,6 +990,15 @@ pub async fn favicon_handler() -> Response {
 
 // ── Repository management endpoints ─────────────────────────────
 
+#[utoipa::path(
+    get,
+    path = "/api/repos",
+    tag = "Repositories",
+    responses(
+        (status = 200, description = "List of all registered repositories", body = RepoListResponse),
+    ),
+    description = "List all registered Git repositories with their current status and metadata.",
+)]
 pub async fn list_repos_handler(State(state): State<Arc<AppState>>) -> Response {
     let registry = state.registry.lock().unwrap();
     let repos = registry.list().to_vec();
@@ -870,6 +1008,19 @@ pub async fn list_repos_handler(State(state): State<Arc<AppState>>) -> Response 
     (StatusCode::OK, Json(response)).into_response()
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/repos/{id}",
+    tag = "Repositories",
+    params(
+        ("id" = String, Path, description = "Repository ID"),
+    ),
+    responses(
+        (status = 200, description = "Repository details", body = RepoEntry),
+        (status = 404, description = "Repository not found", body = ErrorResponse),
+    ),
+    description = "Get detailed information about a single registered repository.",
+)]
 pub async fn get_repo_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -884,6 +1035,18 @@ pub async fn get_repo_handler(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/repos",
+    tag = "Repositories",
+    request_body = RegisterRepoRequest,
+    responses(
+        (status = 202, description = "Repository registered and clone job enqueued", body = RegisterRepoResponse),
+        (status = 409, description = "Repository already exists", body = ErrorResponse),
+        (status = 429, description = "Indexing queue is full", body = ErrorResponse),
+    ),
+    description = "Register a new Git repository. The server clones it and queues it for indexing.",
+)]
 pub async fn register_repo_handler(
     State(state): State<Arc<AppState>>,
     Json(body): Json<RegisterRepoRequest>,
@@ -947,6 +1110,19 @@ pub async fn register_repo_handler(
     }
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/repos/{id}",
+    tag = "Repositories",
+    params(
+        ("id" = String, Path, description = "Repository ID"),
+    ),
+    responses(
+        (status = 200, description = "Repository deleted successfully", body = serde_json::Value),
+        (status = 404, description = "Repository not found", body = ErrorResponse),
+    ),
+    description = "Delete a repository and clean up its databases and local files.",
+)]
 pub async fn delete_repo_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -990,6 +1166,20 @@ pub async fn delete_repo_handler(
 
 // ── Trigger endpoints ───────────────────────────────────────────
 
+#[utoipa::path(
+    post,
+    path = "/api/repos/{id}/sync",
+    tag = "Indexing",
+    params(
+        ("id" = String, Path, description = "Repository ID"),
+    ),
+    responses(
+        (status = 202, description = "Sync job enqueued", body = serde_json::Value),
+        (status = 404, description = "Repository not found", body = ErrorResponse),
+        (status = 429, description = "Indexing queue is full", body = ErrorResponse),
+    ),
+    description = "Manually trigger a sync (pull + re-index) for a repository.",
+)]
 pub async fn sync_repo_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -1040,6 +1230,21 @@ pub async fn sync_repo_handler(
 
 // ── Webhook endpoint ─────────────────────────────────────────────
 
+#[utoipa::path(
+    post,
+    path = "/api/webhook/{id}",
+    tag = "Webhooks",
+    request_body(content_type = "application/json", description = "Raw webhook payload (validated via HMAC signature)"),
+    params(
+        ("id" = String, Path, description = "Repository ID"),
+    ),
+    responses(
+        (status = 202, description = "Webhook accepted, indexing job enqueued"),
+        (status = 401, description = "Invalid or missing webhook signature", body = ErrorResponse),
+        (status = 404, description = "Repository not found", body = ErrorResponse),
+    ),
+    description = "Endpoint for Git provider webhooks (GitHub, GitLab, Bitbucket). Validates payload signatures and triggers incremental re-indexing on push events.",
+)]
 pub async fn webhook_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -1136,6 +1341,15 @@ async fn enqueue_pull_job(state: &Arc<AppState>, repo_id: &str) -> Response {
 
 // ── Health endpoint ──────────────────────────────────────────────
 
+#[utoipa::path(
+    get,
+    path = "/api/health",
+    tag = "Health",
+    responses(
+        (status = 200, description = "Server health status"),
+    ),
+    description = "Check server health, uptime, queue capacity, and repository statistics.",
+)]
 pub async fn health_handler(State(state): State<Arc<AppState>>) -> Response {
     let registry = state.registry.lock().unwrap();
     let repos = registry.list();
