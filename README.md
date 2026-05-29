@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2024-brightgreen.svg)](https://www.rust-lang.org)
 
-**knot-server** (v0.1.13) is a distributed REST API and background task scheduler for managing and indexing Git repositories across a cluster. It sits on top of the core [knot](https://github.com/raultov/knot) indexing engine, transforming it from a single-machine CLI tool into a highly available, cluster-aware enterprise service.
+**knot-server** (v0.1.14) is a distributed REST API and background task scheduler for managing and indexing Git repositories across a cluster. It sits on top of the core [knot](https://github.com/raultov/knot) indexing engine, transforming it from a single-machine CLI tool into a highly available, cluster-aware enterprise service.
 
 With `knot-server`, you can register Git repositories via a REST API, trigger automatic codebase indexing through webhooks (GitHub, GitLab, Bitbucket), and query the vector (Qdrant) and graph (Neo4j) databases—all while coordinating work safely across multiple server instances via NFS/EFS workspace locks.
 
@@ -84,6 +84,13 @@ With `knot-server`, you can register Git repositories via a REST API, trigger au
   ```
 
 - **`GET /api/repos/:id/graph/expand?entity=...&exclude=...`**: Same as `/graph` but with `depth=1` fixed, plus an `exclude` parameter (CSV of UUIDs) to skip nodes the frontend already has. Used by the graph viewer when clicking on unexpanded nodes.
+
+### 📖 Interactive API Documentation (Swagger UI)
+
+- **`GET /docs`**: Interactive Swagger UI page where you can browse every endpoint, inspect request/response schemas, and execute live "Try it out" requests — no external tools needed.
+- **`GET /api-docs/openapi.json`**: Raw OpenAPI 3.1 JSON spec for importing into Postman, Insomnia, or generating client SDKs.
+
+The spec is auto-generated at compile time via [`utoipa`](https://crates.io/crates/utoipa) and embedded directly in the binary — no external CDN or internet access required.
 
 ### ⚙️ Cluster & Health
 - **`GET /api/health`**: Check the health of the server, including connections to Qdrant and Neo4j, and view repository statistics.
@@ -191,7 +198,7 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/raultov/knot-server/rel
 
 For a specific version, replace `latest` with the version tag:
 ```bash
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/raultov/knot-server/releases/download/v0.1.13/knot-server-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/raultov/knot-server/releases/latest/download/knot-server-installer.sh | sh
 ```
 
 ### Option B: Docker Compose (Pre-built Image)
@@ -482,7 +489,10 @@ Set the **secret/token** to the same value as `webhook_secret` you used when reg
 the repository. Whenever a push occurs, `knot-server` will validate the signature and
 automatically perform a fast incremental update.
 
-**7. Explore the codebase visually**
+**7. Browse the interactive API documentation**
+Open `http://localhost:3000/docs` in your browser to explore all endpoints with Swagger UI. Use "Try it out" to test requests directly, or import `http://localhost:3000/api-docs/openapi.json` into Postman.
+
+**8. Explore the codebase visually**
 Open `http://localhost:3000/graph` in your browser. Select a repository from the
 dropdown, search for an entity, and click nodes to expand their call/relationship graph
 in 3D.
