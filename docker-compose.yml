@@ -10,15 +10,17 @@ services:
       - KNOT_SERVER_NEO4J_URI=bolt://neo4j:7687
       - KNOT_NEO4J_USER=neo4j
     # Change this password for production deployments
-      - KNOT_NEO4J_PASSWORD=knotsecret
+      - KNOT_NEO4J_PASSWORD=knot_secret_password
       # SSH agent forwarding — required for passphrase-protected keys (common in corporate environments)
       - SSH_AUTH_SOCK=/ssh-agent
     volumes:
       - knot_workspace:/var/lib/knot/repos
       # fastembed model cache: must live inside KNOT_WORKSPACE_DIR (knot-server builds the path as
       # $KNOT_WORKSPACE_DIR/fastembed_cache, ignoring any separate KNOT_FASTEMBED_CACHE_DIR variable)
-      - fastembed_cache:/var/lib/knot/repos/fastembed_cache
+      - ${HOME}/.cache/knot/fastembed_cache:/var/lib/knot/repos/fastembed_cache
       - ${KNOT_SSH_KEYS_DIR:-${HOME}/.ssh}:/tmp/ssh_keys:ro
+      # Mount host CA certificates for corporate proxies
+      - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
       # Forward the host SSH agent so passphrase-protected keys work inside the container
       - ${SSH_AUTH_SOCK}:/ssh-agent:ro
       # Mount local repos directory at the same path so absolute paths passed to the API work transparently.
@@ -33,14 +35,20 @@ services:
 
   qdrant:
     image: qdrant/qdrant:v1.16.2
+    ports:
+      - "6333:6333"
+      - "6334:6334"
     volumes:
       - qdrant_data:/qdrant/storage
 
   neo4j:
     image: neo4j:5.26-community
+    ports:
+      - "7474:7474"
+      - "7687:7687"
     environment:
     # Keep this in sync with the knot-server password above
-      - NEO4J_AUTH=neo4j/knotsecret
+      - NEO4J_AUTH=neo4j/knot_secret_password
       - NEO4J_PLUGINS=["apoc"]
     volumes:
       - neo4j_data:/data
