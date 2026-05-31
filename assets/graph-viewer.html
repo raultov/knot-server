@@ -305,6 +305,7 @@
       selectedNode: null,
       focusedEntity: null,
       graph: null,
+      previousDepth: 2,
     };
 
     // ── Colores por kind ───────────────────────────────────────
@@ -323,6 +324,8 @@
       function:       '#3178C6',
       kotlin_class:   '#7F52FF',
       kotlin_function:'#A855F7',
+      kotlin_interface:'#FFD700',
+      kotlin_enum:    '#7B2D8E',
       python_function:'#306998',
       python_class:   '#FFD43B',
       default:        '#666666',
@@ -508,10 +511,6 @@
       document.getElementById('clear-btn').classList.remove('hidden');
       showNodeDetails(node);
       updateHighlights();
-
-      if (!state.expandedNodes.has(node.id)) {
-        autoDiscoverNode(node);
-      }
     }
 
     function updateHighlights() {
@@ -523,23 +522,6 @@
         l.isNewDiscovery = !!focusedId && (sId === focusedId || tId === focusedId);
       }
       refreshGraph();
-    }
-
-    async function autoDiscoverNode(node) {
-      var depth = parseInt(document.getElementById('depth-select').value) || 2;
-      setStatus('Discovering neighbors of ' + node.name + ' (depth=' + depth + ')...');
-      try {
-        var subgraph = await fetchExpandNode(
-          state.selectedRepo, null, node.id, [],
-          depth
-        );
-        state.expandedNodes.add(node.id);
-        mergeSubgraph(subgraph);
-        updateHighlights();
-        setStatus('Discovered ' + node.name + ': +' + subgraph.nodes.length + ' nodes, +' + subgraph.edges.length + ' edges');
-      } catch (err) {
-        setStatus('Error discovering: ' + err.message);
-      }
     }
 
     function handleNodeHover(node) {
@@ -646,10 +628,28 @@
       });
 
       // Relationship toggle handlers
+      // Relationship toggle handlers — auto-enable required kinds when a
+      // relationship type is activated, so its edges have visible endpoints.
+      var REL_KINDS_MAP = {
+        CALLS: ['functions', 'other'],
+        REFERENCES: ['functions', 'other'],
+        CONTAINS: ['functions', 'other'],
+      };
+
       var relToggles = document.querySelectorAll('#rel-toggles label');
       for (var i = 0; i < relToggles.length; i++) {
         relToggles[i].addEventListener('click', function() {
           this.classList.toggle('active');
+          var rel = this.getAttribute('data-rel');
+          if (this.classList.contains('active') && REL_KINDS_MAP[rel]) {
+            var requiredKinds = REL_KINDS_MAP[rel];
+            var kindLabels = document.querySelectorAll('#kind-toggles label');
+            for (var k = 0; k < kindLabels.length; k++) {
+              if (requiredKinds.indexOf(kindLabels[k].getAttribute('data-kind')) !== -1) {
+                kindLabels[k].classList.add('active');
+              }
+            }
+          }
           refreshGraphWithFilters();
         });
       }
@@ -786,6 +786,18 @@
       document.getElementById('search-results').style.display = 'none';
       setStatus('Loading graph for ' + entity.name + '...');
 
+      // Save current depth and set to 2 for focused view
+      var depthSelect = document.getElementById('depth-select');
+      state.previousDepth = parseInt(depthSelect.value) || 2;
+      depthSelect.value = 1;
+
+      // Enable all relationship and kind filters since we want the complete context
+      // for the focused entity, and the subgraph is small enough to be manageable.
+      var allToggles = document.querySelectorAll('#rel-toggles label, #kind-toggles label');
+      for (var i = 0; i < allToggles.length; i++) {
+        allToggles[i].classList.add('active');
+      }
+
       resetGraph();
       refreshGraph();
 
@@ -853,6 +865,35 @@
       document.getElementById('back-btn').classList.add('hidden');
       document.getElementById('search-input').value = '';
       hideNodeDetails();
+
+      // Restore previous depth
+      var depthSelect = document.getElementById('depth-select');
+      depthSelect.value = state.previousDepth || 2;
+
+      // Reset relationship filters to sensible defaults for the overview graph
+      var defaultRels = ['CALLS', 'EXTENDS', 'IMPLEMENTS'];
+      var allRelLabels = document.querySelectorAll('#rel-toggles label');
+      for (var i = 0; i < allRelLabels.length; i++) {
+        var rel = allRelLabels[i].getAttribute('data-rel');
+        if (defaultRels.includes(rel)) {
+          allRelLabels[i].classList.add('active');
+        } else {
+          allRelLabels[i].classList.remove('active');
+        }
+      }
+
+      // Reset kind filters to defaults for the overview graph
+      var defaultKinds = ['classes', 'interfaces'];
+      var allKindLabels = document.querySelectorAll('#kind-toggles label');
+      for (var i = 0; i < allKindLabels.length; i++) {
+        var kind = allKindLabels[i].getAttribute('data-kind');
+        if (defaultKinds.includes(kind)) {
+          allKindLabels[i].classList.add('active');
+        } else {
+          allKindLabels[i].classList.remove('active');
+        }
+      }
+
       resetGraph();
       refreshGraph();
       if (state.selectedRepo) {
