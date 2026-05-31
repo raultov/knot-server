@@ -3,6 +3,7 @@
 .fastembed_cache/
 .knot/
 .e2e_data/
+.antigravitycli/
 
 # Test artifacts
 .last-e2e-server.log
