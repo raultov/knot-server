@@ -1,0 +1,278 @@
+{
+  "info": {
+    "_postman_id": "90ada924-fe66-4d63-be51-fbaec9bc8017",
+    "name": "knot-server",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "32139"
+  },
+  "item": [
+    {
+      "name": "Search",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/api/repos/knot/search?q=run_indexing_pipeline",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "api",
+            "repos",
+            "knot",
+            "search"
+          ],
+          "query": [
+            {
+              "key": "q",
+              "value": "run_indexing_pipeline"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Callers",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/api/repos/knot/callers?entity=run_indexing_pipeline",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "api",
+            "repos",
+            "knot",
+            "callers"
+          ],
+          "query": [
+            {
+              "key": "entity",
+              "value": "run_indexing_pipeline"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Explore",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/api/repos/knot/explore?path=src/lib.rs",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "api",
+            "repos",
+            "knot",
+            "explore"
+          ],
+          "query": [
+            {
+              "key": "path",
+              "value": "src/lib.rs"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Deps",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/api/repos/knot-server/deps",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "api",
+            "repos",
+            "knot-server",
+            "deps"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Check Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/api/health",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "api",
+            "health"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "All Repos",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/api/repos",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "api",
+            "repos"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Upload Remote Repo",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"url\": \"https://github.com/brettwooldridge/HikariCP.git\",\n    \"name\": \"hikariCP\",\n    \"auth\": { \n        \"type\": \"none\"\n     },\n     \"branch\": \"dev\"\n}\n",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:3000/api/repos",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "api",
+            "repos"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Trigger sync",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/api/repos/knot/sync",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "api",
+            "repos",
+            "knot",
+            "sync"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Trigger webhook",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/api/webhook/knot",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "api",
+            "webhook",
+            "knot"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Upload Local Repo",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"url\": \"/home/USER/workspace/knot\",\n    \"name\": \"knot\",\n    \"auth\": { \n        \"type\": \"none\"\n     },\n     \"branch\": \"master\"\n}\n",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:3000/api/repos",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "api",
+            "repos"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Delete Repo",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/api/repos/HikariCP",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "api",
+            "repos",
+            "HikariCP"
+          ]
+        }
+      },
+      "response": []
+    }
+  ]
+}
