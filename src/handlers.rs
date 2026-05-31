@@ -474,6 +474,7 @@ fn subgraph_to_response(result: knot::models::SubgraphResult) -> GraphResponse {
                 target: e.target_uuid,
                 edge_type: e.relationship,
             })
+            .filter(|e| e.source != e.target)
             .collect(),
         truncated: result.truncated,
         total_nodes_found: result.total_nodes_found,
