@@ -665,6 +665,23 @@
 
       document.getElementById('repo-select').addEventListener('change', function(e) {
         state.selectedRepo = e.target.value || null;
+        state.focusedEntity = null;
+
+        // Reset to default overview filters and depth when switching repos
+        document.getElementById('depth-select').value = 2;
+        document.getElementById('clear-btn').classList.add('hidden');
+        document.getElementById('back-btn').classList.add('hidden');
+        document.getElementById('search-input').value = '';
+
+        var defaultRels = ['CALLS', 'EXTENDS', 'IMPLEMENTS'];
+        document.querySelectorAll('#rel-toggles label').forEach(function(l) {
+          l.classList.toggle('active', defaultRels.includes(l.getAttribute('data-rel')));
+        });
+        var defaultKinds = ['classes', 'interfaces'];
+        document.querySelectorAll('#kind-toggles label').forEach(function(l) {
+          l.classList.toggle('active', defaultKinds.includes(l.getAttribute('data-kind')));
+        });
+
         var hasRepo = !!state.selectedRepo;
         document.getElementById('search-input').disabled = !hasRepo;
         document.getElementById('search-btn').disabled = !hasRepo;
@@ -744,7 +761,9 @@
       });
 
       document.getElementById('clear-btn').addEventListener('click', function() {
-        clearFocusedEntity();
+        document.getElementById('search-input').value = '';
+        document.getElementById('search-results').style.display = 'none';
+        document.getElementById('clear-btn').classList.add('hidden');
       });
     });
 
@@ -786,7 +805,7 @@
       document.getElementById('search-results').style.display = 'none';
       setStatus('Loading graph for ' + entity.name + '...');
 
-      // Save current depth and set to 2 for focused view
+      // Save current depth and force to 1 for focused view (manageable size).
       var depthSelect = document.getElementById('depth-select');
       state.previousDepth = parseInt(depthSelect.value) || 2;
       depthSelect.value = 1;
