@@ -138,6 +138,10 @@ echo "  Fixture repos: alpha, beta, gamma created"
 # Create shared workspace dir
 mkdir -p "$SHARED_WORKSPACE/repos"
 
+# Share fastembed cache across tests and CI runs to avoid HF 429 rate limits
+mkdir -p /tmp/fastembed_cache_shared
+ln -s /tmp/fastembed_cache_shared "$SHARED_WORKSPACE/fastembed_cache"
+
 # Build the server binary
 cargo build 2>&1 | grep -E "(Compiling|Finished|error)" || true
 BINARY="$PROJECT_ROOT/target/debug/knot-server"

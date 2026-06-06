@@ -144,6 +144,10 @@ mkdir -p "$WORKSPACE_DIR"
 create_fixture_repo
 echo "  Fixture repo: $FIXTURE_REPO"
 
+# Share fastembed cache across tests and CI runs to avoid HF 429 rate limits
+mkdir -p /tmp/fastembed_cache_shared
+ln -s /tmp/fastembed_cache_shared "$WORKSPACE_DIR/fastembed_cache"
+
 cargo build 2>&1 | grep -E "(Compiling|Finished|error)" || true
 
 KNOT_SERVER_QDRANT_URL="$QDRANT_URL" \
