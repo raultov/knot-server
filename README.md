@@ -340,6 +340,47 @@ KNOT_LOCAL_REPOS_DIR=/home/user/workspace \
 > dc-dev up --build
 > ```
 
+###  Convenience Scripts
+
+The repo includes `up.sh` and `down.sh` wrappers around `docker compose`.
+
+**Start the stack:**
+```bash
+# Default (port 3000)
+./up.sh
+
+# Detached mode
+./up.sh -d
+
+# With custom port
+KNOT_SERVER_PORT=6060 ./up.sh -d
+
+# Rebuild from source (dev overlay)
+KNOT_SERVER_PORT=6060 docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
+```
+
+**Stop the stack:**
+```bash
+# Stop containers, keep all data
+./down.sh
+
+# Stop and delete DB volumes (Qdrant, Neo4j, workspace)
+./down.sh --clean
+
+# Stop and delete only repos.json (keep DB volumes)
+./down.sh --json
+
+# Stop and delete EVERYTHING (volumes + repos.json)
+./down.sh --all
+```
+
+| Flag | Effect |
+|------|--------|
+| *(none)* | Stop containers, preserve all data |
+| `--clean` / `-c` | Also delete Docker volumes (Qdrant, Neo4j, workspace, fastembed cache) |
+| `--json` / `-j` | Also delete `~/.knot/repos/repos.json` (repository registry) |
+| `--all` / `-a` | Delete volumes AND repos.json |
+
 ---
 
 ## ⚙️ Configuration
