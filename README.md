@@ -3,7 +3,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2024-brightgreen.svg)](https://www.rust-lang.org)
 
-**knot-server** (v0.1.16) is a distributed REST API and background task scheduler for managing and indexing Git repositories across a cluster. It sits on top of the core [knot](https://github.com/raultov/knot) indexing engine, transforming it from a single-machine CLI tool into a highly available, cluster-aware enterprise service.
+**knot-server** is a distributed REST API and background task scheduler for managing and indexing Git repositories across a cluster. It sits on top of the core [knot](https://github.com/raultov/knot) indexing engine, transforming it from a single-machine CLI tool into a highly available, cluster-aware enterprise service.
+
+See [CHANGELOG.md](CHANGELOG.md) for the full version history.
 
 **knot-server** and the [knot](https://github.com/raultov/knot) indexing engine are in **beta**. Expect rough edges, occasional breaking changes, and indexing quirks as we approach a stable 1.0 release.
 
@@ -212,14 +214,20 @@ The easiest way to run `knot-server` with its dependencies. Just download the
 ```bash
 curl -O https://raw.githubusercontent.com/raultov/knot-server/master/docker-compose.yml
 curl -O https://raw.githubusercontent.com/raultov/knot-server/master/.env.example
+curl -O https://raw.githubusercontent.com/raultov/knot-server/master/up.sh
+curl -O https://raw.githubusercontent.com/raultov/knot-server/master/down.sh
+chmod +x up.sh down.sh
 cp .env.example .env          # edit .env to set KNOT_LOCAL_REPOS_DIR etc.
 # Create the required empty placeholder directory (only needed once)
 mkdir -p ~/.knot/empty
-docker compose up
+./up.sh -d
 ```
 
 This pulls the pre-built [`raultov/knot-server`](https://hub.docker.com/r/raultov/knot-server)
 image from Docker Hub along with Qdrant and Neo4j — no compilation needed.
+
+The `up.sh` and `down.sh` scripts are convenience wrappers around `docker compose`.
+See the [Convenience Scripts](#-convenience-scripts) section below for usage details.
 
 #### SSH credentials for private repositories
 
