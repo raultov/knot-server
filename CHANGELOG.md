@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-07
+
+### Changed
+- Upgrade `knot` dependency from 1.3.13 to 1.4.0 — significant code cleanup and refactoring
+
 ## [0.1.17] - 2026-06-06
 
 ### Added
@@ -142,7 +147,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/raultov/knot-server/compare/v0.1.17...HEAD
+[Unreleased]: https://github.com/raultov/knot-server/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/raultov/knot-server/compare/v0.1.17...v0.2.0
 [0.1.17]: https://github.com/raultov/knot-server/compare/v0.1.16...v0.1.17
 [0.1.16]: https://github.com/raultov/knot-server/compare/v0.1.15...v0.1.16
 [0.1.15]: https://github.com/raultov/knot-server/compare/v0.1.14...v0.1.15
