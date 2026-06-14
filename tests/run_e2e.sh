@@ -41,8 +41,11 @@ cleanup() {
     cd "$SCRIPT_DIR"
     docker compose -f "$COMPOSE_FILE" down -v 2>/dev/null || true
     rm -rf "$WORKSPACE_DIR" 2>/dev/null || true
+    rm -rf "$LOCAL_SOURCE_ROOT" 2>/dev/null || true
     cp /tmp/knot-server-e2e.log "$SCRIPT_DIR/.last-e2e-server.log" 2>/dev/null || true
     rm -f /tmp/knot-server-e2e.log
+    cp "$RECOVERY_LOG_R" "$SCRIPT_DIR/.last-recovery-r.log" 2>/dev/null || true
+    rm -f "$RECOVERY_LOG_Q" "$RECOVERY_LOG_R"
     if [ $exit_code -ne 0 ]; then
         echo -e "\n${RED}Tests failed!${NC}"
     fi
@@ -808,7 +811,11 @@ else
     exit 1
 fi
 
-rm -f "$RECOVERY_LOG_Q" "$RECOVERY_LOG_R"
+cp "$RECOVERY_LOG_R" /tmp/last-recovery-r.log 2>/dev/null || true
+
+# (Do not delete RECOVERY_LOG_R yet — Test S5 still needs to grep it
+# for the stale-state-removal log line. The cleanup trap at the bottom
+# of the script will remove the file on exit.)
 
 # -------------------------------------------------------
 # Step 8: Local working-tree sync — uncommitted changes
@@ -822,8 +829,15 @@ rm -f "$RECOVERY_LOG_Q" "$RECOVERY_LOG_R"
 # add / modify / commit-count flow against a real git working tree.
 echo -e "${YELLOW}[8/9] Local working-tree sync regression test...${NC}"
 
-LOCAL_LIVE_PATH="$WORKSPACE_DIR/local-live-repo"
-rm -rf "$LOCAL_LIVE_PATH"
+# Place the local source repo OUTSIDE the workspace. The registry
+# derives `local_path = workspace/<id>` from the URL's basename, so if
+# the source lived inside the workspace the mirror destination would
+# equal the source — and `fs::copy(file, file)` truncates the file to
+# zero bytes. Keeping the source outside the workspace lets the mirror
+# be a distinct directory.
+LOCAL_LIVE_PATH="/tmp/knot-e2e-source-$$/local-live-repo"
+LOCAL_SOURCE_ROOT="/tmp/knot-e2e-source-$$"
+rm -rf "$LOCAL_SOURCE_ROOT"
 mkdir -p "$LOCAL_LIVE_PATH"
 git init -q "$LOCAL_LIVE_PATH"
 git -C "$LOCAL_LIVE_PATH" checkout -q -b main
@@ -938,7 +952,7 @@ fi
 EXPLORE=$(curl -s -w "%{http_code}" -o /tmp/s2_explore.json \
     "$BASE_URL/api/repos/$LOCAL_REPO_ID/explore?path=SyncTestService.java")
 if [ "$EXPLORE" = "200" ] && \
-   jq -e '[.[] | select(.name == "SyncTestService")] | length >= 1' /tmp/s2_explore.json > /dev/null 2>&1; then
+   jq -e '[.entities[] | select(.name == "SyncTestService")] | length >= 1' /tmp/s2_explore.json > /dev/null 2>&1; then
     echo -e "${GREEN}PASS${NC} — new class visible in /explore"
 else
     echo -e "${RED}FAIL${NC} — /explore did not return SyncTestService (status: $EXPLORE)"
@@ -1080,12 +1094,14 @@ fi
 echo -e "${GREEN}PASS${NC} — rewritten state file has version=$NEW_VERSION"
 
 # Also verify the auto-clear log message is present (proves the worker took
-# the intended path, not some accidental recovery).
-if grep -q "Removed stale .knot/index_state.json for local repo '$LOCAL_REPO_ID'" /tmp/knot-server-e2e.log; then
+# the intended path, not some accidental recovery). The local-live-repo is
+# processed by the server that was started in the recovery test phase, so
+# its log is RECOVERY_LOG_R, not the original /tmp/knot-server-e2e.log.
+if grep -q "Removed stale .knot/index_state.json for local repo '$LOCAL_REPO_ID'" "$RECOVERY_LOG_R"; then
     echo -e "${GREEN}PASS${NC} — worker logged stale-state removal"
 else
-    echo -e "${RED}FAIL${NC} — expected stale-state log line not found"
-    tail -40 /tmp/knot-server-e2e.log 2>/dev/null || true
+    echo -e "${RED}FAIL${NC} — expected stale-state log line not found in $RECOVERY_LOG_R"
+    tail -40 "$RECOVERY_LOG_R" 2>/dev/null || true
     exit 1
 fi
 
@@ -1099,7 +1115,10 @@ fi
 # the mirror if they survived a previous unfiltered sync.
 echo -e "\n${CYAN}Test S6: Build-artifact directories are skipped during local sync${NC}"
 
-ARTIFACT_LIVE_PATH="$WORKSPACE_DIR/artifact-live-repo"
+# Place the artifact source OUTSIDE the workspace. The registry
+# derives `local_path = workspace/<id>` from the URL's basename, so
+# any source inside the workspace would collide with its own mirror.
+ARTIFACT_LIVE_PATH="$LOCAL_SOURCE_ROOT/artifact-live-repo"
 rm -rf "$ARTIFACT_LIVE_PATH"
 mkdir -p "$ARTIFACT_LIVE_PATH"
 git init -q "$ARTIFACT_LIVE_PATH"
@@ -1212,6 +1231,7 @@ echo "  Cleaned up artifact live repo"
 # Clean up the local live repo
 curl -s -o /dev/null -X DELETE "$BASE_URL/api/repos/$LOCAL_REPO_ID"
 rm -rf "$LOCAL_LIVE_PATH"
+rm -rf "$LOCAL_SOURCE_ROOT"
 rm -f /tmp/s2_explore.json
 echo "  Cleaned up local live repo"
 
