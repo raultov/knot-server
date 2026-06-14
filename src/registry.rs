@@ -50,15 +50,6 @@ impl Registry {
         Ok(())
     }
 
-    pub fn add(&mut self, entry: RepoEntry) -> anyhow::Result<()> {
-        if self.data.repositories.iter().any(|r| r.id == entry.id) {
-            anyhow::bail!("Repository '{}' already exists", entry.id);
-        }
-        self.data.repositories.push(entry);
-        self.save()?;
-        Ok(())
-    }
-
     /// Atomically add `entry` or replace an existing one with the same id.
     /// Returns `true` if an existing entry was replaced, `false` if the
     /// entry was newly added.
@@ -154,21 +145,11 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let mut registry = Registry::load_or_create(dir.path()).unwrap();
         let repo = make_entry("test-repo", "git@github.com:org/test.git", "/tmp/test-repo");
-        registry.add(repo.clone()).unwrap();
+        registry.add_or_replace(repo.clone()).unwrap();
 
         let reloaded = Registry::load_or_create(dir.path()).unwrap();
         assert_eq!(reloaded.list().len(), 1);
         assert_eq!(reloaded.list()[0].id, "test-repo");
-    }
-
-    #[test]
-    fn test_add_duplicate_repository_returns_error() {
-        let dir = TempDir::new().unwrap();
-        let mut registry = Registry::load_or_create(dir.path()).unwrap();
-        let repo = make_entry("dup", "git@github.com:org/dup.git", "/tmp/dup");
-        registry.add(repo.clone()).unwrap();
-        let result = registry.add(repo);
-        assert!(result.is_err());
     }
 
     #[test]
@@ -206,7 +187,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let mut registry = Registry::load_or_create(dir.path()).unwrap();
         let repo = make_entry("to-remove", "git@github.com:org/remove.git", "/tmp/remove");
-        registry.add(repo).unwrap();
+        registry.add_or_replace(repo).unwrap();
         registry.remove("to-remove").unwrap();
         assert!(registry.list().is_empty());
     }
@@ -224,7 +205,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let mut registry = Registry::load_or_create(dir.path()).unwrap();
         let repo = make_entry("r1", "git@github.com:org/r1.git", "/tmp/r1");
-        registry.add(repo).unwrap();
+        registry.add_or_replace(repo).unwrap();
         registry.update_status("r1", RepoStatus::Indexing).unwrap();
         assert_eq!(registry.get("r1").unwrap().status, RepoStatus::Indexing);
     }
@@ -234,7 +215,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let mut registry = Registry::load_or_create(dir.path()).unwrap();
         let repo = make_entry("r1", "git@github.com:org/r1.git", "/tmp/r1");
-        registry.add(repo).unwrap();
+        registry.add_or_replace(repo).unwrap();
         assert!(registry.get("r1").unwrap().last_indexed.is_none());
         registry.update_last_indexed("r1").unwrap();
         assert!(registry.get("r1").unwrap().last_indexed.is_some());
@@ -245,10 +226,10 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let mut registry = Registry::load_or_create(dir.path()).unwrap();
         registry
-            .add(make_entry("a", "git@github.com:org/a.git", "/tmp/a"))
+            .add_or_replace(make_entry("a", "git@github.com:org/a.git", "/tmp/a"))
             .unwrap();
         registry
-            .add(make_entry("b", "git@github.com:org/b.git", "/tmp/b"))
+            .add_or_replace(make_entry("b", "git@github.com:org/b.git", "/tmp/b"))
             .unwrap();
         assert_eq!(registry.list().len(), 2);
     }
@@ -258,7 +239,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let mut registry = Registry::load_or_create(dir.path()).unwrap();
         let repo = make_entry("target", "git@github.com:org/target.git", "/tmp/target");
-        registry.add(repo).unwrap();
+        registry.add_or_replace(repo).unwrap();
         let found = registry.get("target").unwrap();
         assert_eq!(found.id, "target");
         assert!(registry.get("nonexistent").is_none());

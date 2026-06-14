@@ -209,84 +209,6 @@ async fn shutdown_signal() {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use axum::body::Body;
-    use axum::http::{Request as HttpRequest, StatusCode};
-    use tower::util::ServiceExt;
-
-    async fn not_found_handler() -> Response {
-        (StatusCode::NOT_FOUND, "not-found").into_response()
-    }
-
-    fn build_test_app() -> Router {
-        Router::new()
-            .fallback(not_found_handler)
-            .layer(middleware::from_fn(docs_html_override))
-    }
-
-    #[tokio::test]
-    async fn docs_root_redirects_to_slash() {
-        let app = build_test_app();
-        let req = HttpRequest::builder()
-            .uri("/docs")
-            .body(Body::empty())
-            .unwrap();
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::SEE_OTHER);
-        assert_eq!(
-            response
-                .headers()
-                .get("location")
-                .unwrap()
-                .to_str()
-                .unwrap(),
-            "/docs/"
-        );
-    }
-
-    #[tokio::test]
-    async fn docs_slash_returns_custom_html() {
-        let app = build_test_app();
-        let req = HttpRequest::builder()
-            .uri("/docs/")
-            .body(Body::empty())
-            .unwrap();
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(
-            response
-                .headers()
-                .get("content-type")
-                .unwrap()
-                .to_str()
-                .unwrap(),
-            "text/html; charset=utf-8"
-        );
-
-        let body_bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-            .await
-            .unwrap();
-        let body = String::from_utf8(body_bytes.to_vec()).unwrap();
-        assert!(body.contains(env!("KNOT_VERSION")));
-        assert!(!body.contains("{{KNOT_VERSION}}"));
-    }
-
-    #[tokio::test]
-    async fn docs_assets_pass_through() {
-        let app = build_test_app();
-        let req = HttpRequest::builder()
-            .uri("/docs/swagger-ui.css")
-            .body(Body::empty())
-            .unwrap();
-        // The middleware should not intercept asset paths; they reach the
-        // fallback that responds 404 (proving the override did not fire).
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    }
-}
-
 fn setup_tracing() {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -405,5 +327,83 @@ fn recover_stuck_repos(
         if let Err(e) = registry.update_status(&repo.id, models::RepoStatus::Pending) {
             tracing::warn!("Failed to reset status for '{}': {e}", repo.id);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{Request as HttpRequest, StatusCode};
+    use tower::util::ServiceExt;
+
+    async fn not_found_handler() -> Response {
+        (StatusCode::NOT_FOUND, "not-found").into_response()
+    }
+
+    fn build_test_app() -> Router {
+        Router::new()
+            .fallback(not_found_handler)
+            .layer(middleware::from_fn(docs_html_override))
+    }
+
+    #[tokio::test]
+    async fn docs_root_redirects_to_slash() {
+        let app = build_test_app();
+        let req = HttpRequest::builder()
+            .uri("/docs")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response
+                .headers()
+                .get("location")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "/docs/"
+        );
+    }
+
+    #[tokio::test]
+    async fn docs_slash_returns_custom_html() {
+        let app = build_test_app();
+        let req = HttpRequest::builder()
+            .uri("/docs/")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("content-type")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "text/html; charset=utf-8"
+        );
+
+        let body_bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let body = String::from_utf8(body_bytes.to_vec()).unwrap();
+        assert!(body.contains(env!("KNOT_VERSION")));
+        assert!(!body.contains("{{KNOT_VERSION}}"));
+    }
+
+    #[tokio::test]
+    async fn docs_assets_pass_through() {
+        let app = build_test_app();
+        let req = HttpRequest::builder()
+            .uri("/docs/swagger-ui.css")
+            .body(Body::empty())
+            .unwrap();
+        // The middleware should not intercept asset paths; they reach the
+        // fallback that responds 404 (proving the override did not fire).
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 }

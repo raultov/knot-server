@@ -148,6 +148,25 @@ pub fn repo_local_path(workspace_dir: &str, repo_id: &str) -> String {
         .into_owned()
 }
 
+pub struct AppState {
+    pub vector_db: Arc<VectorDb>,
+    pub graph_db: Arc<GraphDb>,
+    pub embedder: Option<Arc<Mutex<Embedder>>>,
+    pub workspace_dir: String,
+    pub registry: Arc<Mutex<Registry>>,
+    pub job_tx: tokio::sync::mpsc::Sender<IndexJob>,
+    pub qdrant_url: String,
+    pub qdrant_collection: String,
+    pub neo4j_uri: String,
+    pub neo4j_user: String,
+    pub neo4j_password: String,
+    pub embed_dim: u64,
+    pub rayon_threads: Option<usize>,
+    pub batch_size: usize,
+    pub ingest_concurrency: usize,
+    pub start_time: std::time::Instant,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -237,23 +256,4 @@ mod tests {
         assert_eq!(req.branch, "main");
         assert_eq!(req.webhook_secret, None);
     }
-}
-
-pub struct AppState {
-    pub vector_db: Arc<VectorDb>,
-    pub graph_db: Arc<GraphDb>,
-    pub embedder: Option<Arc<Mutex<Embedder>>>,
-    pub workspace_dir: String,
-    pub registry: Arc<Mutex<Registry>>,
-    pub job_tx: tokio::sync::mpsc::Sender<IndexJob>,
-    pub qdrant_url: String,
-    pub qdrant_collection: String,
-    pub neo4j_uri: String,
-    pub neo4j_user: String,
-    pub neo4j_password: String,
-    pub embed_dim: u64,
-    pub rayon_threads: Option<usize>,
-    pub batch_size: usize,
-    pub ingest_concurrency: usize,
-    pub start_time: std::time::Instant,
 }
