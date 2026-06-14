@@ -134,7 +134,7 @@ By teaching the LLM to call the REST API via `curl`, you give it **semantic
 understanding** of your entire codebase — far beyond what `grep` or file embeddings
 can provide.
 
-The AI learns **four code intelligence skills** that replace traditional text search:
+The AI learns **five code intelligence skills** that replace traditional text search:
 
 | # | Skill | Endpoint | Use Case |
 |---|-------|----------|----------|
@@ -143,30 +143,81 @@ The AI learns **four code intelligence skills** that replace traditional text se
 | 3 | **File Exploration** | `/explore?path=` | Get a file's structure without reading it |
 | 4 | **Dependency Graph** | `/deps` | Cross-repo dependencies |
 | 5 | **Graph Visualization** | `/graph` | Interactive 3D entity relationship explorer |
+| 6 | **Index Repository** | `/index` | Register & index the current repo (OpenCode) |
 
 These skills teach the LLM to **always prefer knot-server `curl` calls over
 `grep`/`find`/`rg`** for code exploration, dramatically improving accuracy
 and reducing hallucinations.
 
-### Quick Install — One Command Per IDE
+### Install Agent Skills
 
-Download the pre-built skill instructions directly into your project:
+Download the pre-built skill instructions to teach your AI agent how to use the `knot-server` REST API.
 
-**Cursor** (writes to `.cursorrules`):
+**Option 1: One-liner (Recommended)**
+Downloads and runs the interactive installer, which extracts the 9 skills and prompts you to register them with your AI agent (OpenCode, Claude Code, Gemini CLI, or universal).
+
 ```bash
-curl -sL https://raw.githubusercontent.com/raultov/knot-server/master/skills/cursor-rules.md >> .cursorrules
+curl -fsSL https://raw.githubusercontent.com/raultov/knot-server/master/.knot-server-agent-skills.sh | bash
 ```
 
-**GitHub Copilot** (writes to `.github/copilot-instructions.md`):
+**Option 2: Local Script (for developers)**
+If you cloned the repo, you can run the installer locally:
 ```bash
-mkdir -p .github && curl -sL https://raw.githubusercontent.com/raultov/knot-server/master/skills/copilot-instructions.md >> .github/copilot-instructions.md
+./scripts/install-agent-skills.sh
+```
+*(Note: If you edit the `skills/*.md` files, run `python3 scripts/generate_skills_script.py` to regenerate the `.knot-server-agent-skills.sh` bundle).*
+
+**Option 3: Per-file Downloader**
+If the tarball is blocked by your firewall, download the `.md` files individually:
+```bash
+curl -fsSL https://raw.githubusercontent.com/raultov/knot-server/master/scripts/download-agent-skills.sh | bash
 ```
 
-**Claude Code / Gemini CLI / opencode / Cline / Aider** (generic system prompt):
+### Manual Registration
+
+If you skipped auto-registration or use a different AI tool (like Cursor or Copilot), point your tool's system prompt to the downloaded `.md` files.
+
+**For Cursor** (`.cursorrules`):
 ```bash
-curl -sL https://raw.githubusercontent.com/raultov/knot-server/master/skills/system-prompt.md > knot-skills.md
-# Then instruct your agent: "Read knot-skills.md and use those tools"
+echo "Read the agent skills in .knot-server-agent-skills/ and use the REST API." >> .cursorrules
 ```
+
+**For GitHub Copilot** (`.github/copilot-instructions.md`):
+```bash
+mkdir -p .github && echo "Read the agent skills in .knot-server-agent-skills/ and use the REST API." >> .github/copilot-instructions.md
+```
+
+**For OpenCode** (`opencode.json` snippet if you skipped auto-registration):
+```json
+  "skills": {
+    "knot-server-preflight": { "description": "MANDATORY STEP 0: Server health and index status check", "location": "file:///path/to/.knot-server-agent-skills/preflight.md" },
+    "knot-server-search": { "description": "Use knot-server for semantic code discovery across indexed repositories", "location": "file:///path/to/.knot-server-agent-skills/search.md" },
+    "knot-server-callers": { "description": "Use knot-server to find reverse dependencies and perform impact analysis", "location": "file:///path/to/.knot-server-agent-skills/callers.md" },
+    "knot-server-explore": { "description": "Use knot-server to get a structural overview of a source file", "location": "file:///path/to/.knot-server-agent-skills/explore.md" },
+    "knot-server-deps": { "description": "Use knot-server to traverse the repository dependency graph", "location": "file:///path/to/.knot-server-agent-skills/deps.md" },
+    "knot-server-graph": { "description": "Use knot-server to query raw entity relationship subgraphs", "location": "file:///path/to/.knot-server-agent-skills/graph.md" },
+    "knot-server-repos": { "description": "Use knot-server to list, register, sync, and delete repositories", "location": "file:///path/to/.knot-server-agent-skills/repos.md" },
+    "knot-server-workflows": { "description": "Multi-step knot-server workflows: impact analysis, cross-repo exploration, refactoring patterns", "location": "file:///path/to/.knot-server-agent-skills/workflows.md" },
+    "knot-server-index": { "description": "Register and index the current repository in knot-server", "location": "file:///path/to/.knot-server-agent-skills/index.md" }
+  }
+```
+
+### The `/index` Command (OpenCode only)
+
+OpenCode supports a `/index` command that registers the current repository in knot-server.
+After installing with option 2 or 3 (OpenCode registration), the command is automatically
+installed in `~/.config/opencode/commands/index.md`. You can then type `/index` in the
+OpenCode chat to:
+
+1. Check if knot-server is running
+2. Register the current repository (if new) or trigger a re-index (if already registered)
+3. Wait for indexing to complete
+4. Verify the repo is queryable with a quick search
+
+> **Note:** The `/index` command is supported in OpenCode (option 2/3), Claude Code
+> (option 4), and Gemini CLI (option 5). For other tools (Cursor, Copilot, Codex),
+> simply ask the agent: "Index this repository in knot-server" and it will use the
+> `[[repos]]` skill to do it.
 
 ### How It Works
 

@@ -1,0 +1,165 @@
+# Knot-Server Callers: Reverse Dependency Lookup
+
+**Endpoint:** `GET /api/repos/{id}/callers?entity=...`
+
+## Step 0: Preflight
+
+Before running this, you **must** run the `[[preflight]]` check to ensure the
+server is running and the target repository's status is `indexed`. If the repo
+is not indexed, stop and inform the user.
+
+## Purpose
+
+Find all places where a specific entity is used, referenced, extended, or
+implemented. This answers critical questions like:
+- "Who uses this class/method?"
+- "What will break if I change this?"
+- "Is this code dead?"
+- "How many places depend on this?"
+
+`knot-server` answers this instantly by traversing the Neo4j graph database.
+
+## Request
+
+```bash
+# Retrieve the repository ID from [[preflight]] (e.g. "billing-service")
+REPO_ID="billing-service"
+
+# Name of the entity (URL-encoded). See CRITICAL rule below for common names.
+ENTITY="PaymentProcessor"
+
+curl -fsS -G \
+  --data-urlencode "entity=${ENTITY}" \
+  "${KNOT_SERVER_URL:-http://localhost:3000}/api/repos/${REPO_ID}/callers" \
+  | jq '.calls[] | {name, kind, file_path, start_line, target_name}'
+```
+
+### Parameters
+
+- **`id`** (path): The repository ID.
+- **`entity`** (query, required): Name of the entity to find callers for.
+  - Can be a class name, interface, function, or method name.
+  - Supports partial names and signature fragments.
+  - Examples: "AuthService", "handleRequest", "processPayment".
+
+## Output Format
+
+The endpoint returns a JSON object grouped by relationship type:
+
+```json
+{
+  "calls": [
+    {
+      "uuid": "...",
+      "name": "processCheckout",
+      "kind": "function",
+      "file_path": "src/controllers/checkout.ts",
+      "start_line": 42,
+      "signature": "async processCheckout(req: Request)",
+      "target_name": "PaymentProcessor.charge",
+      "target_file_path": "src/services/payment.ts"
+    }
+  ],
+  "extends": [],
+  "implements": [
+    {
+      "uuid": "...",
+      "name": "StripeProvider",
+      "kind": "class",
+      "file_path": "src/providers/stripe.ts",
+      "start_line": 15,
+      "target_name": "PaymentProcessor"
+    }
+  ],
+  "references": []
+}
+```
+
+### Groups Explained
+
+- **`calls`**: Function/method invocations. Where this entity is directly called.
+- **`extends`**: Class inheritance. Classes that inherit from this class.
+- **`implements`**: Interface implementation. Classes that implement this interface.
+- **`references`**: Type usage. Where this entity is used in annotations, signatures, or type declarations.
+
+## ⚠️ CRITICAL: Avoiding Noisy Results with Common Method Names
+
+This is the **most important rule** for using the callers endpoint effectively.
+
+### The Problem
+
+Methods like `accept`, `process`, `handle`, `get`, `run`, `execute`, `apply`,
+`find`, `create`, `set`, `parse`, and `transform` exist in nearly every
+codebase with different purposes. Searching by the bare name returns **thousands
+of irrelevant results**.
+
+### The Solution: Use Signature Fragments
+
+**Always include the opening parenthesis `(` and at least part of the first
+parameter type** when searching for common method names.
+
+### ❌ Bad Examples (Bare Names - Produces Noise)
+
+```bash
+ENTITY="accept"  # Returns EVERY accept() method
+ENTITY="process" # Returns EVERY process() method in the codebase
+ENTITY="handle"  # Returns EVERY handle() method
+ENTITY="get"     # Returns EVERY get() method (thousands of results)
+```
+
+### ✅ Good Examples (With Signature Fragments - Targeted Results)
+
+```bash
+# By parameter type
+ENTITY="accept(List<Document"  # Only the specific accept() you care about
+ENTITY="findById(String"       # Specific findById variant
+ENTITY="process(Event"         # Process that takes an Event
+ENTITY="handle(Request"        # Handle that takes a Request
+
+# With multiple parameter hints
+ENTITY="transform(List,String" # Even more specific
+ENTITY="create(User,boolean"   # Clear which overload you want
+
+# By return type (if known)
+ENTITY="get()LookupService"    # Get that returns LookupService
+```
+
+### Why This Works
+
+The graph query looks for entities where the `signature` field contains your
+fragment string. Even a partial match is far more specific than just the method
+name. A method `accept(List<Document>)` is very different from `accept(Socket)`.
+
+## When to Use Callers
+
+### 1. Impact Analysis Before Refactoring
+Before changing `PaymentProcessor`, find all dependents. Before modifying a
+`validate()` method, find all callers.
+
+### 2. Dead Code Detection
+If `GET /api/repos/{id}/callers?entity=legacyFunction` returns empty arrays
+for all groups, it is likely dead code. Confirm by exploring the file where
+it's defined.
+
+### 3. Cross-Repository Tracing
+If you query `callers` on a shared library entity (e.g. `TokenVerifier`) inside
+a repository that depends on it (e.g. `my-app` depends on `auth-lib`), the
+graph will correctly return calls made from `my-app` into `auth-lib`. Use the
+[[deps]] skill to discover cross-repo links.
+
+## Interpreting Results
+
+- **High Reference Count (20+):** Critical, widely-used entity. Change carefully; test extensively.
+- **Medium Reference Count (5-20):** Important entity. Review all callers before making breaking changes.
+- **Low Reference Count (1-4):** Specialized or newly added. Easier to modify safely.
+- **Zero References:** Dead code, newly created API, or statically referenced via reflection/strings.
+
+## Connection-Error Footnote
+
+⚠️ **If the call returns connection refused / timeout / network error, stop
+and ask the user:**
+> *"knot-server no responde en `${KNOT_SERVER_URL:-http://localhost:3000}`.
+> ¿En qué puerto está corriendo? (default 3000, env `KNOT_SERVER_PORT`,
+> CLI flag `--port`)."*
+
+Then re-export `KNOT_SERVER_URL` and retry.
