@@ -125,3 +125,82 @@ pub fn error_response(status: StatusCode, message: impl Into<String>) -> Respons
     )
         .into_response()
 }
+
+pub const VALID_RELATIONSHIPS: &[&str] = &[
+    "CALLS",
+    "EXTENDS",
+    "IMPLEMENTS",
+    "REFERENCES",
+    "REFERENCES_DOM",
+    "USES_CSS_CLASS",
+    "IMPORTS_SCRIPT",
+    "IMPORTS_STYLESHEET",
+    "MACRO_CALLS",
+    "CONTAINS",
+    "GENERIC_BOUND",
+    "DEPENDS_ON",
+];
+
+pub const DEFAULT_RELATIONSHIPS_OVERVIEW: &str = "CALLS,EXTENDS,IMPLEMENTS";
+
+pub const DEFAULT_RELATIONSHIPS_SUBGRAPH: &str = "CALLS,REFERENCES,CONTAINS";
+
+pub const KIND_CATEGORY_CLASSES: &[&str] = &[
+    "class",
+    "kotlin_class",
+    "kotlin_object",
+    "kotlin_companion_object",
+    "rust_struct",
+    "rust_enum",
+    "rust_union",
+    "rust_impl",
+    "rust_module",
+    "python_class",
+    "cpp_class",
+    "c_struct",
+    "cpp_namespace",
+    "groovy_class",
+    "groovy_enum",
+    "enum",
+];
+
+pub const KIND_CATEGORY_INTERFACES: &[&str] = &[
+    "interface",
+    "kotlin_interface",
+    "rust_trait",
+    "groovy_interface",
+    "groovy_trait",
+];
+
+pub const KIND_CATEGORY_FUNCTIONS: &[&str] = &[
+    "method",
+    "function",
+    "kotlin_function",
+    "kotlin_method",
+    "kotlin_property",
+    "rust_function",
+    "rust_method",
+    "rust_macro_def",
+    "rust_type_alias",
+    "rust_constant",
+    "rust_static",
+    "rust_macro_invoke",
+    "python_function",
+    "python_method",
+    "python_module",
+    "python_constant",
+    "c_function",
+    "cpp_method",
+    "macro_definition",
+    "scss_function",
+    "scss_mixin",
+    "scss_variable",
+    "groovy_method",
+    "groovy_function",
+    "groovy_property",
+    "constant",
+];
+
+pub const DEFAULT_VISIBLE_KINDS: &str = "classes,interfaces";
+
+pub const VALID_KIND_CATEGORIES: &[&str] = &["classes", "interfaces", "functions", "other"];

@@ -1,4 +1,6 @@
 pub mod graph;
+pub mod graph_map;
+pub mod graph_parse;
 pub mod health;
 pub mod indexing;
 pub mod models;
@@ -15,3 +17,5 @@ pub use repo::*;
 pub use search::*;
 pub use system::*;
 pub use webhooks::*;
+pub mod graph_utils;
+pub mod graph_queries;

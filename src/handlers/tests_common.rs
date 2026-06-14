@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests {
+    use crate::handlers::graph_parse::*;
     use crate::handlers::models::*;
     use crate::handlers::*;
     use crate::models::RegisterRepoResponse;
