@@ -1,18 +1,16 @@
 use std::fs::{self, File};
-use std::path::{Path, PathBuf};
+use std::path::{Path};
 use std::time::Duration;
 
 use fs2::FileExt;
 
 pub struct FileLock {
     file: File,
-    #[allow(dead_code)]
-    path: PathBuf,
 }
 
 impl FileLock {
-    pub fn new(file: File, path: PathBuf) -> Self {
-        Self { file, path }
+    pub fn new(file: File) -> Self {
+        Self { file }
     }
 }
 
@@ -28,10 +26,9 @@ pub fn acquire_file_lock(lock_path: &Path) -> anyhow::Result<FileLock> {
     }
     let file = File::create(lock_path)?;
     file.try_lock_exclusive()?;
-    Ok(FileLock::new(file, lock_path.to_path_buf()))
+    Ok(FileLock::new(file))
 }
 
-#[allow(dead_code)]
 pub fn is_lock_stale(lock_path: &Path, threshold: Duration) -> bool {
     if let Ok(metadata) = fs::metadata(lock_path)
         && let Ok(modified) = metadata.modified()
@@ -42,7 +39,6 @@ pub fn is_lock_stale(lock_path: &Path, threshold: Duration) -> bool {
     false
 }
 
-#[allow(dead_code)]
 pub fn remove_stale_lock(lock_path: &Path) -> bool {
     if lock_path.exists() {
         if let Err(e) = fs::remove_file(lock_path) {

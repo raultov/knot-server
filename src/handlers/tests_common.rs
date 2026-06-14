@@ -52,7 +52,6 @@ mod tests {
         .unwrap()
     }
 
-
     async fn create_test_state_with_tempdir(
         temp_dir: &TempDir,
     ) -> (
