@@ -13,7 +13,13 @@ pub async fn worker_loop(
         tracing::info!("Worker picked up job: {:?} for {}", job, repo_id);
 
         let repo = {
-            let registry = state.registry.lock().unwrap();
+            let registry = match state.registry.lock() {
+                Ok(guard) => guard,
+                Err(e) => {
+                    tracing::error!("Registry lock poisoned: {}", e);
+                    continue;
+                }
+            };
             match registry.get(&repo_id) {
                 Some(entry) => entry.clone(),
                 None => {
@@ -28,7 +34,13 @@ pub async fn worker_loop(
 
         if let Err(e) = process_repository(&repo, &state).await {
             tracing::error!("Indexing failed for {}: {e:#}", repo.id);
-            let mut registry = state.registry.lock().unwrap();
+            let mut registry = match state.registry.lock() {
+                Ok(guard) => guard,
+                Err(e) => {
+                    tracing::error!("Registry lock poisoned during error handling: {}", e);
+                    continue;
+                }
+            };
             let _ = registry.update_status(&repo.id, crate::models::RepoStatus::Error);
         }
     }
@@ -55,7 +67,7 @@ async fn process_repository(
     let is_local = crate::local_sync::is_local_path(&repo.url);
     let exists = Path::new(&repo.local_path).join(".git").exists();
     {
-        let mut registry = state.registry.lock().unwrap();
+        let mut registry = state.registry.lock().map_err(|e| anyhow::anyhow!("Registry lock poisoned: {}", e))?;
         if is_local {
             registry.update_status(&repo.id, crate::models::RepoStatus::Pulling)?;
             tracing::info!("Worker: status=pulling (local) for '{}'", repo.id);
@@ -91,7 +103,7 @@ async fn process_repository(
 
     // 3. Update status to indexing
     {
-        let mut registry = state.registry.lock().unwrap();
+        let mut registry = state.registry.lock().map_err(|e| anyhow::anyhow!("Registry lock poisoned: {}", e))?;
         registry.update_status(&repo.id, crate::models::RepoStatus::Indexing)?;
         tracing::info!("Worker: status=indexing for '{}'", repo.id);
     }
@@ -167,7 +179,7 @@ async fn process_repository(
 
     // 7. Update registry
     {
-        let mut registry = state.registry.lock().unwrap();
+        let mut registry = state.registry.lock().map_err(|e| anyhow::anyhow!("Registry lock poisoned: {}", e))?;
         registry.update_status(&repo.id, crate::models::RepoStatus::Indexed)?;
         registry.update_last_indexed(&repo.id)?;
         tracing::info!("Worker: status=indexed for '{}'", repo.id);
