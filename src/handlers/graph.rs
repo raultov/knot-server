@@ -3,7 +3,7 @@ use crate::handlers::graph_parse::*;
 use crate::handlers::graph_queries::*;
 use crate::handlers::graph_utils::*;
 use crate::handlers::models::*;
-use crate::state::AppState;
+use crate::models::AppState;
 
 use axum::Json;
 use axum::extract::{Path, Query, State};

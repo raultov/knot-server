@@ -1,7 +1,7 @@
 use anyhow::Context;
 use neo4rs::query;
 
-use crate::state::AppState;
+use crate::models::AppState;
 
 /// Resolves a UUID to an entity name by querying Neo4j.
 pub async fn resolve_uuid_to_name(

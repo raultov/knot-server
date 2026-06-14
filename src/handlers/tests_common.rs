@@ -4,7 +4,7 @@ mod tests {
     use crate::handlers::models::*;
     use crate::handlers::*;
     use crate::models::RegisterRepoResponse;
-    use crate::state::AppState;
+    use crate::models::AppState;
     use axum::Router;
     use axum::body::Body;
     use axum::http::Request;

@@ -6,7 +6,7 @@ use crate::models::{IndexJob, RepoEntry};
 
 pub async fn worker_loop(
     mut rx: tokio::sync::mpsc::Receiver<IndexJob>,
-    state: Arc<crate::state::AppState>,
+    state: Arc<crate::models::AppState>,
 ) {
     while let Some(job) = rx.recv().await {
         let repo_id = job.repo_id().to_string();
@@ -36,7 +36,7 @@ pub async fn worker_loop(
 
 async fn process_repository(
     repo: &RepoEntry,
-    state: &crate::state::AppState,
+    state: &crate::models::AppState,
 ) -> anyhow::Result<()> {
     // 1. Acquire exclusive file lock
     let lock_path = PathBuf::from(&repo.local_path).join(".knot.lock");
@@ -187,7 +187,7 @@ mod tests {
     use std::sync::Mutex;
     use tempfile::TempDir;
 
-    async fn create_test_state(workspace: &Path) -> Arc<crate::state::AppState> {
+    async fn create_test_state(workspace: &Path) -> Arc<crate::models::AppState> {
         let registry = Registry::load_or_create(workspace).unwrap();
 
         let graph_db =
@@ -198,7 +198,7 @@ mod tests {
             knot::db::vector::VectorDb::connect("http://localhost:9999", "test_collection", 384)
                 .await
                 .expect("connect for test vector db");
-        Arc::new(crate::state::AppState {
+        Arc::new(crate::models::AppState {
             vector_db: Arc::new(vector_db),
             graph_db: Arc::new(graph_db),
             embedder: None,

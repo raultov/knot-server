@@ -6,7 +6,7 @@ use axum::response::{IntoResponse, Response};
 use std::sync::Arc;
 
 use crate::handlers::models::*;
-use crate::state::AppState;
+use crate::models::AppState;
 
 #[utoipa::path(
     post,

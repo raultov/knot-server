@@ -98,61 +98,12 @@ impl Registry {
             .iter_mut()
             .find(|r| r.id == id)
             .ok_or_else(|| anyhow::anyhow!("Repository '{}' not found", id))?;
-        entry.last_indexed = Some(chrono_now());
+        entry.last_indexed = Some(crate::time_utils::chrono_now());
         self.save()?;
         Ok(())
     }
 }
 
-fn chrono_now() -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = now.as_secs();
-    // Simple ISO 8601 formatting without chrono dependency
-    let days = secs / 86400;
-    let remaining = secs % 86400;
-    let hours = remaining / 3600;
-    let remaining = remaining % 3600;
-    let minutes = remaining / 60;
-    let seconds = remaining % 60;
-
-    // Calculate year/month/day from days since epoch (approximate, good enough)
-    let mut year = 1970i64;
-    let mut days_left = days as i64;
-    loop {
-        let days_in_year = if is_leap(year) { 366 } else { 365 };
-        if days_left < days_in_year {
-            break;
-        }
-        days_left -= days_in_year;
-        year += 1;
-    }
-
-    let month_days = if is_leap(year) {
-        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    } else {
-        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    };
-    let mut month = 1u32;
-    for &md in &month_days {
-        if days_left < md as i64 {
-            break;
-        }
-        days_left -= md as i64;
-        month += 1;
-    }
-    let day = days_left as u32 + 1;
-
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        year, month, day, hours, minutes, seconds
-    )
-}
-
-fn is_leap(year: i64) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
-}
 
 #[cfg(test)]
 mod tests {

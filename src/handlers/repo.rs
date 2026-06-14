@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crate::handlers::models::*;
 use crate::models::{RegisterRepoRequest, RegisterRepoResponse, RepoEntry, RepoListResponse};
-use crate::state::AppState;
+use crate::models::AppState;
 
 #[utoipa::path(
     get,

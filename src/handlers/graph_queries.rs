@@ -3,7 +3,7 @@ use neo4rs::{Graph, query};
 use std::collections::HashSet;
 
 use crate::handlers::models::*;
-use crate::state::AppState;
+use crate::models::AppState;
 
 /// Fetches graph nodes from Neo4j starting from the root repository node.
 pub async fn fetch_nodes(

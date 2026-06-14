@@ -7,7 +7,7 @@ mod locking;
 mod models;
 mod registry;
 mod scheduler;
-mod state;
+mod time_utils;
 mod webhook;
 mod worker;
 
@@ -23,7 +23,7 @@ use knot::db::graph::{ConnectExt, GraphDb};
 use knot::db::vector::{VectorConnectExt, VectorDb};
 use knot::pipeline::embed::Embedder;
 use registry::Registry;
-use state::AppState;
+use models::AppState;
 use tokio::signal;
 use tracing_subscriber::EnvFilter;
 use utoipa::OpenApi;
