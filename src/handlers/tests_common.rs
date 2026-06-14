@@ -41,6 +41,18 @@ mod tests {
             .with_state(state)
     }
 
+    async fn post_repo(app: Router, body: &serde_json::Value) -> axum::response::Response {
+        app.oneshot(
+            Request::post("/api/repos")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+    }
+
+
     async fn create_test_state_with_tempdir(
         temp_dir: &TempDir,
     ) -> (
@@ -98,27 +110,10 @@ mod tests {
         });
 
         // First registration succeeds
-        let _ = app
-            .clone()
-            .oneshot(
-                Request::post("/api/repos")
-                    .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&body).unwrap()))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let _ = post_repo(app.clone(), &body).await;
 
         // Second returns conflict
-        let response = app
-            .oneshot(
-                Request::post("/api/repos")
-                    .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&body).unwrap()))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let response = post_repo(app, &body).await;
 
         assert_eq!(response.status(), StatusCode::CONFLICT);
     }
@@ -188,16 +183,7 @@ mod tests {
             "url": "git@github.com:org/sync-test.git",
             "auth_type": "ssh"
         });
-        let reg_response = app
-            .clone()
-            .oneshot(
-                Request::post("/api/repos")
-                    .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&body).unwrap()))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let reg_response = post_repo(app.clone(), &body).await;
         assert_eq!(reg_response.status(), StatusCode::ACCEPTED);
 
         let body_bytes = axum::body::to_bytes(reg_response.into_body(), 1024 * 1024)
@@ -293,16 +279,7 @@ mod tests {
             "url": "git@github.com:org/repo.git",
             "auth_type": "ssh"
         });
-        let res = app
-            .clone()
-            .oneshot(
-                Request::post("/api/repos")
-                    .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&body).unwrap()))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let res = post_repo(app.clone(), &body).await;
 
         let body_bytes = axum::body::to_bytes(res.into_body(), 1024 * 1024)
             .await
@@ -332,16 +309,7 @@ mod tests {
             "url": "git@github.com:org/repo.git",
             "auth_type": "ssh"
         });
-        let res = app
-            .clone()
-            .oneshot(
-                Request::post("/api/repos")
-                    .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&body).unwrap()))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let res = post_repo(app.clone(), &body).await;
 
         let body_bytes = axum::body::to_bytes(res.into_body(), 1024 * 1024)
             .await
@@ -480,16 +448,7 @@ mod tests {
         });
 
         // First registration: fills the queue (capacity=1)
-        let resp1 = app
-            .clone()
-            .oneshot(
-                Request::post("/api/repos")
-                    .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&body).unwrap()))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let resp1 = post_repo(app.clone(), &body).await;
         assert_eq!(resp1.status(), StatusCode::ACCEPTED);
 
         let body2 = serde_json::json!({
@@ -498,15 +457,7 @@ mod tests {
         });
 
         // Second registration: queue is full → 429
-        let resp2 = app
-            .oneshot(
-                Request::post("/api/repos")
-                    .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&body2).unwrap()))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let resp2 = post_repo(app, &body2).await;
         assert_eq!(resp2.status(), StatusCode::TOO_MANY_REQUESTS);
 
         // Drain the queue to avoid channel drop warnings
@@ -597,16 +548,7 @@ mod tests {
             "url": "git@github.com:org/repo.git",
             "auth_type": "ssh"
         });
-        let res = app
-            .clone()
-            .oneshot(
-                Request::post("/api/repos")
-                    .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&body).unwrap()))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let res = post_repo(app.clone(), &body).await;
 
         let body_bytes = axum::body::to_bytes(res.into_body(), 1024 * 1024)
             .await
@@ -636,16 +578,7 @@ mod tests {
             "url": "git@github.com:org/repo.git",
             "auth_type": "ssh"
         });
-        let res = app
-            .clone()
-            .oneshot(
-                Request::post("/api/repos")
-                    .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&body).unwrap()))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let res = post_repo(app.clone(), &body).await;
 
         let body_bytes = axum::body::to_bytes(res.into_body(), 1024 * 1024)
             .await
@@ -675,16 +608,7 @@ mod tests {
             "url": "git@github.com:org/repo.git",
             "auth_type": "ssh"
         });
-        let res = app
-            .clone()
-            .oneshot(
-                Request::post("/api/repos")
-                    .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&body).unwrap()))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let res = post_repo(app.clone(), &body).await;
 
         let body_bytes = axum::body::to_bytes(res.into_body(), 1024 * 1024)
             .await
@@ -716,16 +640,7 @@ mod tests {
             "url": "git@github.com:org/repo.git",
             "auth_type": "ssh"
         });
-        let res = app
-            .clone()
-            .oneshot(
-                Request::post("/api/repos")
-                    .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&body).unwrap()))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let res = post_repo(app.clone(), &body).await;
 
         let body_bytes = axum::body::to_bytes(res.into_body(), 1024 * 1024)
             .await
