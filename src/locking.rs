@@ -1,5 +1,5 @@
 use std::fs::{self, File};
-use std::path::{Path};
+use std::path::Path;
 use std::time::Duration;
 
 use fs2::FileExt;

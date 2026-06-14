@@ -1,9 +1,8 @@
-
-use std::sync::{Arc, Mutex};
+use crate::registry::Registry;
 use knot::db::graph::GraphDb;
 use knot::db::vector::VectorDb;
 use knot::pipeline::embed::Embedder;
-use crate::registry::Registry;
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -239,7 +238,6 @@ mod tests {
         assert_eq!(req.webhook_secret, None);
     }
 }
-
 
 pub struct AppState {
     pub vector_db: Arc<VectorDb>,

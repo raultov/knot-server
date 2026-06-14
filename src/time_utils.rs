@@ -29,7 +29,7 @@ pub fn format_iso8601(secs_since_epoch: u64) -> String {
     }
 
     let month_days = get_month_days(year);
-    
+
     let mut month = 1u32;
     for &md in &month_days {
         if days_left < md as i64 {

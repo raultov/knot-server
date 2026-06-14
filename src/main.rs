@@ -22,8 +22,8 @@ use axum::routing::get;
 use knot::db::graph::{ConnectExt, GraphDb};
 use knot::db::vector::{VectorConnectExt, VectorDb};
 use knot::pipeline::embed::Embedder;
-use registry::Registry;
 use models::AppState;
+use registry::Registry;
 use tokio::signal;
 use tracing_subscriber::EnvFilter;
 use utoipa::OpenApi;
@@ -286,7 +286,6 @@ mod tests {
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 }
-
 
 fn setup_tracing() {
     tracing_subscriber::fmt()

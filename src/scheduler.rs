@@ -3,8 +3,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::locking::{is_lock_stale, remove_stale_lock};
-use crate::models::{IndexJob, RepoStatus};
 use crate::models::AppState;
+use crate::models::{IndexJob, RepoStatus};
 
 pub async fn scheduler_loop(
     state: Arc<AppState>,
@@ -90,7 +90,6 @@ pub async fn scheduler_loop(
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
