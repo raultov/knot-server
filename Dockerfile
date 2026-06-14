@@ -10,6 +10,7 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 
 WORKDIR /app
 COPY Cargo.toml Cargo.lock* ./
+COPY build.rs build.rs
 RUN mkdir src && echo 'fn main() {}' > src/main.rs
 RUN cargo fetch
 
