@@ -31,22 +31,18 @@ pub async fn graph_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Query(params): Query<GraphParams>,
-) -> Response {
+) -> Result<Response, Response> {
     if let Some(err) = check_repo_exists(&state, &id) {
-        return err;
+        return Err(err);
     }
 
-    let (entity_name, entity_uuid) = match resolve_entity(
+    let (entity_name, entity_uuid) = resolve_entity(
         &state,
         &id,
         params.entity.as_ref(),
         params.entity_id.as_ref(),
     )
-    .await
-    {
-        Ok(res) => res,
-        Err(err) => return err,
-    };
+    .await?;
 
     match entity_name {
         Some(entity_name) => {
@@ -59,13 +55,13 @@ pub async fn graph_handler(
                 .unwrap_or(DEFAULT_RELATIONSHIPS_SUBGRAPH);
             let relationships = match parse_relationships(rels_str) {
                 Ok(rels) => rels,
-                Err(msg) => return error_response(StatusCode::BAD_REQUEST, msg),
+                Err(msg) => return Err(error_response(StatusCode::BAD_REQUEST, msg)),
             };
 
             let kinds_str = params.kinds.as_deref().unwrap_or(DEFAULT_VISIBLE_KINDS);
             let visible_kinds = match parse_kinds(kinds_str) {
                 Ok(kinds) => kinds,
-                Err(msg) => return error_response(StatusCode::BAD_REQUEST, msg),
+                Err(msg) => return Err(error_response(StatusCode::BAD_REQUEST, msg)),
             };
             let include_oth = includes_other(kinds_str);
             let kind_filter: Option<&[&str]> = if include_oth {
@@ -90,12 +86,12 @@ pub async fn graph_handler(
                 Ok(result) => {
                     let mut response = subgraph_to_response(result);
                     filter_unconnected_nodes(&mut response);
-                    (StatusCode::OK, Json(response)).into_response()
+                    Ok((StatusCode::OK, Json(response)).into_response())
                 }
-                Err(e) => error_response(
+                Err(e) => Err(error_response(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("Graph query failed: {e}"),
-                ),
+                )),
             }
         }
         None => {
@@ -106,24 +102,24 @@ pub async fn graph_handler(
                 .unwrap_or(DEFAULT_RELATIONSHIPS_OVERVIEW);
             let relationships = match parse_relationships(rels_str) {
                 Ok(rels) => rels,
-                Err(msg) => return error_response(StatusCode::BAD_REQUEST, msg),
+                Err(msg) => return Err(error_response(StatusCode::BAD_REQUEST, msg)),
             };
 
             let kinds_str = params.kinds.as_deref().unwrap_or(DEFAULT_VISIBLE_KINDS);
             let visible_kinds = match parse_kinds(kinds_str) {
                 Ok(kinds) => kinds,
-                Err(msg) => return error_response(StatusCode::BAD_REQUEST, msg),
+                Err(msg) => return Err(error_response(StatusCode::BAD_REQUEST, msg)),
             };
             let other = includes_other(kinds_str);
 
             match fetch_all_entities(&state, &id, depth, &relationships, &visible_kinds, other)
                 .await
             {
-                Ok(response) => (StatusCode::OK, Json(response)).into_response(),
-                Err(e) => error_response(
+                Ok(response) => Ok((StatusCode::OK, Json(response)).into_response()),
+                Err(e) => Err(error_response(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("Graph overview query failed: {e}"),
-                ),
+                )),
             }
         }
     }
@@ -149,30 +145,26 @@ pub async fn graph_expand_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Query(params): Query<GraphExpandParams>,
-) -> Response {
+) -> Result<Response, Response> {
     if let Some(err) = check_repo_exists(&state, &id) {
-        return err;
+        return Err(err);
     }
 
-    let (entity_name, entity_uuid) = match resolve_entity(
+    let (entity_name, entity_uuid) = resolve_entity(
         &state,
         &id,
         params.entity.as_ref(),
         params.entity_id.as_ref(),
     )
-    .await
-    {
-        Ok(res) => res,
-        Err(err) => return err,
-    };
+    .await?;
 
     let entity_name = match entity_name {
         Some(name) => name,
         None => {
-            return error_response(
+            return Err(error_response(
                 StatusCode::BAD_REQUEST,
                 "Missing required parameter 'entity' or 'entity_id'",
-            );
+            ));
         }
     };
 
@@ -184,7 +176,7 @@ pub async fn graph_expand_handler(
         .unwrap_or(DEFAULT_RELATIONSHIPS_SUBGRAPH);
     let relationships = match parse_relationships(rels_str) {
         Ok(rels) => rels,
-        Err(msg) => return error_response(StatusCode::BAD_REQUEST, msg),
+        Err(msg) => return Err(error_response(StatusCode::BAD_REQUEST, msg)),
     };
 
     let exclude_uuids: std::collections::HashSet<String> = params
@@ -201,7 +193,7 @@ pub async fn graph_expand_handler(
     let kinds_str = params.kinds.as_deref().unwrap_or(DEFAULT_VISIBLE_KINDS);
     let visible_kinds = match parse_kinds(kinds_str) {
         Ok(kinds) => kinds,
-        Err(msg) => return error_response(StatusCode::BAD_REQUEST, msg),
+        Err(msg) => return Err(error_response(StatusCode::BAD_REQUEST, msg)),
     };
     let include_oth = includes_other(kinds_str);
     let kind_filter: Option<&[&str]> = if include_oth {
@@ -231,12 +223,12 @@ pub async fn graph_expand_handler(
             let mut response = subgraph_to_response(result);
             filter_unconnected_nodes(&mut response);
 
-            (StatusCode::OK, Json(response)).into_response()
+            Ok((StatusCode::OK, Json(response)).into_response())
         }
-        Err(e) => error_response(
+        Err(e) => Err(error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Graph expand failed: {e}"),
-        ),
+        )),
     }
 }
 
@@ -263,21 +255,17 @@ async fn resolve_entity(
     if let Some(uuid) = entity_uuid
         && !uuid.trim().is_empty()
     {
-        match resolve_uuid_to_name(state, uuid, repo_id).await {
-            Ok(Some(name)) => return Ok((Some(name), Some(uuid.clone()))),
-            Ok(None) => {
-                return Err(error_response(
-                    StatusCode::NOT_FOUND,
-                    format!("Entity with UUID '{}' not found", uuid),
-                ));
-            }
-            Err(e) => {
-                return Err(error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Failed to resolve entity UUID: {e}"),
-                ));
-            }
-        }
+        return match resolve_uuid_to_name(state, uuid, repo_id).await {
+            Ok(Some(name)) => Ok((Some(name), Some(uuid.clone()))),
+            Ok(None) => Err(error_response(
+                StatusCode::NOT_FOUND,
+                format!("Entity with UUID '{}' not found", uuid),
+            )),
+            Err(e) => Err(error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to resolve entity UUID: {e}"),
+            )),
+        };
     }
 
     match entity_name {
