@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-06-14
+
+### Fixed
+- Docker: include `build.rs` in the build context. The script emits the
+  `KNOT_VERSION` env var that `/docs` substitutes into the Swagger UI,
+  and the Dockerfile only copied `Cargo.toml`, `Cargo.lock`, `assets/`
+  and `src/`. The release build failed with "environment variable
+  `KNOT_VERSION` not defined at compile time". Add an explicit
+  `COPY build.rs build.rs` step right after the manifest copy so Cargo
+  auto-discovers the script.
+
 ## [0.2.1] - 2026-06-14
 
 ### Added
@@ -207,7 +218,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/raultov/knot-server/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/raultov/knot-server/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/raultov/knot-server/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/raultov/knot-server/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/raultov/knot-server/compare/v0.1.17...v0.2.0
 [0.1.17]: https://github.com/raultov/knot-server/compare/v0.1.16...v0.1.17
