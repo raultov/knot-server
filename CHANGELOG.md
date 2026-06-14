@@ -9,6 +9,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-06-14
+
+### Added
+- Local working-tree sync: registering a local filesystem path mirrors the
+  working tree into the workspace and indexes it like a normal clone.
+  Universal build/IDE/dependency outputs are skipped (e.g. `target/`,
+  `node_modules/`, `.gradle/`, `build/`, `dist/`, `__pycache__/`, `.idea/`,
+  `.vscode/`). Self-overwrite (source equal to mirror destination) is
+  refused with a clear error.
+- `POST /api/repos` is now idempotent. Re-registering an existing
+  repository atomically replaces the registry entry, cleans its graph and
+  vector entries and removes the old local path in the background, then
+  enqueues a fresh clone job. The response distinguishes "registered"
+  from "re-registered".
+- `Registry::add_or_replace` for atomic in-place updates, with unit
+  tests covering both insert and overwrite paths.
+- Knot library version badge rendered on `/docs` next to the SwaggerUI
+  version stamp, mirroring the graph viewer.
+- `build.rs` that resolves the linked `knot` version by reading
+  `Cargo.lock` (falling back to `Cargo.toml`) and exports it as
+  `KNOT_VERSION`.
+- `/index` OpenCode slash command (`commands/index.toml`) that registers
+  the current repository (or re-syncs an existing one) end-to-end:
+  health check, derive id, register or sync, poll until `indexed`,
+  verify with a quick search.
+- Self-extracting agent-skills installer bundle
+  (`.knot-server-agent-skills.sh`) plus three companion scripts:
+  - `scripts/generate_skills_script.py` rebuilds the bundle from
+    `skills/*.md`
+  - `scripts/install-agent-skills.sh` runs the bundle locally
+  - `scripts/download-agent-skills.sh` fetches the `.md` files
+    individually when the tarball is blocked by a firewall
+- Nine new per-topic skills (each documents a single endpoint or
+  workflow, replacing the per-IDE monolithic files): `preflight`,
+  `search`, `callers`, `explore`, `deps`, `graph`, `repos`, `index`,
+  `workflows`.
+
+### Changed
+- README: replaced the per-IDE `curl` one-liners with a single
+  installer (`curl | bash`) and added manual-registration fallbacks for
+  Cursor and GitHub Copilot when the installer is skipped.
+- `src/handlers/system.rs::docs_handler` substitutes the
+  `{{KNOT_VERSION}}` placeholder in the embedded `swagger-ui.html` at
+  startup.
+- The three monolithic skill files (`copilot-instructions.md`,
+  `cursor-rules.md`, `system-prompt.md`) were restructured to delegate
+  to the new topic skills; they now share a single Connection & Port
+  Handling section instead of duplicating the full REST reference.
+
+### Fixed
+- E2E: local live-repo sources are now placed under `/tmp` outside the
+  workspace. The registry derives `local_path = workspace/<id>` from the
+  URL basename, so a source inside the workspace used to collide with
+  its own mirror and `fs::copy(file, file)` truncated every file to
+  zero bytes.
+- E2E: `/explore` check reads from the new `.entities[]` response
+  wrapper instead of the previous flat array.
+- E2E: `RECOVERY_LOG_R` is preserved through the local-sync phase so
+  the S5 stale-state-removal assertion can grep it.
+
 ## [0.2.0] - 2026-06-07
 
 ### Changed
@@ -147,7 +207,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/raultov/knot-server/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/raultov/knot-server/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/raultov/knot-server/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/raultov/knot-server/compare/v0.1.17...v0.2.0
 [0.1.17]: https://github.com/raultov/knot-server/compare/v0.1.16...v0.1.17
 [0.1.16]: https://github.com/raultov/knot-server/compare/v0.1.15...v0.1.16
