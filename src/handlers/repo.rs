@@ -72,7 +72,7 @@ pub async fn register_repo_handler(
     let id = body.generate_id();
     let local_path = crate::models::repo_local_path(&state.workspace_dir, &id);
 
-    let entry = crate::models::RepoEntry {
+    let entry = RepoEntry {
         id: id.clone(),
         url: body.url.clone(),
         auth_type: body.auth_type.clone(),

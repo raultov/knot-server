@@ -33,68 +33,21 @@ use utoipa_swagger_ui::SwaggerUi;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .init();
+    setup_tracing();
 
     let cfg = config::ServerConfig::from_env();
     tracing::info!("Starting knot-server v{}", env!("CARGO_PKG_VERSION"));
     tracing::info!("Binding to {}:{}", cfg.bind_addr, cfg.port);
 
-    // Configure Rayon thread pool once per process
-    if let Some(threads) = cfg.rayon_threads {
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(threads)
-            .build_global()
-            .expect("Failed to configure Rayon thread pool");
-        tracing::info!("Rayon thread pool configured: {} threads", threads);
-    }
+    setup_rayon(cfg.rayon_threads);
 
-    tracing::info!("Connecting to Neo4j at {}...", cfg.neo4j_uri);
-    let graph_db = loop {
-        match GraphDb::connect(&cfg.neo4j_uri, &cfg.neo4j_user, &cfg.neo4j_password).await {
-            Ok(db) => break db,
-            Err(e) => {
-                tracing::warn!("Neo4j connection attempt failed: {e}");
-                tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-            }
-        }
-    };
-    loop {
-        match graph_db.ensure_indexes().await {
-            Ok(()) => break,
-            Err(e) => {
-                tracing::warn!("Neo4j index creation failed: {e}");
-                tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-            }
-        }
-    }
-    tracing::info!("Neo4j connection established");
+    let graph_db = setup_neo4j(&cfg.neo4j_uri, &cfg.neo4j_user, &cfg.neo4j_password).await;
 
-    // Set shared fastembed cache dir so the pipeline runner reuses the model
-    // across all repos instead of downloading it per-repo.
-    let fastembed_cache_dir = Path::new(&cfg.workspace_dir).join("fastembed_cache");
-    let cache_str = fastembed_cache_dir
-        .to_str()
-        .expect("workspace_dir contains invalid UTF-8");
-    std::fs::create_dir_all(cache_str)?;
-    // SAFETY: called before any tokio threads exist
-    unsafe {
-        std::env::set_var("KNOT_FASTEMBED_CACHE_DIR", cache_str);
-    }
-    tracing::info!("Fastembed cache dir: {cache_str}");
+    let fastembed_cache_dir = setup_fastembed_cache(&cfg.workspace_dir)?;
 
-    tracing::info!("Connecting to Qdrant at {}...", cfg.qdrant_url);
-    let vector_db =
-        VectorDb::connect(&cfg.qdrant_url, &cfg.qdrant_collection, cfg.embed_dim).await?;
-    vector_db.ensure_collection().await?;
-    tracing::info!("Qdrant connection established");
+    let vector_db = setup_qdrant(&cfg.qdrant_url, &cfg.qdrant_collection, cfg.embed_dim).await?;
 
-    tracing::info!("Initializing embedding model...");
-    let embedder = Embedder::init(fastembed_cache_dir)?;
-    tracing::info!("Embedding model ready");
+    let embedder = setup_embedder(fastembed_cache_dir)?;
 
     tracing::info!("Loading repository registry from {}...", cfg.workspace_dir);
     let mut registry = Registry::load_or_create(Path::new(&cfg.workspace_dir))?;
@@ -103,55 +56,7 @@ async fn main() -> anyhow::Result<()> {
     // Create job queue channel
     let (job_tx, job_rx) = tokio::sync::mpsc::channel::<models::IndexJob>(cfg.queue_capacity);
 
-    // Startup recovery: re-enqueue any repo stuck in a non-terminal state
-    // (Pending, Cloning, Pulling, Indexing) from a previous run.
-    {
-        let stuck: Vec<models::RepoEntry> = registry
-            .list()
-            .iter()
-            .filter(|r| {
-                matches!(
-                    r.status,
-                    models::RepoStatus::Pending
-                        | models::RepoStatus::Cloning
-                        | models::RepoStatus::Pulling
-                        | models::RepoStatus::Indexing
-                )
-            })
-            .cloned()
-            .collect();
-
-        for repo in stuck {
-            let git_dir = Path::new(&repo.local_path).join(".git");
-            if git_dir.exists() {
-                tracing::warn!(
-                    "Recovering stuck repo '{}' (was {}): .git exists, enqueuing Pull",
-                    repo.id,
-                    repo.status
-                );
-                let _ = job_tx.try_send(models::IndexJob::Pull {
-                    repo_id: repo.id.clone(),
-                });
-            } else {
-                tracing::warn!(
-                    "Recovering stuck repo '{}' (was {}): .git missing, removing partial path and enqueuing Clone",
-                    repo.id,
-                    repo.status
-                );
-                if Path::new(&repo.local_path).exists()
-                    && let Err(e) = std::fs::remove_dir_all(&repo.local_path)
-                {
-                    tracing::warn!("Failed to remove partial repo dir {}: {e}", repo.local_path);
-                }
-                let _ = job_tx.try_send(models::IndexJob::Clone {
-                    repo_id: repo.id.clone(),
-                });
-            }
-            if let Err(e) = registry.update_status(&repo.id, models::RepoStatus::Pending) {
-                tracing::warn!("Failed to reset status for '{}': {e}", repo.id);
-            }
-        }
-    }
+    recover_stuck_repos(&mut registry, &job_tx);
 
     let start_time = std::time::Instant::now();
 
@@ -379,5 +284,127 @@ mod tests {
         // fallback that responds 404 (proving the override did not fire).
         let response = app.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+}
+
+
+fn setup_tracing() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
+        .init();
+}
+
+fn setup_rayon(threads: Option<usize>) {
+    if let Some(t) = threads {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(t)
+            .build_global()
+            .expect("Failed to configure Rayon thread pool");
+        tracing::info!("Rayon thread pool configured: {} threads", t);
+    }
+}
+
+async fn setup_neo4j(uri: &str, user: &str, pass: &str) -> GraphDb {
+    tracing::info!("Connecting to Neo4j at {}...", uri);
+    let graph_db = loop {
+        match GraphDb::connect(uri, user, pass).await {
+            Ok(db) => break db,
+            Err(e) => {
+                tracing::warn!("Neo4j connection attempt failed: {e}");
+                tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+            }
+        }
+    };
+    loop {
+        match graph_db.ensure_indexes().await {
+            Ok(()) => break,
+            Err(e) => {
+                tracing::warn!("Neo4j index creation failed: {e}");
+                tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+            }
+        }
+    }
+    tracing::info!("Neo4j connection established");
+    graph_db
+}
+
+fn setup_fastembed_cache(workspace_dir: &str) -> anyhow::Result<std::path::PathBuf> {
+    let fastembed_cache_dir = std::path::Path::new(workspace_dir).join("fastembed_cache");
+    let cache_str = fastembed_cache_dir
+        .to_str()
+        .expect("workspace_dir contains invalid UTF-8");
+    std::fs::create_dir_all(cache_str)?;
+    unsafe {
+        std::env::set_var("KNOT_FASTEMBED_CACHE_DIR", cache_str);
+    }
+    tracing::info!("Fastembed cache dir: {cache_str}");
+    Ok(fastembed_cache_dir)
+}
+
+async fn setup_qdrant(url: &str, collection: &str, dim: u64) -> anyhow::Result<VectorDb> {
+    tracing::info!("Connecting to Qdrant at {}...", url);
+    let vector_db = VectorDb::connect(url, collection, dim).await?;
+    vector_db.ensure_collection().await?;
+    tracing::info!("Qdrant connection established");
+    Ok(vector_db)
+}
+
+fn setup_embedder(cache_dir: std::path::PathBuf) -> anyhow::Result<Embedder> {
+    tracing::info!("Initializing embedding model...");
+    let embedder = Embedder::init(cache_dir)?;
+    tracing::info!("Embedding model ready");
+    Ok(embedder)
+}
+
+fn recover_stuck_repos(
+    registry: &mut Registry,
+    job_tx: &tokio::sync::mpsc::Sender<models::IndexJob>,
+) {
+    let stuck: Vec<models::RepoEntry> = registry
+        .list()
+        .iter()
+        .filter(|r| {
+            matches!(
+                r.status,
+                models::RepoStatus::Pending
+                    | models::RepoStatus::Cloning
+                    | models::RepoStatus::Pulling
+                    | models::RepoStatus::Indexing
+            )
+        })
+        .cloned()
+        .collect();
+
+    for repo in stuck {
+        let git_dir = std::path::Path::new(&repo.local_path).join(".git");
+        if git_dir.exists() {
+            tracing::warn!(
+                "Recovering stuck repo '{}' (was {}): .git exists, enqueuing Pull",
+                repo.id,
+                repo.status
+            );
+            let _ = job_tx.try_send(models::IndexJob::Pull {
+                repo_id: repo.id.clone(),
+            });
+        } else {
+            tracing::warn!(
+                "Recovering stuck repo '{}' (was {}): .git missing, removing partial path and enqueuing Clone",
+                repo.id,
+                repo.status
+            );
+            if std::path::Path::new(&repo.local_path).exists()
+                && let Err(e) = std::fs::remove_dir_all(&repo.local_path)
+            {
+                tracing::warn!("Failed to remove partial repo dir {}: {e}", repo.local_path);
+            }
+            let _ = job_tx.try_send(models::IndexJob::Clone {
+                repo_id: repo.id.clone(),
+            });
+        }
+        if let Err(e) = registry.update_status(&repo.id, models::RepoStatus::Pending) {
+            tracing::warn!("Failed to reset status for '{}': {e}", repo.id);
+        }
     }
 }
