@@ -65,13 +65,11 @@ pub struct RegistryData {
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub enum IndexJob {
     Clone { repo_id: String },
     Pull { repo_id: String },
 }
 
-#[allow(dead_code)]
 impl IndexJob {
     pub fn repo_id(&self) -> &str {
         match self {

@@ -16,7 +16,7 @@ impl FileLock {
 
 impl Drop for FileLock {
     fn drop(&mut self) {
-        let _ = fs2::FileExt::unlock(&self.file);
+        let _ = FileExt::unlock(&self.file);
     }
 }
 
