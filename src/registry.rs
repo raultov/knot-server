@@ -6,8 +6,6 @@ use crate::models::{RegistryData, RepoEntry, RepoStatus};
 
 pub struct Registry {
     data: RegistryData,
-    #[allow(dead_code)]
-    workspace_dir: PathBuf,
     json_path: PathBuf,
     lock_path: PathBuf,
 }
@@ -40,7 +38,6 @@ impl Registry {
 
         Ok(Self {
             data,
-            workspace_dir: workspace_dir.to_path_buf(),
             json_path,
             lock_path,
         })
@@ -82,7 +79,6 @@ impl Registry {
         &self.data.repositories
     }
 
-    #[allow(dead_code)]
     pub fn update_status(&mut self, id: &str, status: RepoStatus) -> anyhow::Result<()> {
         let entry = self
             .data
@@ -95,7 +91,6 @@ impl Registry {
         Ok(())
     }
 
-    #[allow(dead_code)]
     pub fn update_last_indexed(&mut self, id: &str) -> anyhow::Result<()> {
         let entry = self
             .data
@@ -107,14 +102,8 @@ impl Registry {
         self.save()?;
         Ok(())
     }
-
-    #[allow(dead_code)]
-    pub fn workspace_dir(&self) -> &Path {
-        &self.workspace_dir
-    }
 }
 
-#[allow(dead_code)]
 fn chrono_now() -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -161,7 +150,6 @@ fn chrono_now() -> String {
     )
 }
 
-#[allow(dead_code)]
 fn is_leap(year: i64) -> bool {
     (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
 }
