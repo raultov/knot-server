@@ -52,10 +52,14 @@ async fn process_repository(
     };
 
     // 2. Git operation
+    let is_local = crate::local_sync::is_local_path(&repo.url);
     let exists = Path::new(&repo.local_path).join(".git").exists();
     {
         let mut registry = state.registry.lock().unwrap();
-        if exists {
+        if is_local {
+            registry.update_status(&repo.id, crate::models::RepoStatus::Pulling)?;
+            tracing::info!("Worker: status=pulling (local) for '{}'", repo.id);
+        } else if exists {
             registry.update_status(&repo.id, crate::models::RepoStatus::Pulling)?;
             tracing::info!("Worker: status=pulling for '{}'", repo.id);
         } else {
@@ -64,7 +68,18 @@ async fn process_repository(
         }
     }
 
-    if exists {
+    if is_local {
+        tracing::info!(
+            "Worker: syncing local working tree for '{}' from {}",
+            repo.id,
+            repo.url
+        );
+        let src = repo.url.clone();
+        let dst = repo.local_path.clone();
+        tokio::task::spawn_blocking(move || crate::local_sync::sync_local_working_tree(&src, &dst))
+            .await??;
+        tracing::info!("Worker: local sync complete for '{}'", repo.id);
+    } else if exists {
         tracing::info!("Worker: pulling '{}' from {}", repo.id, repo.url);
         crate::git::run_git_pull(repo).await?;
         tracing::info!("Worker: pull complete for '{}'", repo.id);
@@ -105,7 +120,39 @@ async fn process_repository(
     };
 
     // 5. Load IndexState
-    let mut index_state = knot::pipeline::state::IndexState::load(&repo.local_path)?;
+    //    For local paths, defend against a stale on-disk state file from an
+    //    older `knot` version (no `version` field → version=0 < current).
+    //    `local_sync` preserves `.knot/` across syncs because it is the
+    //    indexer's incremental state, so a knot-version transition would
+    //    otherwise block every future sync. Clear the stale file and, if
+    //    load still fails for any other reason, fall back to a fresh state
+    //    rather than failing the whole local sync job.
+    let mut index_state = if is_local {
+        if crate::local_sync::clear_stale_index_state(&repo.local_path) {
+            tracing::warn!(
+                "Removed stale .knot/index_state.json for local repo '{}' \
+                 (older knot format); forcing a clean re-index",
+                repo.id
+            );
+        }
+        match knot::pipeline::state::IndexState::load(&repo.local_path) {
+            Ok(state) => state,
+            Err(e) => {
+                tracing::warn!(
+                    "IndexState::load failed for local repo '{}': {e:#}; \
+                     starting from a fresh state",
+                    repo.id
+                );
+                let state_file = Path::new(&repo.local_path)
+                    .join(".knot")
+                    .join("index_state.json");
+                let _ = std::fs::remove_file(&state_file);
+                knot::pipeline::state::IndexState::default()
+            }
+        }
+    } else {
+        knot::pipeline::state::IndexState::load(&repo.local_path)?
+    };
 
     // 6. Run the indexing pipeline
     tracing::info!("Worker: starting indexing pipeline for '{}'", repo.id);

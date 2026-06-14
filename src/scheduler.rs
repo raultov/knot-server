@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::locking::{is_lock_stale, remove_stale_lock};
-use crate::models::IndexJob;
+use crate::models::{IndexJob, RepoStatus};
 use crate::state::AppState;
 
 pub async fn scheduler_loop(
@@ -44,6 +44,29 @@ pub async fn scheduler_loop(
                     let _ = state.job_tx.try_send(job);
                     continue;
                 }
+            }
+
+            // Pick up Pending repos that have no lock — prevent them from
+            // remaining stuck forever when the startup recovery loop missed
+            // them (e.g. a single pending repo after a clean shutdown).
+            if repo.status == RepoStatus::Pending && !lock_path.exists() {
+                let git_dir = Path::new(&repo.local_path).join(".git");
+                let job = if git_dir.exists() {
+                    IndexJob::Pull {
+                        repo_id: repo.id.clone(),
+                    }
+                } else {
+                    IndexJob::Clone {
+                        repo_id: repo.id.clone(),
+                    }
+                };
+                tracing::info!(
+                    "Picking up Pending repo '{}' (no lock), enqueuing {:?}",
+                    repo.id,
+                    job
+                );
+                let _ = state.job_tx.try_send(job);
+                continue;
             }
 
             // Check if re-indexing is overdue

@@ -127,7 +127,7 @@ mod tests {
             .output()
             .unwrap();
 
-        std::fs::write(clone_path.join("README.md"), "# Test Repo\n").unwrap();
+        fs::write(clone_path.join("README.md"), "# Test Repo\n").unwrap();
         StdCommand::new("git")
             .args(["add", "."])
             .current_dir(&clone_path)
@@ -147,22 +147,26 @@ mod tests {
         bare_str
     }
 
+    fn create_test_repo_entry(id: &str, url: String, local_path: &Path) -> RepoEntry {
+        RepoEntry {
+            id: id.into(),
+            url,
+            local_path: local_path.to_string_lossy().into(),
+            auth_type: AuthType::Ssh,
+            branch: "main".into(),
+            webhook_secret: None,
+            last_indexed: None,
+            status: crate::models::RepoStatus::Indexed,
+        }
+    }
+
     #[tokio::test]
     async fn test_git_clone_local_repo() {
         let dir = TempDir::new().unwrap();
         let bare_url = create_test_bare_repo(dir.path());
         let clone_dest = dir.path().join("cloned");
 
-        let repo = RepoEntry {
-            id: "test-repo".into(),
-            url: bare_url,
-            local_path: clone_dest.to_string_lossy().into(),
-            auth_type: AuthType::Ssh,
-            branch: "main".into(),
-            webhook_secret: None,
-            last_indexed: None,
-            status: crate::models::RepoStatus::Indexed,
-        };
+        let repo = create_test_repo_entry("test-repo", bare_url, &clone_dest);
 
         run_git_clone(&repo).await.unwrap();
         assert!(clone_dest.join(".git").exists());
@@ -175,16 +179,7 @@ mod tests {
         let bare_url = create_test_bare_repo(dir.path());
         let clone_dest = dir.path().join("cloned");
 
-        let repo = RepoEntry {
-            id: "test-repo".into(),
-            url: bare_url.clone(),
-            local_path: clone_dest.to_string_lossy().into(),
-            auth_type: AuthType::Ssh,
-            branch: "main".into(),
-            webhook_secret: None,
-            last_indexed: None,
-            status: crate::models::RepoStatus::Indexed,
-        };
+        let repo = create_test_repo_entry("test-repo", bare_url.clone(), &clone_dest);
 
         run_git_clone(&repo).await.unwrap();
 
@@ -194,7 +189,7 @@ mod tests {
             .output()
             .unwrap();
 
-        std::fs::write(clone_dest.join("new_file.txt"), "new content").unwrap();
+        fs::write(clone_dest.join("new_file.txt"), "new content").unwrap();
         StdCommand::new("git")
             .args(["add", "."])
             .current_dir(&clone_dest)
@@ -218,16 +213,11 @@ mod tests {
     #[tokio::test]
     async fn test_git_pull_nonexistent_repo_returns_error() {
         let dir = TempDir::new().unwrap();
-        let repo = RepoEntry {
-            id: "ghost".into(),
-            url: "git@github.com:org/ghost.git".into(),
-            local_path: dir.path().join("ghost").to_string_lossy().into(),
-            auth_type: AuthType::Ssh,
-            branch: "main".into(),
-            webhook_secret: None,
-            last_indexed: None,
-            status: crate::models::RepoStatus::Indexed,
-        };
+        let repo = create_test_repo_entry(
+            "ghost",
+            "git@github.com:org/ghost.git".into(),
+            &dir.path().join("ghost"),
+        );
         let result = run_git_pull(&repo).await;
         assert!(result.is_err());
     }
@@ -238,16 +228,7 @@ mod tests {
         let bare_url = create_test_bare_repo(dir.path());
         let clone_dest = dir.path().join("cloned");
 
-        let repo = RepoEntry {
-            id: "test-repo".into(),
-            url: bare_url,
-            local_path: clone_dest.to_string_lossy().into(),
-            auth_type: AuthType::Ssh,
-            branch: "main".into(),
-            webhook_secret: None,
-            last_indexed: None,
-            status: crate::models::RepoStatus::Indexed,
-        };
+        let repo = create_test_repo_entry("test-repo", bare_url, &clone_dest);
 
         run_git_clone(&repo).await.unwrap();
         run_git_clone(&repo).await.unwrap();

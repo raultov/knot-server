@@ -11,65 +11,6 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use std::sync::Arc;
 
-/// Helper to verify if the repository exists in the registry.
-fn check_repo_exists(state: &AppState, id: &str) -> Option<Response> {
-    let registry = state.registry.lock().unwrap();
-    if registry.get(id).is_none() {
-        Some(error_response(
-            StatusCode::NOT_FOUND,
-            format!("Repository '{}' not found", id),
-        ))
-    } else {
-        None
-    }
-}
-
-/// Resolves the entity name and UUID, validating that the entity exists.
-async fn resolve_entity(
-    state: &AppState,
-    repo_id: &str,
-    entity_name: Option<&String>,
-    entity_uuid: Option<&String>,
-) -> Result<(Option<String>, Option<String>), Response> {
-    if let Some(uuid) = entity_uuid {
-        if !uuid.trim().is_empty() {
-            match resolve_uuid_to_name(state, uuid, repo_id).await {
-                Ok(Some(name)) => return Ok((Some(name), Some(uuid.clone()))),
-                Ok(None) => {
-                    return Err(error_response(
-                        StatusCode::NOT_FOUND,
-                        format!("Entity with UUID '{}' not found", uuid),
-                    ));
-                }
-                Err(e) => {
-                    return Err(error_response(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Failed to resolve entity UUID: {e}"),
-                    ));
-                }
-            }
-        }
-    }
-
-    match entity_name {
-        Some(e) if !e.trim().is_empty() => Ok((Some(e.clone()), None)),
-        _ => Ok((None, None)),
-    }
-}
-
-/// Removes nodes from the subgraph that have no connecting edges (except the root node).
-fn filter_unconnected_nodes(response: &mut GraphResponse) {
-    let connected_uuids: std::collections::HashSet<&str> = response
-        .edges
-        .iter()
-        .flat_map(|e| vec![e.source.as_str(), e.target.as_str()])
-        .collect();
-
-    response.nodes.retain(|n| {
-        Some(&n.id) == response.root_id.as_ref() || connected_uuids.contains(n.id.as_str())
-    });
-}
-
 #[utoipa::path(
     get,
     path = "/api/repos/{id}/graph",
@@ -297,4 +238,63 @@ pub async fn graph_expand_handler(
             format!("Graph expand failed: {e}"),
         ),
     }
+}
+
+/// Helper to verify if the repository exists in the registry.
+fn check_repo_exists(state: &AppState, id: &str) -> Option<Response> {
+    let registry = state.registry.lock().unwrap();
+    if registry.get(id).is_none() {
+        Some(error_response(
+            StatusCode::NOT_FOUND,
+            format!("Repository '{}' not found", id),
+        ))
+    } else {
+        None
+    }
+}
+
+/// Resolves the entity name and UUID, validating that the entity exists.
+async fn resolve_entity(
+    state: &AppState,
+    repo_id: &str,
+    entity_name: Option<&String>,
+    entity_uuid: Option<&String>,
+) -> Result<(Option<String>, Option<String>), Response> {
+    if let Some(uuid) = entity_uuid
+        && !uuid.trim().is_empty()
+    {
+        match resolve_uuid_to_name(state, uuid, repo_id).await {
+            Ok(Some(name)) => return Ok((Some(name), Some(uuid.clone()))),
+            Ok(None) => {
+                return Err(error_response(
+                    StatusCode::NOT_FOUND,
+                    format!("Entity with UUID '{}' not found", uuid),
+                ));
+            }
+            Err(e) => {
+                return Err(error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to resolve entity UUID: {e}"),
+                ));
+            }
+        }
+    }
+
+    match entity_name {
+        Some(e) if !e.trim().is_empty() => Ok((Some(e.clone()), None)),
+        _ => Ok((None, None)),
+    }
+}
+
+/// Removes nodes from the subgraph that have no connecting edges (except the root node).
+fn filter_unconnected_nodes(response: &mut GraphResponse) {
+    let connected_uuids: std::collections::HashSet<&str> = response
+        .edges
+        .iter()
+        .flat_map(|e| vec![e.source.as_str(), e.target.as_str()])
+        .collect();
+
+    response.nodes.retain(|n| {
+        Some(&n.id) == response.root_id.as_ref() || connected_uuids.contains(n.id.as_str())
+    });
 }

@@ -501,15 +501,22 @@ CODE=$(curl -s -w "%{http_code}" -o /dev/null -X POST "$BASE_URL/api/webhook/$SI
     -d '{"ref":"refs/heads/main"}')
 if [ "$CODE" = "202" ]; then echo -e "${GREEN}PASS${NC}"; else echo -e "${RED}FAIL${NC} — got $CODE"; exit 1; fi
 
-# Test L: Duplicate registration → 409
-echo -e "\n${CYAN}Test L: Duplicate registration → 409${NC}"
+# Test L: Duplicate registration → 202 (upsert / re-register)
+echo -e "\n${CYAN}Test L: Duplicate registration → 202 (upsert)${NC}"
 curl -s -o /dev/null -X POST "$BASE_URL/api/repos" \
     -H "Content-Type: application/json" \
     -d "{\"url\": \"$DUPTEST_REPO\", \"auth_type\": \"ssh\"}"
-CODE=$(curl -s -w "%{http_code}" -o /dev/null -X POST "$BASE_URL/api/repos" \
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE_URL/api/repos" \
     -H "Content-Type: application/json" \
     -d "{\"url\": \"$DUPTEST_REPO\", \"auth_type\": \"ssh\"}")
-if [ "$CODE" = "409" ]; then echo -e "${GREEN}PASS${NC}"; else echo -e "${RED}FAIL${NC} — got $CODE"; exit 1; fi
+CODE=$(echo "$RESP" | tail -1)
+BODY=$(echo "$RESP" | sed '$d')
+MSG=$(echo "$BODY" | jq -r '.message // ""')
+if [ "$CODE" = "202" ] && [ "$MSG" = "Repository re-registered successfully" ]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC} — got $CODE, message: $MSG"; exit 1
+fi
 
 # Test M: Manual sync → 202
 echo -e "\n${CYAN}Test M: Manual sync → 202${NC}"
@@ -601,7 +608,615 @@ else
 fi
 
 # -------------------------------------------------------
-# Step 7: Summary
+# Step 7: Indexing state recovery regression tests
+# -------------------------------------------------------
+# Regression tests for two bugs:
+#   Q) "Pending status eternally": a repo left in Pending (e.g. server killed
+#      before its initial Clone job ran) was never re-enqueued.
+#   R) "Indexing status abruptly cut": a repo left mid-indexing (Cloning /
+#      Pulling / Indexing) after a crash had no active recovery — it only
+#      recovered if a stale .knot.lock file happened to survive the crash.
+# Both bugs are fixed by the startup recovery loop in src/main.rs, which
+# re-enqueues any non-terminal repo on restart. The tests below simulate
+# the crash by stopping the server, rewriting repos.json with a stuck
+# entry, and restarting. The server MUST recover the repo to "indexed".
+echo -e "${YELLOW}[7/8] Indexing state recovery regression tests...${NC}"
+
+RECOVERY_LOG_Q="/tmp/knot-server-recovery-q-$$.log"
+RECOVERY_LOG_R="/tmp/knot-server-recovery-r-$$.log"
+
+stop_current_server() {
+    if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
+        kill "$SERVER_PID" 2>/dev/null || true
+        wait "$SERVER_PID" 2>/dev/null || true
+    fi
+    SERVER_PID=""
+}
+
+start_recovery_server() {
+    local logfile="$1"
+    KNOT_SERVER_QDRANT_URL="$QDRANT_URL" \
+    KNOT_SERVER_NEO4J_URI="$NEO4J_URI" \
+    KNOT_SERVER_NEO4J_USER="$NEO4J_USER" \
+    KNOT_NEO4J_PASSWORD="$NEO4J_PASSWORD" \
+    KNOT_SERVER_PORT="$SERVER_PORT" \
+    KNOT_WORKSPACE_DIR="$WORKSPACE_DIR" \
+    KNOT_SERVER_POLL_INTERVAL_SECS=2 \
+    KNOT_SERVER_STALE_LOCK_TIMEOUT_SECS=2 \
+    KNOT_SERVER_QUEUE_CAPACITY=4 \
+    RUST_LOG=info \
+        "$PROJECT_ROOT/target/debug/knot-server" > "$logfile" 2>&1 &
+    SERVER_PID=$!
+
+    for i in $(seq 1 30); do
+        if curl -sf "http://localhost:$SERVER_PORT/api/repos" > /dev/null 2>&1; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+wait_for_recovery_indexed() {
+    local repo_id="$1"
+    local logfile="$2"
+    for i in $(seq 1 60); do
+        local status
+        status=$(curl -sf "$BASE_URL/api/repos/$repo_id" 2>/dev/null | jq -r '.status' 2>/dev/null || echo "")
+        if [ "$status" = "indexed" ]; then
+            return 0
+        elif [ "$status" = "error" ]; then
+            echo -e "${RED}FAIL${NC} — recovery set repo to error"
+            tail -30 "$logfile"
+            return 2
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+# Stop the currently running server (left over from Step 6).
+stop_current_server
+
+# ── Test Q: Pending status recovery on restart ────────────────
+# Simulates a server that was killed before its initial Clone job ran
+# (e.g. crash between POST /api/repos and the worker picking up the job).
+# After restart, the startup recovery loop must enqueue a Clone job and
+# the repo MUST reach "indexed".
+echo -e "\n${CYAN}Test Q: Pending status recovery on restart${NC}"
+
+RECOVERY_Q_ID="recovery-pending-bug"
+RECOVERY_Q_PATH="$WORKSPACE_DIR/$RECOVERY_Q_ID"
+rm -rf "$RECOVERY_Q_PATH"
+
+# Inject a single Pending repo into repos.json. No local_path yet —
+# the recovery code will enqueue a Clone (not Pull) for this case.
+cat > "$WORKSPACE_DIR/repos.json" <<EOF
+{
+  "repositories": [
+    {
+      "id": "$RECOVERY_Q_ID",
+      "url": "$FIXTURE_REPO",
+      "auth_type": "ssh",
+      "local_path": "$RECOVERY_Q_PATH",
+      "branch": "main",
+      "status": "pending"
+    }
+  ]
+}
+EOF
+
+if ! start_recovery_server "$RECOVERY_LOG_Q"; then
+    echo -e "${RED}FAIL${NC} — server did not start"
+    cat "$RECOVERY_LOG_Q"
+    exit 1
+fi
+echo "  Server restarted, waiting for recovery to index '$RECOVERY_Q_ID'..."
+
+if wait_for_recovery_indexed "$RECOVERY_Q_ID" "$RECOVERY_LOG_Q"; then
+    echo -e "${GREEN}PASS${NC} — Pending repo recovered to 'indexed' after restart"
+else
+    FINAL=$(curl -sf "$BASE_URL/api/repos/$RECOVERY_Q_ID" 2>/dev/null | jq -r '.status' 2>/dev/null || echo "unknown")
+    echo -e "${RED}FAIL${NC} — Pending repo stuck (final status: $FINAL)"
+    echo "Server log (last 40 lines):"
+    tail -40 "$RECOVERY_LOG_Q"
+    exit 1
+fi
+
+# Verify the startup recovery log message is present
+if grep -q "Recovering stuck repo '$RECOVERY_Q_ID' (was pending)" "$RECOVERY_LOG_Q"; then
+    echo -e "${GREEN}PASS${NC} — startup recovery log entry present ('was pending')"
+else
+    echo -e "${RED}FAIL${NC} — startup recovery log entry missing"
+    echo "Server log (last 40 lines):"
+    tail -40 "$RECOVERY_LOG_Q"
+    exit 1
+fi
+
+# ── Test R: Indexing status abrupt cut recovery on restart ────
+# Simulates a server killed mid-indexing: the .git dir is present (clone
+# already succeeded) but the worker was running the indexing pipeline when
+# the process died. After restart, the recovery loop must re-enqueue a
+# Pull job and the repo MUST reach "indexed".
+echo -e "\n${CYAN}Test R: Indexing status recovery on restart${NC}"
+
+stop_current_server
+
+RECOVERY_R_ID="recovery-indexing-bug"
+RECOVERY_R_PATH="$WORKSPACE_DIR/$RECOVERY_R_ID"
+rm -rf "$RECOVERY_R_PATH"
+
+# Seed the local path with a real .git dir, as if the clone had finished
+# before the crash. No .knot.lock — the worker process released it on
+# exit. (A surviving lock would be cleaned by the stale-lock scheduler
+# path, not the startup recovery loop under test.)
+git clone "$FIXTURE_REPO" "$RECOVERY_R_PATH" > /dev/null 2>&1
+if [ ! -d "$RECOVERY_R_PATH/.git" ]; then
+    echo -e "${RED}FAIL${NC} — could not seed $RECOVERY_R_PATH/.git"
+    exit 1
+fi
+
+# Inject the stuck repo (status=indexing, .git present) into repos.json.
+cat > "$WORKSPACE_DIR/repos.json" <<EOF
+{
+  "repositories": [
+    {
+      "id": "$RECOVERY_R_ID",
+      "url": "$FIXTURE_REPO",
+      "auth_type": "ssh",
+      "local_path": "$RECOVERY_R_PATH",
+      "branch": "main",
+      "status": "indexing"
+    }
+  ]
+}
+EOF
+
+if ! start_recovery_server "$RECOVERY_LOG_R"; then
+    echo -e "${RED}FAIL${NC} — server did not start"
+    cat "$RECOVERY_LOG_R"
+    exit 1
+fi
+echo "  Server restarted, waiting for recovery to index '$RECOVERY_R_ID'..."
+
+if wait_for_recovery_indexed "$RECOVERY_R_ID" "$RECOVERY_LOG_R"; then
+    echo -e "${GREEN}PASS${NC} — Indexing repo recovered to 'indexed' after restart"
+else
+    FINAL=$(curl -sf "$BASE_URL/api/repos/$RECOVERY_R_ID" 2>/dev/null | jq -r '.status' 2>/dev/null || echo "unknown")
+    echo -e "${RED}FAIL${NC} — Indexing repo stuck (final status: $FINAL)"
+    echo "Server log (last 40 lines):"
+    tail -40 "$RECOVERY_LOG_R"
+    exit 1
+fi
+
+# Verify the startup recovery log message names the original status
+if grep -q "Recovering stuck repo '$RECOVERY_R_ID' (was indexing)" "$RECOVERY_LOG_R"; then
+    echo -e "${GREEN}PASS${NC} — startup recovery log entry present ('was indexing')"
+else
+    echo -e "${RED}FAIL${NC} — startup recovery log entry missing"
+    echo "Server log (last 40 lines):"
+    tail -40 "$RECOVERY_LOG_R"
+    exit 1
+fi
+
+# Verify the recovery chose the Pull job (.git present → no dir removal)
+if grep -q "Recovering stuck repo '$RECOVERY_R_ID' (was indexing): .git exists, enqueuing Pull" "$RECOVERY_LOG_R"; then
+    echo -e "${GREEN}PASS${NC} — recovery correctly chose Pull job (not Clone)"
+else
+    echo -e "${RED}FAIL${NC} — recovery did not log expected Pull decision"
+    tail -40 "$RECOVERY_LOG_R"
+    exit 1
+fi
+
+rm -f "$RECOVERY_LOG_Q" "$RECOVERY_LOG_R"
+
+# -------------------------------------------------------
+# Step 8: Local working-tree sync — uncommitted changes
+# -------------------------------------------------------
+# Regression test for the bug where `repo.url` is a local filesystem path:
+# the worker used to call `git fetch` (which only sees committed objects),
+# so uncommitted working-tree changes in the source were never picked up.
+# The fix routes local-path URLs through `local_sync::sync_local_working_tree`,
+# which mirrors the source tree into `repo.local_path` so the incremental
+# indexer can detect file-level changes. The tests below exercise the full
+# add / modify / commit-count flow against a real git working tree.
+echo -e "${YELLOW}[8/9] Local working-tree sync regression test...${NC}"
+
+LOCAL_LIVE_PATH="$WORKSPACE_DIR/local-live-repo"
+rm -rf "$LOCAL_LIVE_PATH"
+mkdir -p "$LOCAL_LIVE_PATH"
+git init -q "$LOCAL_LIVE_PATH"
+git -C "$LOCAL_LIVE_PATH" checkout -q -b main
+cp "$FIXTURE_DIR"/*.java "$LOCAL_LIVE_PATH/"
+git -C "$LOCAL_LIVE_PATH" add . > /dev/null 2>&1
+git -C "$LOCAL_LIVE_PATH" -c user.email=test@test.com -c user.name=Test \
+    commit -q -m "initial"
+echo "  Created local live repo at $LOCAL_LIVE_PATH with initial commit"
+
+# ── Test S1: Register local live repo and wait for initial indexing ──
+echo -e "\n${CYAN}Test S1: Register local live repo + wait for indexing${NC}"
+REGISTER_BODY=$(mktemp)
+REGISTER_CODE=$(curl -sf -w "%{http_code}" -o "$REGISTER_BODY" \
+    -X POST "$BASE_URL/api/repos" \
+    -H "Content-Type: application/json" \
+    -d "{\"url\": \"$LOCAL_LIVE_PATH\", \"auth_type\": \"ssh\"}")
+if [ "$REGISTER_CODE" = "202" ]; then
+    echo -e "${GREEN}PASS${NC} — 202 Accepted for local-path url"
+else
+    echo -e "${RED}FAIL${NC} — expected 202, got $REGISTER_CODE"
+    cat "$REGISTER_BODY"
+    rm -f "$REGISTER_BODY"
+    exit 1
+fi
+LOCAL_REPO_ID=$(jq -r '.id' "$REGISTER_BODY")
+rm -f "$REGISTER_BODY"
+echo "  Local repo ID: $LOCAL_REPO_ID"
+
+S_INDEXED_OK=false
+for i in $(seq 1 60); do
+    REPO_JSON=$(curl -sf "$BASE_URL/api/repos/$LOCAL_REPO_ID" 2>/dev/null || echo "")
+    STATUS=$(echo "$REPO_JSON" | jq -r '.status' 2>/dev/null || echo "")
+    LAST_INDEXED=$(echo "$REPO_JSON" | jq -r '.last_indexed' 2>/dev/null || echo "")
+
+    if [ "$STATUS" = "indexed" ] && [ "$LAST_INDEXED" != "null" ] && [ -n "$LAST_INDEXED" ]; then
+        echo -e "${GREEN}PASS${NC} — local repo indexed (last_indexed: $LAST_INDEXED)"
+        S_INDEXED_OK=true
+        break
+    elif [ "$STATUS" = "error" ]; then
+        echo -e "${RED}FAIL${NC} — local repo indexing failed with error status"
+        echo "Server log tail:"
+        tail -30 /tmp/knot-server-e2e.log 2>/dev/null || true
+        exit 1
+    fi
+    if [ "$i" -eq 60 ]; then
+        echo -e "${RED}FAIL${NC} — local repo indexing did not complete within 60s (status: $STATUS)"
+        echo "Server log tail:"
+        tail -30 /tmp/knot-server-e2e.log 2>/dev/null || true
+        exit 1
+    fi
+    sleep 1
+done
+
+# ── Test S2: Add a new uncommitted file, trigger sync, verify it appears ──
+echo -e "\n${CYAN}Test S2: Uncommitted new file picked up after sync${NC}"
+cat > "$LOCAL_LIVE_PATH/SyncTestService.java" <<'JAVA'
+public class SyncTestService {
+    public String syncTestMethod() {
+        return "hello from uncommitted code";
+    }
+}
+JAVA
+
+# Verify it is genuinely uncommitted (git status shows "??" for untracked)
+UNCOMMITTED_PROOF=$(git -C "$LOCAL_LIVE_PATH" status --short | grep "SyncTestService.java" || true)
+if [ -z "$UNCOMMITTED_PROOF" ]; then
+    echo -e "${RED}FAIL${NC} — SyncTestService.java was not actually uncommitted (git status empty)"
+    exit 1
+fi
+echo "  Confirmed uncommitted: $UNCOMMITTED_PROOF"
+
+SYNC_CODE=$(curl -s -w "%{http_code}" -o /dev/null \
+    -X POST "$BASE_URL/api/repos/$LOCAL_REPO_ID/sync")
+if [ "$SYNC_CODE" = "202" ]; then
+    echo -e "  ${GREEN}sync accepted (202)${NC}"
+else
+    echo -e "${RED}FAIL${NC} — sync returned $SYNC_CODE (expected 202)"
+    exit 1
+fi
+
+for i in $(seq 1 60); do
+    REPO_JSON=$(curl -sf "$BASE_URL/api/repos/$LOCAL_REPO_ID" 2>/dev/null || echo "")
+    STATUS=$(echo "$REPO_JSON" | jq -r '.status' 2>/dev/null || echo "")
+    if [ "$STATUS" = "indexed" ]; then
+        break
+    elif [ "$STATUS" = "error" ]; then
+        echo -e "${RED}FAIL${NC} — sync re-index failed with error status"
+        tail -30 /tmp/knot-server-e2e.log 2>/dev/null || true
+        exit 1
+    fi
+    if [ "$i" -eq 60 ]; then
+        echo -e "${RED}FAIL${NC} — sync did not reach indexed within 60s (status: $STATUS)"
+        tail -30 /tmp/knot-server-e2e.log 2>/dev/null || true
+        exit 1
+    fi
+    sleep 1
+done
+
+# Search for the new class
+SEARCH=$(curl -sf "$BASE_URL/api/repos/$LOCAL_REPO_ID/search?q=SyncTestService" 2>/dev/null || echo "")
+HAS_RESULT=$(echo "$SEARCH" | jq '[.. | strings | select(contains("SyncTestService"))] | length' 2>/dev/null || echo "0")
+if [ -n "$HAS_RESULT" ] && [ "$HAS_RESULT" -ge 1 ]; then
+    echo -e "${GREEN}PASS${NC} — new class found in search results"
+else
+    echo -e "${RED}FAIL${NC} — SyncTestService not found in search"
+    echo "Search response: $SEARCH"
+    tail -30 /tmp/knot-server-e2e.log 2>/dev/null || true
+    exit 1
+fi
+
+# Explore the new file directly
+EXPLORE=$(curl -s -w "%{http_code}" -o /tmp/s2_explore.json \
+    "$BASE_URL/api/repos/$LOCAL_REPO_ID/explore?path=SyncTestService.java")
+if [ "$EXPLORE" = "200" ] && \
+   jq -e '[.[] | select(.name == "SyncTestService")] | length >= 1' /tmp/s2_explore.json > /dev/null 2>&1; then
+    echo -e "${GREEN}PASS${NC} — new class visible in /explore"
+else
+    echo -e "${RED}FAIL${NC} — /explore did not return SyncTestService (status: $EXPLORE)"
+    cat /tmp/s2_explore.json
+    exit 1
+fi
+
+# ── Test S3: Modify an existing class uncommitted, re-sync, verify change ──
+echo -e "\n${CYAN}Test S3: Uncommitted modification picked up after sync${NC}"
+cat >> "$LOCAL_LIVE_PATH/UserService.java" <<'JAVA'
+
+    public void uncommittedNewMethod() {}
+JAVA
+
+UNCOMMITTED_PROOF=$(git -C "$LOCAL_LIVE_PATH" status --short | grep "UserService.java" || true)
+if [ -z "$UNCOMMITTED_PROOF" ]; then
+    echo -e "${RED}FAIL${NC} — UserService.java modification was not uncommitted"
+    exit 1
+fi
+echo "  Confirmed uncommitted modification: $UNCOMMITTED_PROOF"
+
+curl -sf -X POST "$BASE_URL/api/repos/$LOCAL_REPO_ID/sync" > /dev/null
+
+for i in $(seq 1 60); do
+    REPO_JSON=$(curl -sf "$BASE_URL/api/repos/$LOCAL_REPO_ID" 2>/dev/null || echo "")
+    STATUS=$(echo "$REPO_JSON" | jq -r '.status' 2>/dev/null || echo "")
+    if [ "$STATUS" = "indexed" ]; then
+        break
+    elif [ "$STATUS" = "error" ]; then
+        echo -e "${RED}FAIL${NC} — re-sync failed with error"
+        tail -30 /tmp/knot-server-e2e.log 2>/dev/null || true
+        exit 1
+    fi
+    if [ "$i" -eq 60 ]; then
+        echo -e "${RED}FAIL${NC} — re-sync did not reach indexed within 60s (status: $STATUS)"
+        tail -30 /tmp/knot-server-e2e.log 2>/dev/null || true
+        exit 1
+    fi
+    sleep 1
+done
+
+CALLERS=$(curl -sf "$BASE_URL/api/repos/$LOCAL_REPO_ID/callers?entity=uncommittedNewMethod" 2>/dev/null || echo "")
+if echo "$CALLERS" | jq -e '.' > /dev/null 2>&1; then
+    echo -e "${GREEN}PASS${NC} — new method discoverable via /callers (entity exists in graph)"
+else
+    echo -e "${RED}FAIL${NC} — /callers did not return valid JSON for uncommittedNewMethod"
+    echo "Response: $CALLERS"
+    tail -30 /tmp/knot-server-e2e.log 2>/dev/null || true
+    exit 1
+fi
+
+# ── Test S4: Source git log still has exactly 1 commit (changes never committed) ──
+echo -e "\n${CYAN}Test S4: Source git log unchanged (changes were never committed)${NC}"
+COMMIT_COUNT=$(git -C "$LOCAL_LIVE_PATH" log --oneline | wc -l | tr -d ' ')
+if [ "$COMMIT_COUNT" = "1" ]; then
+    echo -e "${GREEN}PASS${NC} — source still has only 1 commit (uncommitted changes never committed)"
+else
+    echo -e "${RED}FAIL${NC} — unexpected commit count: $COMMIT_COUNT (expected 1)"
+    exit 1
+fi
+
+# ── Test S5: Stale .knot/index_state.json from an older knot is auto-cleared ──
+# Regression test for the version-mismatch bug:
+#   "Detected index_state v0; current version is v3. The on-disk index is
+#    incompatible."
+# When `local_sync` mirrors a source tree into the destination, it preserves
+# `.knot/` (indexer state) so future syncs remain incremental. But if the
+# destination's state file was written by an older `knot` version (no `version`
+# field), the new indexer refuses to load it and every sync would fail.
+# The worker must detect the stale format, delete the file, and re-index.
+echo -e "\n${CYAN}Test S5: Stale .knot/index_state.json is auto-cleared on sync${NC}"
+
+LOCAL_REPO_DEST="$WORKSPACE_DIR/$LOCAL_REPO_ID"
+STALE_STATE_FILE="$LOCAL_REPO_DEST/.knot/index_state.json"
+
+# Inject a state file in the OLD format (no top-level "version" key).
+# This mimics exactly the on-disk state left behind by a pre-versioned `knot`.
+mkdir -p "$(dirname "$STALE_STATE_FILE")"
+cat > "$STALE_STATE_FILE" <<'JSON'
+{
+  "file_hashes": {
+    "/tmp/knot-e2e-workspace-$$/local-live-repo/SomeFile.java": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+  }
+}
+JSON
+echo "  Injected stale state file at $STALE_STATE_FILE (no 'version' key)"
+
+# Trigger sync — the worker should detect staleness, clear the file,
+# and complete indexing successfully.
+SYNC_CODE=$(curl -s -w "%{http_code}" -o /dev/null \
+    -X POST "$BASE_URL/api/repos/$LOCAL_REPO_ID/sync")
+if [ "$SYNC_CODE" = "202" ]; then
+    echo -e "  ${GREEN}sync accepted (202)${NC}"
+else
+    echo -e "${RED}FAIL${NC} — sync returned $SYNC_CODE (expected 202)"
+    tail -30 /tmp/knot-server-e2e.log 2>/dev/null || true
+    exit 1
+fi
+
+# Wait for indexing to reach 'indexed' (NOT 'error')
+S5_INDEXED=false
+for i in $(seq 1 60); do
+    REPO_JSON=$(curl -sf "$BASE_URL/api/repos/$LOCAL_REPO_ID" 2>/dev/null || echo "")
+    STATUS=$(echo "$REPO_JSON" | jq -r '.status' 2>/dev/null || echo "")
+
+    if [ "$STATUS" = "indexed" ]; then
+        S5_INDEXED=true
+        break
+    elif [ "$STATUS" = "error" ]; then
+        echo -e "${RED}FAIL${NC} — sync failed with error status (stale state was not auto-cleared)"
+        tail -30 /tmp/knot-server-e2e.log 2>/dev/null || true
+        exit 1
+    fi
+    if [ "$i" -eq 60 ]; then
+        echo -e "${RED}FAIL${NC} — sync did not reach 'indexed' within 60s (status: $STATUS)"
+        tail -30 /tmp/knot-server-e2e.log 2>/dev/null || true
+        exit 1
+    fi
+    sleep 1
+done
+if [ "$S5_INDEXED" = "true" ]; then
+    echo -e "${GREEN}PASS${NC} — sync reached 'indexed' (stale state was auto-cleared, not propagated as error)"
+else
+    echo -e "${RED}FAIL${NC} — sync never reached 'indexed'"
+    exit 1
+fi
+
+# Verify the indexer rewrote the state file with a current version.
+if [ ! -f "$STALE_STATE_FILE" ]; then
+    echo -e "${RED}FAIL${NC} — indexer did not recreate $STALE_STATE_FILE after re-index"
+    exit 1
+fi
+NEW_VERSION=$(jq -r '.version // "missing"' "$STALE_STATE_FILE" 2>/dev/null || echo "missing")
+if [ "$NEW_VERSION" = "missing" ] || [ "$NEW_VERSION" = "null" ] || [ -z "$NEW_VERSION" ]; then
+    echo -e "${RED}FAIL${NC} — rewritten state file has no 'version' key: $NEW_VERSION"
+    cat "$STALE_STATE_FILE"
+    exit 1
+fi
+echo -e "${GREEN}PASS${NC} — rewritten state file has version=$NEW_VERSION"
+
+# Also verify the auto-clear log message is present (proves the worker took
+# the intended path, not some accidental recovery).
+if grep -q "Removed stale .knot/index_state.json for local repo '$LOCAL_REPO_ID'" /tmp/knot-server-e2e.log; then
+    echo -e "${GREEN}PASS${NC} — worker logged stale-state removal"
+else
+    echo -e "${RED}FAIL${NC} — expected stale-state log line not found"
+    tail -40 /tmp/knot-server-e2e.log 2>/dev/null || true
+    exit 1
+fi
+
+# ── Test S6: Build-artifact directories (target/, node_modules/) are skipped ──
+# Regression test for the 30 GB `target/` blow-up: when a user registers their
+# own Rust project as a local repo, the local sync used to recursively copy
+# `target/`, which contains the entire Cargo build output. Syncs of such
+# projects took ~40 s and ballooned the workspace. The skip-list in
+# `local_sync` now treats `target/`, `node_modules/`, `build/`, `dist/`, etc.
+# as ignored directories: they are never copied and are actively removed from
+# the mirror if they survived a previous unfiltered sync.
+echo -e "\n${CYAN}Test S6: Build-artifact directories are skipped during local sync${NC}"
+
+ARTIFACT_LIVE_PATH="$WORKSPACE_DIR/artifact-live-repo"
+rm -rf "$ARTIFACT_LIVE_PATH"
+mkdir -p "$ARTIFACT_LIVE_PATH"
+git init -q "$ARTIFACT_LIVE_PATH"
+git -C "$ARTIFACT_LIVE_PATH" checkout -q -b main
+cp "$FIXTURE_DIR"/*.java "$ARTIFACT_LIVE_PATH/"
+git -C "$ARTIFACT_LIVE_PATH" add . > /dev/null 2>&1
+git -C "$ARTIFACT_LIVE_PATH" -c user.email=test@test.com -c user.name=Test \
+    commit -q -m "initial"
+
+# Plant a fat "build artifact" dir to ensure it is NOT copied. We use
+# dd to create ~50 MB so that any actual copy would noticeably slow the
+# test down — that is the signal we are testing for.
+ARTIFACT_LIVE_TARGET="$ARTIFACT_LIVE_PATH/target"
+mkdir -p "$ARTIFACT_LIVE_TARGET"
+dd if=/dev/zero of="$ARTIFACT_LIVE_TARGET/big_binary" bs=1M count=50 \
+    status=none 2>/dev/null
+mkdir -p "$ARTIFACT_LIVE_PATH/node_modules/react"
+echo "fake module" > "$ARTIFACT_LIVE_PATH/node_modules/react/index.js"
+echo "  Planted 50 MB target/big_binary and a fake node_modules/ in source"
+
+# Register
+ARTIFACT_REPO_BODY=$(mktemp)
+ARTIFACT_CODE=$(curl -sf -w "%{http_code}" -o "$ARTIFACT_REPO_BODY" \
+    -X POST "$BASE_URL/api/repos" \
+    -H "Content-Type: application/json" \
+    -d "{\"url\": \"$ARTIFACT_LIVE_PATH\", \"auth_type\": \"ssh\"}")
+if [ "$ARTIFACT_CODE" = "202" ]; then
+    echo -e "  ${GREEN}registered (202)${NC}"
+else
+    echo -e "${RED}FAIL${NC} — expected 202, got $ARTIFACT_CODE"
+    cat "$ARTIFACT_REPO_BODY"
+    rm -f "$ARTIFACT_REPO_BODY"
+    exit 1
+fi
+ARTIFACT_REPO_ID=$(jq -r '.id' "$ARTIFACT_REPO_BODY")
+rm -f "$ARTIFACT_REPO_BODY"
+
+# Wait for indexing
+for i in $(seq 1 60); do
+    REPO_JSON=$(curl -sf "$BASE_URL/api/repos/$ARTIFACT_REPO_ID" 2>/dev/null || echo "")
+    STATUS=$(echo "$REPO_JSON" | jq -r '.status' 2>/dev/null || echo "")
+    if [ "$STATUS" = "indexed" ]; then break; fi
+    if [ "$STATUS" = "error" ]; then
+        echo -e "${RED}FAIL${NC} — indexing error"
+        tail -30 /tmp/knot-server-e2e.log 2>/dev/null || true
+        exit 1
+    fi
+    if [ "$i" -eq 60 ]; then
+        echo -e "${RED}FAIL${NC} — indexing timed out (status: $STATUS)"
+        tail -30 /tmp/knot-server-e2e.log 2>/dev/null || true
+        exit 1
+    fi
+    sleep 1
+done
+
+ARTIFACT_DEST="$WORKSPACE_DIR/$ARTIFACT_REPO_ID"
+
+# Verify target/ is NOT in the mirror
+if [ -e "$ARTIFACT_DEST/target" ]; then
+    TARGET_SIZE=$(du -sh "$ARTIFACT_DEST/target" 2>/dev/null | cut -f1)
+    echo -e "${RED}FAIL${NC} — target/ was copied to mirror ($TARGET_SIZE); skip list is not working"
+    exit 1
+else
+    echo -e "${GREEN}PASS${NC} — target/ not in mirror (50 MB artifact was correctly skipped)"
+fi
+
+# Verify node_modules/ is NOT in the mirror
+if [ -e "$ARTIFACT_DEST/node_modules" ]; then
+    echo -e "${RED}FAIL${NC} — node_modules/ was copied to mirror"
+    exit 1
+else
+    echo -e "${GREEN}PASS${NC} — node_modules/ not in mirror"
+fi
+
+# Verify the Java source file WAS copied (sanity check — we did not over-skip)
+if [ ! -f "$ARTIFACT_DEST/UserService.java" ]; then
+    echo -e "${RED}FAIL${NC} — UserService.java missing from mirror (skip list is over-aggressive)"
+    exit 1
+else
+    echo -e "${GREEN}PASS${NC} — legitimate source files still copied"
+fi
+
+# Trigger a second sync. If the prune logic is correct, the dst's
+# `.knot/` state is preserved AND no artifact dir accumulates. Total
+# size of the mirror should stay small and not double.
+curl -sf -X POST "$BASE_URL/api/repos/$ARTIFACT_REPO_ID/sync" > /dev/null
+for i in $(seq 1 60); do
+    STATUS=$(curl -sf "$BASE_URL/api/repos/$ARTIFACT_REPO_ID" 2>/dev/null \
+        | jq -r '.status' 2>/dev/null || echo "")
+    if [ "$STATUS" = "indexed" ]; then break; fi
+    if [ "$i" -eq 60 ]; then
+        echo -e "${RED}FAIL${NC} — re-sync timed out (status: $STATUS)"
+        tail -30 /tmp/knot-server-e2e.log 2>/dev/null || true
+        exit 1
+    fi
+    sleep 1
+done
+if [ -e "$ARTIFACT_DEST/target" ] || [ -e "$ARTIFACT_DEST/node_modules" ]; then
+    echo -e "${RED}FAIL${NC} — artifact dir appeared after a second sync"
+    exit 1
+else
+    echo -e "${GREEN}PASS${NC} — second sync still clean (no artifact drift)"
+fi
+
+# Clean up
+curl -s -o /dev/null -X DELETE "$BASE_URL/api/repos/$ARTIFACT_REPO_ID"
+rm -rf "$ARTIFACT_LIVE_PATH"
+echo "  Cleaned up artifact live repo"
+
+# Clean up the local live repo
+curl -s -o /dev/null -X DELETE "$BASE_URL/api/repos/$LOCAL_REPO_ID"
+rm -rf "$LOCAL_LIVE_PATH"
+rm -f /tmp/s2_explore.json
+echo "  Cleaned up local live repo"
+
+# -------------------------------------------------------
+# Step 9: Summary
 # -------------------------------------------------------
 echo ""
 echo -e "${GREEN}========================================${NC}"
@@ -610,9 +1225,14 @@ echo -e "${GREEN}========================================${NC}"
 echo ""
 echo "Validated: clone + index pipeline, search, callers, explore, deps"
 echo "           POST/GET/DELETE /api/repos, /api/repos/:id/sync, /api/health"
-echo "           /api/webhook (GitLab validation), error codes 400/401/404/409/429"
+echo "           /api/webhook (GitLab validation), error codes 400/401/404/429"
 echo "           Database cleanup on DELETE (Neo4j + Qdrant)"
 echo "           Queue capacity limit (429 Too Many Requests)"
+echo "           Idempotent re-registration (POST upsert returns 202)"
+echo "           Recovery of stuck repos on restart (Pending + Indexing)"
+echo "           Local-path sync picks up uncommitted working-tree changes"
+echo "           Local-path sync auto-clears stale index_state.json (knot version transitions)"
+echo "           Local-path sync skips build artifacts (target/, node_modules/, build/, ...)"
 echo ""
 
 exit 0

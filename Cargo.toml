@@ -18,7 +18,7 @@ inherits = "release"
 lto = "thin"
 
 [dependencies]
-knot = "1.4.0"
+knot = "1.4.8"
 axum = "0.8"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
@@ -32,7 +32,6 @@ rayon = "1"
 hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
-base64 = "0.22"
 neo4rs = "0.9.0-rc.9"
 utoipa = { version = "5", features = ["axum_extras"] }
 utoipa-axum = "0.2"
@@ -41,4 +40,3 @@ utoipa-swagger-ui = { version = "9", features = ["axum"] }
 [dev-dependencies]
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
-http-body-util = "0.1"

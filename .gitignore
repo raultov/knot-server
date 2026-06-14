@@ -1,4 +1,5 @@
 /target
+.idea/
 
 .fastembed_cache/
 .knot/

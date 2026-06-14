@@ -18,7 +18,7 @@ With `knot-server`, you can register Git repositories via a REST API, trigger au
 **knot-server** provides a comprehensive REST API to manage the lifecycle of your codebases.
 
 ### 📦 Repository Management
-- **`POST /api/repos`**: Register a new Git repository. Accepts a JSON body with a URL, name, and optional authentication.
+- **`POST /api/repos`**: Register a new Git repository. Accepts a JSON body with a URL, name, and optional authentication. This endpoint is **idempotent**: if a repository with the same derived ID already exists, the server treats the call as a re-registration — the existing database entries and local files are cleaned up and the repository is cloned from scratch. The response message indicates whether the call was a fresh registration or a re-registration.
   ```json
   {
     "url": "https://github.com/raultov/knot.git",
@@ -35,6 +35,28 @@ With `knot-server`, you can register Git repositories via a REST API, trigger au
   | `branch` | No | Branch to clone (defaults to `"main"`) |
   | `webhook_secret` | No | Shared secret for validating webhook signatures (HMAC-SHA256 or token). **Required to use the `/api/webhook` endpoint.** |
   | `auth` | No | Authentication method: `{"type": "ssh"}`, `{"type": "https", "token": "..."}`, or `{"type": "none"}` (default: `{"type": "ssh"}`) |
+
+  > **Local filesystem paths in `url`:** When `url` is an absolute path to a directory
+  > on the local filesystem (e.g. `/home/raul/workspace/my-app`), the server bypasses
+  > `git clone` / `git fetch` and instead mirrors the source's working tree into the
+  > workspace. This means **uncommitted working-tree changes in the source are
+  > picked up by the next sync** — useful when indexing a repository you are
+  > actively developing. A regular `git fetch` only transfers committed objects, so
+  > it would miss in-flight edits. See the `Indexing local repositories` section
+  > below for the recommended Docker setup.
+  >
+  > **Ignored artifact directories:** The local sync never copies the following
+  > build / dependency / IDE directories (matched by base name anywhere in the
+  > tree), and removes any that may have accumulated in the mirror from a
+  > previous unfiltered sync:
+  >
+  > `target/`, `node_modules/`, `build/`, `dist/`, `out/`, `.gradle/`, `.next/`,
+  > `.nuxt/`, `.svelte-kit/`, `.cache/`, `__pycache__/`, `.pytest_cache/`,
+  > `.mypy_cache/`, `.ruff_cache/`, `.tox/`, `.idea/`, `.vscode/`
+  >
+  > This keeps the workspace small and keeps sync time bounded (a Rust project's
+  > `target/` is routinely 10s of GB and would otherwise be mirrored on every
+  > sync). The `.knot/` indexer-state directory is always preserved.
 - **`GET /api/repos`**: List all registered repositories, along with their current status (`pending`, `cloning`, `pulling`, `indexing`, `indexed`, `error`) and last indexed timestamp.
 - **`GET /api/repos/:id`**: Retrieve detailed information about a specific repository.
 - **`DELETE /api/repos/:id`**: Remove a repository from the registry and delete its local workspace. (No request body required).
@@ -91,7 +113,7 @@ With `knot-server`, you can register Git repositories via a REST API, trigger au
 
 ### 📖 Interactive API Documentation (Swagger UI)
 
-- **`GET /docs`**: Interactive Swagger UI page where you can browse every endpoint, inspect request/response schemas, and execute live "Try it out" requests — no external tools needed.
+- **`GET /docs`**: Interactive Swagger UI page where you can browse every endpoint, inspect request/response schemas, and execute live "Try it out" requests — no external tools needed. The header shows the `knot-server` version, the linked `knot` library version, and the OpenAPI 3.1 stamp side by side, so you always know which versions produced the spec.
 - **`GET /api-docs/openapi.json`**: Raw OpenAPI 3.1 JSON spec for importing into Postman, Insomnia, or generating client SDKs.
 - **Postman Collection**: We also include a `knot-server.postman_collection.json` file in the repository root to help you quickly test the API with Postman.
 

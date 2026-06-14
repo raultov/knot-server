@@ -17,5 +17,5 @@ pub use repo::*;
 pub use search::*;
 pub use system::*;
 pub use webhooks::*;
-pub mod graph_utils;
 pub mod graph_queries;
+pub mod graph_utils;
