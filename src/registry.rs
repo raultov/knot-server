@@ -59,6 +59,25 @@ impl Registry {
         Ok(())
     }
 
+    /// Atomically add `entry` or replace an existing one with the same id.
+    /// Returns `true` if an existing entry was replaced, `false` if the
+    /// entry was newly added.
+    ///
+    /// The replacement happens before the save so the registry is never
+    /// observable in a state with two entries sharing the same id, even on
+    /// a crash between the two mutations (the on-disk `repos.json` is only
+    /// written once, atomically with respect to the lock).
+    pub fn add_or_replace(&mut self, entry: RepoEntry) -> anyhow::Result<bool> {
+        let replaced = self.data.repositories.iter().position(|r| r.id == entry.id);
+        let was_replaced = replaced.is_some();
+        if let Some(idx) = replaced {
+            self.data.repositories.remove(idx);
+        }
+        self.data.repositories.push(entry);
+        self.save()?;
+        Ok(was_replaced)
+    }
+
     pub fn remove(&mut self, id: &str) -> anyhow::Result<()> {
         let index = self
             .data
@@ -103,7 +122,6 @@ impl Registry {
         Ok(())
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -151,6 +169,36 @@ mod tests {
         registry.add(repo.clone()).unwrap();
         let result = registry.add(repo);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_add_or_replace_inserts_new_entry() {
+        let dir = TempDir::new().unwrap();
+        let mut registry = Registry::load_or_create(dir.path()).unwrap();
+        let repo = make_entry("new-repo", "git@github.com:org/new.git", "/tmp/new");
+        let replaced = registry.add_or_replace(repo).unwrap();
+        assert!(!replaced);
+        assert_eq!(registry.list().len(), 1);
+        assert_eq!(registry.list()[0].url, "git@github.com:org/new.git");
+    }
+
+    #[test]
+    fn test_add_or_replace_overwrites_existing_entry() {
+        let dir = TempDir::new().unwrap();
+        let mut registry = Registry::load_or_create(dir.path()).unwrap();
+        let old = make_entry("dup", "git@github.com:org/old.git", "/tmp/dup");
+        registry.add_or_replace(old).unwrap();
+
+        let updated = make_entry("dup", "git@github.com:org/new.git", "/tmp/dup");
+        let replaced = registry.add_or_replace(updated).unwrap();
+        assert!(replaced);
+        assert_eq!(registry.list().len(), 1);
+        assert_eq!(registry.list()[0].url, "git@github.com:org/new.git");
+
+        // Reload to confirm the replacement was persisted.
+        let reloaded = Registry::load_or_create(dir.path()).unwrap();
+        assert_eq!(reloaded.list().len(), 1);
+        assert_eq!(reloaded.list()[0].url, "git@github.com:org/new.git");
     }
 
     #[test]

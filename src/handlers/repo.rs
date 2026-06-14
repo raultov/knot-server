@@ -5,8 +5,8 @@ use axum::response::{IntoResponse, Response};
 use std::sync::Arc;
 
 use crate::handlers::models::*;
-use crate::models::{RegisterRepoRequest, RegisterRepoResponse, RepoEntry, RepoListResponse};
 use crate::models::AppState;
+use crate::models::{RegisterRepoRequest, RegisterRepoResponse, RepoEntry, RepoListResponse};
 
 #[utoipa::path(
     get,
@@ -59,11 +59,10 @@ pub async fn get_repo_handler(
     tag = "Repositories",
     request_body = RegisterRepoRequest,
     responses(
-        (status = 202, description = "Repository registered and clone job enqueued", body = RegisterRepoResponse),
-        (status = 409, description = "Repository already exists", body = ErrorResponse),
+        (status = 202, description = "Repository registered (or re-registered) and clone job enqueued", body = RegisterRepoResponse),
         (status = 429, description = "Indexing queue is full", body = ErrorResponse),
     ),
-    description = "Register a new Git repository. The server clones it and queues it for indexing.",
+    description = "Register a new Git repository, or re-register an existing one. The endpoint is idempotent: if a repository with the same derived id already exists, the existing database entries and local files are cleaned up and the repository is cloned from scratch. The response message indicates whether the call was a fresh registration or a re-registration."
 )]
 pub async fn register_repo_handler(
     State(state): State<Arc<AppState>>,
@@ -84,9 +83,13 @@ pub async fn register_repo_handler(
     };
 
     let mut registry = state.registry.lock().unwrap();
-    match registry.add(entry) {
-        Ok(()) => {
-            // Enqueue Clone job for the new repository
+    match registry.add_or_replace(entry) {
+        Ok(was_replaced) => {
+            // Enqueue Clone job for the repository. On re-registration this
+            // effectively resets the job stream: any in-flight work for the
+            // old id will be discarded by the worker because the local_path
+            // is gone (we removed it just below) and the new Clone job will
+            // start from a clean slate.
             let job = crate::models::IndexJob::Clone {
                 repo_id: id.clone(),
             };
@@ -104,26 +107,58 @@ pub async fn register_repo_handler(
                 }
             }
 
-            tracing::info!(
-                "Registered repository '{}' (url: {}, auth: {:?})",
-                id,
-                body.url,
-                body.auth_type
-            );
+            if was_replaced {
+                tracing::info!(
+                    "Re-registered repository '{}' (url: {}, auth: {:?})",
+                    id,
+                    body.url,
+                    body.auth_type
+                );
+            } else {
+                tracing::info!(
+                    "Registered repository '{}' (url: {}, auth: {:?})",
+                    id,
+                    body.url,
+                    body.auth_type
+                );
+            }
+
+            // On re-registration, the old data is stale: clear the
+            // databases and remove the old local_path so the new Clone
+            // starts from a clean slate. Both operations are best-effort
+            // and run in the background — the new Clone job is already
+            // enqueued and will overwrite whatever survives.
+            if was_replaced {
+                let graph_db = state.graph_db.clone();
+                let vector_db = state.vector_db.clone();
+                let rid = id.clone();
+                let repo_path = crate::models::repo_local_path(&state.workspace_dir, &id);
+                tokio::spawn(async move {
+                    crate::cleanup::delete_repo_from_databases(&rid, &graph_db, &vector_db).await;
+                    if std::path::Path::new(&repo_path).exists()
+                        && let Err(e) = std::fs::remove_dir_all(&repo_path)
+                    {
+                        tracing::warn!(
+                            "Failed to remove repo directory {} on re-registration: {e}",
+                            repo_path
+                        );
+                    }
+                });
+            }
 
             let response = RegisterRepoResponse {
                 id,
-                message: "Repository registered successfully".into(),
+                message: if was_replaced {
+                    "Repository re-registered successfully".into()
+                } else {
+                    "Repository registered successfully".into()
+                },
             };
             (StatusCode::ACCEPTED, Json(response)).into_response()
         }
         Err(e) => {
             let msg = e.to_string();
-            if msg.contains("already exists") {
-                error_response(StatusCode::CONFLICT, msg)
-            } else {
-                error_response(StatusCode::INTERNAL_SERVER_ERROR, msg)
-            }
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, msg)
         }
     }
 }

@@ -3,8 +3,8 @@ mod tests {
     use crate::handlers::graph_parse::*;
     use crate::handlers::models::*;
     use crate::handlers::*;
-    use crate::models::RegisterRepoResponse;
     use crate::models::AppState;
+    use crate::models::RegisterRepoResponse;
     use axum::Router;
     use axum::body::Body;
     use axum::http::Request;
@@ -98,7 +98,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_register_duplicate_returns_409() {
+    async fn test_register_duplicate_is_idempotent() {
         let dir = TempDir::new().unwrap();
         let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
         let app = build_test_app(state);
@@ -108,13 +108,26 @@ mod tests {
             "auth_type": "ssh"
         });
 
-        // First registration succeeds
-        let _ = post_repo(app.clone(), &body).await;
+        // First registration: 202 Accepted with "registered" message.
+        let resp1 = post_repo(app.clone(), &body).await;
+        assert_eq!(resp1.status(), StatusCode::ACCEPTED);
+        let body1 = axum::body::to_bytes(resp1.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let json1: serde_json::Value = serde_json::from_slice(&body1).unwrap();
+        assert_eq!(json1["message"], "Repository registered successfully");
 
-        // Second returns conflict
-        let response = post_repo(app, &body).await;
-
-        assert_eq!(response.status(), StatusCode::CONFLICT);
+        // Second registration: 202 Accepted with "re-registered" message.
+        // The endpoint is idempotent: the existing entry is replaced
+        // (not rejected with 409) so the new Clone job starts from
+        // scratch.
+        let resp2 = post_repo(app, &body).await;
+        assert_eq!(resp2.status(), StatusCode::ACCEPTED);
+        let body2 = axum::body::to_bytes(resp2.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let json2: serde_json::Value = serde_json::from_slice(&body2).unwrap();
+        assert_eq!(json2["message"], "Repository re-registered successfully");
     }
 
     #[tokio::test]
