@@ -54,9 +54,11 @@ With `knot-server`, you can register Git repositories via a REST API, trigger au
   > `.nuxt/`, `.svelte-kit/`, `.cache/`, `__pycache__/`, `.pytest_cache/`,
   > `.mypy_cache/`, `.ruff_cache/`, `.tox/`, `.idea/`, `.vscode/`
   >
-  > This keeps the workspace small and keeps sync time bounded (a Rust project's
-  > `target/` is routinely 10s of GB and would otherwise be mirrored on every
-  > sync). The `.knot/` indexer-state directory is always preserved.
+   > This keeps the workspace small and keeps sync time bounded (a Rust project's
+   > `target/` is routinely 10s of GB and would otherwise be mirrored on every
+   > sync). The `.knot/` indexer-state directory and `.knot.lock` are never
+   > copied from the source — the mirror's own incremental state is always
+   > preserved.
 - **`GET /api/repos`**: List all registered repositories, along with their current status (`pending`, `cloning`, `pulling`, `indexing`, `indexed`, `error`) and last indexed timestamp.
 - **`GET /api/repos/:id`**: Retrieve detailed information about a specific repository.
 - **`DELETE /api/repos/:id`**: Remove a repository from the registry and delete its local workspace. (No request body required).
@@ -126,126 +128,99 @@ The spec is auto-generated at compile time via [`utoipa`](https://crates.io/crat
 
 ---
 
-## 🤖 Using with AI Assistants (Cursor, Copilot, Claude, Gemini)
-
-`knot-server` transforms any LLM with terminal access (Cursor, GitHub Copilot,
-Claude Code, Gemini CLI, opencode, Cline, Aider) into a codebase-aware engineer.
-By teaching the LLM to call the REST API via `curl`, you give it **semantic
-understanding** of your entire codebase — far beyond what `grep` or file embeddings
-can provide.
-
-The AI learns **five code intelligence skills** that replace traditional text search:
-
-| # | Skill | Endpoint | Use Case |
-|---|-------|----------|----------|
-| 1 | **Semantic Search** | `/search?q=` | Find code by *meaning*, not exact text |
-| 2 | **Callers Analysis** | `/callers?entity=` | Impact analysis — who uses this function? |
-| 3 | **File Exploration** | `/explore?path=` | Get a file's structure without reading it |
-| 4 | **Dependency Graph** | `/deps` | Cross-repo dependencies |
-| 5 | **Graph Visualization** | `/graph` | Interactive 3D entity relationship explorer |
-| 6 | **Index Repository** | `/index` | Register & index the current repo (OpenCode) |
-
-These skills teach the LLM to **always prefer knot-server `curl` calls over
-`grep`/`find`/`rg`** for code exploration, dramatically improving accuracy
-and reducing hallucinations.
-
-### Install Agent Skills
-
-Download the pre-built skill instructions to teach your AI agent how to use the `knot-server` REST API.
-
-**Option 1: One-liner (Recommended)**
-Downloads and runs the interactive installer, which extracts the 9 skills and prompts you to register them with your AI agent (OpenCode, Claude Code, Gemini CLI, or universal).
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/raultov/knot-server/master/.knot-server-agent-skills.sh | bash
-```
-
-**Option 2: Local Script (for developers)**
-If you cloned the repo, you can run the installer locally:
-```bash
-./scripts/install-agent-skills.sh
-```
-*(Note: If you edit the `skills/*.md` files, run `python3 scripts/generate_skills_script.py` to regenerate the `.knot-server-agent-skills.sh` bundle).*
-
-**Option 3: Per-file Downloader**
-If the tarball is blocked by your firewall, download the `.md` files individually:
-```bash
-curl -fsSL https://raw.githubusercontent.com/raultov/knot-server/master/scripts/download-agent-skills.sh | bash
-```
-
-### Manual Registration
-
-If you skipped auto-registration or use a different AI tool (like Cursor or Copilot), point your tool's system prompt to the downloaded `.md` files.
-
-**For Cursor** (`.cursorrules`):
-```bash
-echo "Read the agent skills in .knot-server-agent-skills/ and use the REST API." >> .cursorrules
-```
-
-**For GitHub Copilot** (`.github/copilot-instructions.md`):
-```bash
-mkdir -p .github && echo "Read the agent skills in .knot-server-agent-skills/ and use the REST API." >> .github/copilot-instructions.md
-```
-
-**For OpenCode** (`opencode.json` snippet if you skipped auto-registration):
-```json
-  "skills": {
-    "knot-server-preflight": { "description": "MANDATORY STEP 0: Server health and index status check", "location": "file:///path/to/.knot-server-agent-skills/preflight.md" },
-    "knot-server-search": { "description": "Use knot-server for semantic code discovery across indexed repositories", "location": "file:///path/to/.knot-server-agent-skills/search.md" },
-    "knot-server-callers": { "description": "Use knot-server to find reverse dependencies and perform impact analysis", "location": "file:///path/to/.knot-server-agent-skills/callers.md" },
-    "knot-server-explore": { "description": "Use knot-server to get a structural overview of a source file", "location": "file:///path/to/.knot-server-agent-skills/explore.md" },
-    "knot-server-deps": { "description": "Use knot-server to traverse the repository dependency graph", "location": "file:///path/to/.knot-server-agent-skills/deps.md" },
-    "knot-server-graph": { "description": "Use knot-server to query raw entity relationship subgraphs", "location": "file:///path/to/.knot-server-agent-skills/graph.md" },
-    "knot-server-repos": { "description": "Use knot-server to list, register, sync, and delete repositories", "location": "file:///path/to/.knot-server-agent-skills/repos.md" },
-    "knot-server-workflows": { "description": "Multi-step knot-server workflows: impact analysis, cross-repo exploration, refactoring patterns", "location": "file:///path/to/.knot-server-agent-skills/workflows.md" },
-    "knot-server-index": { "description": "Register and index the current repository in knot-server", "location": "file:///path/to/.knot-server-agent-skills/index.md" }
-  }
-```
-
-### The `/index` Command (OpenCode only)
-
-OpenCode supports a `/index` command that registers the current repository in knot-server.
-After installing with option 2 or 3 (OpenCode registration), the command is automatically
-installed in `~/.config/opencode/commands/index.md`. You can then type `/index` in the
-OpenCode chat to:
-
-1. Check if knot-server is running
-2. Register the current repository (if new) or trigger a re-index (if already registered)
-3. Wait for indexing to complete
-4. Verify the repo is queryable with a quick search
-
-> **Note:** The `/index` command is supported in OpenCode (option 2/3), Claude Code
-> (option 4), and Gemini CLI (option 5). For other tools (Cursor, Copilot, Codex),
-> simply ask the agent: "Index this repository in knot-server" and it will use the
-> `[[repos]]` skill to do it.
-
-### How It Works
-
-Each skill file injects a **system prompt** into the LLM that defines:
-
-- **When** to use each endpoint (trigger phrases)
-- **How** to construct the `curl` command (parameters, `jq` filters)
-- **How** to interpret the JSON response (field meanings)
-
-The LLM learns to:
-1. Instead of `grep "authenticate"`, call `GET /api/repos/{id}/search?q=authentication+logic`
-2. Instead of searching for callers manually, call `GET /api/repos/{id}/callers?entity=handleRequest`
-3. Instead of `cat src/file.rs`, call `GET /api/repos/{id}/explore?path=src/file.rs` to get the outline first
-4. Before breaking a shared library, call `GET /api/repos/{id}/deps` to see the impact
-
-### Example: AI-Assisted Code Exploration
-
-```
-User: "Where is the password hashing logic?"
-AI (via knot-server):
-  curl "/api/repos/myproject/search?q=password+hashing" | jq
-  → Found `hash_password` in `src/auth/crypto.rs:142`
-  → Reads only lines 142-180 instead of entire file
-```
-
----
-
 ## 🛠️ Installation
+
+<details open>
+<summary><b>For Humans</b></summary>
+
+**Option A: Let an LLM do it**
+
+Paste this into any LLM agent (Claude Code, OpenCode, Cursor, etc.):
+
+```
+Install knot-server via Docker Compose and then install the agent skills by following: https://raw.githubusercontent.com/raultov/knot-server/master/README.md
+```
+
+</details>
+
+<details>
+<summary><b>For LLM Agents</b></summary>
+
+### Step-by-Step Instructions
+
+Follow these two phases in order. Ask the user for input where indicated.
+
+#### Phase 1: Docker Compose Installation
+
+1. **Check prerequisites**: Verify Docker and Docker Compose are installed:
+   ```bash
+   docker --version && docker compose version
+   ```
+   If either is missing, stop and tell the user to install Docker first.
+
+2. **Choose an install directory**: Ask the user where to install the Docker Compose files.
+   Default: `~/knot-server`.
+   ```bash
+   mkdir -p ~/knot-server && cd ~/knot-server
+   ```
+
+3. **Download the required files**:
+   ```bash
+   curl -O https://raw.githubusercontent.com/raultov/knot-server/master/docker-compose.yml
+   curl -O https://raw.githubusercontent.com/raultov/knot-server/master/.env.example
+   curl -O https://raw.githubusercontent.com/raultov/knot-server/master/up.sh
+   curl -O https://raw.githubusercontent.com/raultov/knot-server/master/down.sh
+   chmod +x up.sh down.sh
+   cp .env.example .env
+   ```
+
+4. **Configure `.env`**: Ask the user if they want to index local repositories.
+   - If **yes**, ask for the parent directory path (e.g. `/home/user/workspace`) and set
+     `KNOT_LOCAL_REPOS_DIR` in `.env`.
+   - If **no**, leave the default.
+
+5. **Create the placeholder directory** (required on first run):
+   ```bash
+   mkdir -p ~/.knot/empty
+   ```
+
+6. **Start the stack**:
+   ```bash
+   ./up.sh -d
+   ```
+
+7. **Verify the server is healthy** (wait up to 30 seconds for services to start):
+   ```bash
+   sleep 15 && curl -fsS http://localhost:3000/api/health | jq
+   ```
+   Expected: `"status": "ok"`. If it fails, retry after another 15 seconds.
+   If it still fails, check `docker compose logs` for errors.
+
+#### Phase 2: Agent Skills Installation
+
+8. **Run the skills installer**:
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/raultov/knot-server/master/.knot-server-agent-skills.sh | bash
+   ```
+   This extracts 9 skill documentation files and prompts interactively to register
+   them with your AI agent (OpenCode, Claude Code, Gemini CLI, or universal).
+
+### Verification
+
+After both phases, confirm everything works:
+
+```bash
+# Server health
+curl -fsS http://localhost:3000/api/health | jq
+
+# Open the Swagger UI (optional)
+# http://localhost:3000/docs
+
+# Open the graph viewer (optional)
+# http://localhost:3000/graph
+```
+
+</details>
 
 ### Prerequisites
 
@@ -464,6 +439,125 @@ KNOT_SERVER_PORT=6060 docker compose -f docker-compose.yml -f docker-compose.dev
 
 ---
 
+## 🤖 Using with AI Assistants (Cursor, Copilot, Claude, Gemini)
+
+`knot-server` transforms any LLM with terminal access (Cursor, GitHub Copilot,
+Claude Code, Gemini CLI, opencode, Cline, Aider) into a codebase-aware engineer.
+By teaching the LLM to call the REST API via `curl`, you give it **semantic
+understanding** of your entire codebase — far beyond what `grep` or file embeddings
+can provide.
+
+The AI learns **five code intelligence skills** that replace traditional text search:
+
+| # | Skill | Endpoint | Use Case |
+|---|-------|----------|----------|
+| 1 | **Semantic Search** | `/search?q=` | Find code by *meaning*, not exact text |
+| 2 | **Callers Analysis** | `/callers?entity=` | Impact analysis — who uses this function? |
+| 3 | **File Exploration** | `/explore?path=` | Get a file's structure without reading it |
+| 4 | **Dependency Graph** | `/deps` | Cross-repo dependencies |
+| 5 | **Graph Visualization** | `/graph` | Interactive 3D entity relationship explorer |
+| 6 | **Index Repository** | `/index` | Register & index the current repo (OpenCode) |
+
+These skills teach the LLM to **always prefer knot-server `curl` calls over
+`grep`/`find`/`rg`** for code exploration, dramatically improving accuracy
+and reducing hallucinations.
+
+### Install Agent Skills
+
+Download the pre-built skill instructions to teach your AI agent how to use the `knot-server` REST API.
+
+**Option 1: One-liner (Recommended)**
+Downloads and runs the interactive installer, which extracts the 9 skills and prompts you to register them with your AI agent (OpenCode, Claude Code, Gemini CLI, or universal).
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/raultov/knot-server/master/.knot-server-agent-skills.sh | bash
+```
+
+**Option 2: Local Script (for developers)**
+If you cloned the repo, you can run the installer locally:
+```bash
+./scripts/install-agent-skills.sh
+```
+*(Note: If you edit the `skills/*.md` files, run `python3 scripts/generate_skills_script.py` to regenerate the `.knot-server-agent-skills.sh` bundle).*
+
+**Option 3: Per-file Downloader**
+If the tarball is blocked by your firewall, download the `.md` files individually:
+```bash
+curl -fsSL https://raw.githubusercontent.com/raultov/knot-server/master/scripts/download-agent-skills.sh | bash
+```
+
+### Manual Registration
+
+If you skipped auto-registration or use a different AI tool (like Cursor or Copilot), point your tool's system prompt to the downloaded `.md` files.
+
+**For Cursor** (`.cursorrules`):
+```bash
+echo "Read the agent skills in .knot-server-agent-skills/ and use the REST API." >> .cursorrules
+```
+
+**For GitHub Copilot** (`.github/copilot-instructions.md`):
+```bash
+mkdir -p .github && echo "Read the agent skills in .knot-server-agent-skills/ and use the REST API." >> .github/copilot-instructions.md
+```
+
+**For OpenCode** (`opencode.json` snippet if you skipped auto-registration):
+```json
+  "skills": {
+    "knot-server-preflight": { "description": "MANDATORY STEP 0: Server health and index status check", "location": "file:///path/to/.knot-server-agent-skills/preflight.md" },
+    "knot-server-search": { "description": "Use knot-server for semantic code discovery across indexed repositories", "location": "file:///path/to/.knot-server-agent-skills/search.md" },
+    "knot-server-callers": { "description": "Use knot-server to find reverse dependencies and perform impact analysis", "location": "file:///path/to/.knot-server-agent-skills/callers.md" },
+    "knot-server-explore": { "description": "Use knot-server to get a structural overview of a source file", "location": "file:///path/to/.knot-server-agent-skills/explore.md" },
+    "knot-server-deps": { "description": "Use knot-server to traverse the repository dependency graph", "location": "file:///path/to/.knot-server-agent-skills/deps.md" },
+    "knot-server-graph": { "description": "Use knot-server to query raw entity relationship subgraphs", "location": "file:///path/to/.knot-server-agent-skills/graph.md" },
+    "knot-server-repos": { "description": "Use knot-server to list, register, sync, and delete repositories", "location": "file:///path/to/.knot-server-agent-skills/repos.md" },
+    "knot-server-workflows": { "description": "Multi-step knot-server workflows: impact analysis, cross-repo exploration, refactoring patterns", "location": "file:///path/to/.knot-server-agent-skills/workflows.md" },
+    "knot-server-index": { "description": "Register and index the current repository in knot-server", "location": "file:///path/to/.knot-server-agent-skills/index.md" }
+  }
+```
+
+### The `/index` Command (OpenCode only)
+
+OpenCode supports a `/index` command that registers the current repository in knot-server.
+After installing with option 2 or 3 (OpenCode registration), the command is automatically
+installed in `~/.config/opencode/commands/index.md`. You can then type `/index` in the
+OpenCode chat to:
+
+1. Check if knot-server is running
+2. Register the current repository (if new) or trigger a re-index (if already registered)
+3. Wait for indexing to complete
+4. Verify the repo is queryable with a quick search
+
+> **Note:** The `/index` command is supported in OpenCode (option 2/3), Claude Code
+> (option 4), and Gemini CLI (option 5). For other tools (Cursor, Copilot, Codex),
+> simply ask the agent: "Index this repository in knot-server" and it will use the
+> `[[repos]]` skill to do it.
+
+### How It Works
+
+Each skill file injects a **system prompt** into the LLM that defines:
+
+- **When** to use each endpoint (trigger phrases)
+- **How** to construct the `curl` command (parameters, `jq` filters)
+- **How** to interpret the JSON response (field meanings)
+
+The LLM learns to:
+1. Instead of `grep "authenticate"`, call `GET /api/repos/{id}/search?q=authentication+logic`
+2. Instead of searching for callers manually, call `GET /api/repos/{id}/callers?entity=handleRequest`
+3. Instead of `cat src/file.rs`, call `GET /api/repos/{id}/explore?path=src/file.rs` to get the outline first
+4. Before breaking a shared library, call `GET /api/repos/{id}/deps` to see the impact
+
+### Example: AI-Assisted Code Exploration
+
+```
+User: "Where is the password hashing logic?"
+AI (via knot-server):
+  curl "/api/repos/myproject/search?q=password+hashing" | jq
+  → Found `hash_password` in `src/auth/crypto.rs:142`
+  → Reads only lines 142-180 instead of entire file
+```
+
+---
+
 ## ⚙️ Configuration
 
 `knot-server` is configured entirely via environment variables or CLI flags.
@@ -484,6 +578,7 @@ KNOT_SERVER_PORT=6060 docker compose -f docker-compose.yml -f docker-compose.dev
 | `KNOT_SERVER_INGEST_CONCURRENCY` | `4` | Number of concurrent async tasks for embedding computation and database ingestion. Lower values reduce RAM and CPU usage. |
 | `KNOT_SERVER_POLL_INTERVAL_SECS` | `86400` (24h) | How often the background scheduler runs |
 | `KNOT_SERVER_MAX_INDEX_AGE_SECS` | `86400` (24h) | Age before a repository is automatically re-indexed |
+| `KNOT_SERVER_STALE_LOCK_TIMEOUT_SECS` | `3600` (1h) | Timeout before a `.knot.lock` file is considered orphaned and removed |
 | `KNOT_SERVER_QUEUE_CAPACITY` | `16` | Maximum number of jobs in the background indexing queue. Returns `429 Too Many Requests` when full. |
 | `RUST_LOG` | `info` | Log level (`debug`, `info`, `warn`, `error`) |
 
