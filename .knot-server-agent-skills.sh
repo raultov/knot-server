@@ -159,8 +159,8 @@ if [ "$NO_REGISTER" = "1" ]; then
   exit 0
 fi
 
-# Skip the prompt if stdin is not a TTY (e.g. piped from curl | bash).
-if [ ! -t 0 ]; then
+# Skip the prompt if no terminal is available (e.g. CI/CD)
+if [ ! -t 0 ] && [ ! -c /dev/tty ]; then
   exit 0
 fi
 
@@ -180,7 +180,11 @@ printf '\n'
 # Read a single character without waiting for Enter.
 # ESC key sends ^[ which is not a valid choice; treat it as skip.
 choice=""
-read -r -n 1 -p "Select [1/2/3/4/5/6]: " choice
+if [ -t 0 ]; then
+  read -r -n 1 -p "Select [1/2/3/4/5/6]: " choice
+else
+  read -r -n 1 -p "Select [1/2/3/4/5/6]: " choice < /dev/tty
+fi
 printf '\n'
 # Normalize ESC and other control characters to empty (skip)
 if [[ "$choice" == $'\e' || "$choice" == $'\x1b' ]]; then
