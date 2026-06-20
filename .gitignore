@@ -8,6 +8,7 @@
 
 # Test artifacts
 .last-e2e-server.log
+.last-recovery-r.log
 /tmp/
 
 # Local knot workspace for dev
