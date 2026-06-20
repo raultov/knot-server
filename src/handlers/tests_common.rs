@@ -674,6 +674,35 @@ mod tests {
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
+    #[tokio::test]
+    async fn test_register_repo_empty_url() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        let body = serde_json::json!({
+            "url": "   ",
+            "auth_type": "ssh"
+        });
+        let res = post_repo(app.clone(), &body).await;
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_register_repo_invalid_url_empty_id() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        // A URL like "/" generates an empty ID
+        let body = serde_json::json!({
+            "url": "/",
+            "auth_type": "ssh"
+        });
+        let res = post_repo(app.clone(), &body).await;
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    }
+
     #[test]
     fn test_parse_kinds_empty_uses_default() {
         let result = parse_kinds("").unwrap();

@@ -68,7 +68,18 @@ pub async fn register_repo_handler(
     State(state): State<Arc<AppState>>,
     Json(body): Json<RegisterRepoRequest>,
 ) -> Response {
+    if body.url.trim().is_empty() {
+        return error_response(StatusCode::BAD_REQUEST, "Repository URL cannot be empty");
+    }
+
     let id = body.generate_id();
+    if id.is_empty() {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "Generated repository ID is empty (invalid URL format)",
+        );
+    }
+
     let local_path = crate::models::repo_local_path(&state.workspace_dir, &id);
 
     let entry = RepoEntry {
