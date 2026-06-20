@@ -4,6 +4,62 @@ use std::sync::Arc;
 use crate::locking::acquire_file_lock;
 use crate::models::{IndexJob, RepoEntry};
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum StateSource {
+    LoadedOk { entries: usize, bytes: u64 },
+    Missing,
+    LegacyCleared,
+    LoadErrorFallback { error: String },
+}
+
+pub(crate) struct LoadedState {
+    pub state: knot::pipeline::state::IndexState,
+    pub source: StateSource,
+}
+
+pub(crate) fn load_index_state_with_recovery(
+    repo_path: &str,
+    is_local: bool,
+) -> anyhow::Result<LoadedState> {
+    let state_file = Path::new(repo_path).join(".knot").join("index_state.json");
+
+    if is_local && crate::local_sync::clear_stale_index_state(repo_path) {
+        return Ok(LoadedState {
+            state: knot::pipeline::state::IndexState::default(),
+            source: StateSource::LegacyCleared,
+        });
+    }
+
+    if !state_file.exists() {
+        return Ok(LoadedState {
+            state: knot::pipeline::state::IndexState::default(),
+            source: StateSource::Missing,
+        });
+    }
+
+    let bytes = std::fs::metadata(&state_file).map(|m| m.len()).unwrap_or(0);
+
+    match knot::pipeline::state::IndexState::load(repo_path) {
+        Ok(state) => {
+            let entries = state.file_hashes.len();
+            Ok(LoadedState {
+                state,
+                source: StateSource::LoadedOk { entries, bytes },
+            })
+        }
+        Err(e) if is_local => {
+            let _ = std::fs::remove_file(&state_file);
+            Ok(LoadedState {
+                state: knot::pipeline::state::IndexState::default(),
+                source: StateSource::LoadErrorFallback {
+                    error: format!("{e:#}"),
+                },
+            })
+        }
+        Err(e) => Err(e),
+    }
+}
+
 pub async fn worker_loop(
     mut rx: tokio::sync::mpsc::Receiver<IndexJob>,
     state: Arc<crate::models::AppState>,
@@ -140,37 +196,45 @@ async fn process_repository(
     // 5. Load IndexState
     //    For local paths, defend against a stale on-disk state file from an
     //    older `knot` version (no `version` field → version=0 < current).
-    //    `local_sync` preserves `.knot/` across syncs because it is the
-    //    indexer's incremental state, so a knot-version transition would
-    //    otherwise block every future sync. Clear the stale file and, if
-    //    load still fails for any other reason, fall back to a fresh state
-    //    rather than failing the whole local sync job.
-    let mut index_state = if is_local {
-        if crate::local_sync::clear_stale_index_state(&repo.local_path) {
-            tracing::warn!(
-                "Removed stale .knot/index_state.json for local repo '{}' \
-                 (older knot format); forcing a clean re-index",
+    //    `local_sync` preserves `.knot/` across syncs (both copy_tree skips it
+    //    and prune_tree explicitly protects it) because it is the indexer's
+    //    incremental state, so a knot-version transition would otherwise block
+    //    every future sync. Clear the stale file and, if load still fails for
+    //    any other reason, fall back to a fresh state rather than failing the
+    //    whole local sync job.
+    let loaded = load_index_state_with_recovery(&repo.local_path, is_local)?;
+    match &loaded.source {
+        StateSource::LoadedOk { entries, bytes } => {
+            tracing::info!(
+                "IndexState loaded for '{}' ({} entries, {} bytes on disk)",
+                repo.id,
+                entries,
+                bytes
+            );
+        }
+        StateSource::Missing => {
+            tracing::info!(
+                "IndexState file absent for '{}' — full indexing will run",
                 repo.id
             );
         }
-        match knot::pipeline::state::IndexState::load(&repo.local_path) {
-            Ok(state) => state,
-            Err(e) => {
-                tracing::warn!(
-                    "IndexState::load failed for local repo '{}': {e:#}; \
-                     starting from a fresh state",
-                    repo.id
-                );
-                let state_file = Path::new(&repo.local_path)
-                    .join(".knot")
-                    .join("index_state.json");
-                let _ = std::fs::remove_file(&state_file);
-                knot::pipeline::state::IndexState::default()
-            }
+        StateSource::LegacyCleared => {
+            tracing::warn!(
+                "Removed stale .knot/index_state.json for local repo '{}' \
+                 (older knot format); the next pipeline run will do a clean re-index",
+                repo.id
+            );
         }
-    } else {
-        knot::pipeline::state::IndexState::load(&repo.local_path)?
-    };
+        StateSource::LoadErrorFallback { error } => {
+            tracing::warn!(
+                "IndexState::load failed for local repo '{}': {}; \
+                 removed the file and forcing full re-index",
+                repo.id,
+                error
+            );
+        }
+    }
+    let mut index_state = loaded.state;
 
     // 6. Run the indexing pipeline
     tracing::info!("Worker: starting indexing pipeline for '{}'", repo.id);
@@ -309,6 +373,90 @@ mod tests {
         let result = process_repository(&repo, &state).await;
         // The error is expected — we don't have a real git remote
         // The test verifies the function runs without panicking
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_state_returns_loaded_ok_when_state_is_valid() {
+        let dir = TempDir::new().unwrap();
+        let repo_path = dir.path().to_str().unwrap();
+        let knot_dir = dir.path().join(".knot");
+        std::fs::create_dir_all(&knot_dir).unwrap();
+        let raw = r#"{"version":3,"file_hashes":{"a.rs":"h1","b.rs":"h2"}}"#;
+        std::fs::write(knot_dir.join("index_state.json"), raw).unwrap();
+
+        let loaded = load_index_state_with_recovery(repo_path, true).unwrap();
+
+        match loaded.source {
+            StateSource::LoadedOk { entries, bytes } => {
+                assert_eq!(entries, 2);
+                assert!(bytes > 0);
+            }
+            other => panic!("expected LoadedOk, got {other:?}"),
+        }
+        assert_eq!(loaded.state.file_hashes.len(), 2);
+    }
+
+    #[test]
+    fn test_load_state_returns_missing_when_state_absent() {
+        let dir = TempDir::new().unwrap();
+        let loaded = load_index_state_with_recovery(dir.path().to_str().unwrap(), true).unwrap();
+
+        assert!(matches!(loaded.source, StateSource::Missing));
+        assert!(loaded.state.file_hashes.is_empty());
+    }
+
+    #[test]
+    fn test_load_state_returns_legacy_cleared_for_local_repo_with_v0_state() {
+        let dir = TempDir::new().unwrap();
+        let knot_dir = dir.path().join(".knot");
+        std::fs::create_dir_all(&knot_dir).unwrap();
+        let raw = r#"{"file_hashes":{"a.rs":"h1"}}"#;
+        std::fs::write(knot_dir.join("index_state.json"), raw).unwrap();
+
+        let loaded = load_index_state_with_recovery(dir.path().to_str().unwrap(), true).unwrap();
+
+        assert!(matches!(loaded.source, StateSource::LegacyCleared));
+        assert!(loaded.state.file_hashes.is_empty());
+        assert!(
+            !knot_dir.join("index_state.json").exists(),
+            "El archivo legacy debe haberse eliminado"
+        );
+    }
+
+    #[test]
+    fn test_load_state_returns_error_fallback_when_json_is_corrupt() {
+        let dir = TempDir::new().unwrap();
+        let knot_dir = dir.path().join(".knot");
+        std::fs::create_dir_all(&knot_dir).unwrap();
+        let raw = r#"{"version":3,"file_hashes":NOT_VALID_JSON}"#;
+        std::fs::write(knot_dir.join("index_state.json"), raw).unwrap();
+
+        let loaded = load_index_state_with_recovery(dir.path().to_str().unwrap(), true).unwrap();
+
+        match loaded.source {
+            StateSource::LoadErrorFallback { error } => {
+                assert!(!error.is_empty());
+            }
+            other => panic!("expected LoadErrorFallback, got {other:?}"),
+        }
+        assert!(loaded.state.file_hashes.is_empty());
+        assert!(
+            !knot_dir.join("index_state.json").exists(),
+            "El archivo corrupto debe haberse eliminado para no atascar al siguiente run"
+        );
+    }
+
+    #[test]
+    fn test_load_state_for_remote_repo_propagates_errors() {
+        let dir = TempDir::new().unwrap();
+        let knot_dir = dir.path().join(".knot");
+        std::fs::create_dir_all(&knot_dir).unwrap();
+        let raw = r#"{"version":1,"file_hashes":{}}"#;
+        std::fs::write(knot_dir.join("index_state.json"), raw).unwrap();
+
+        let result = load_index_state_with_recovery(dir.path().to_str().unwrap(), false);
+
         assert!(result.is_err());
     }
 }
