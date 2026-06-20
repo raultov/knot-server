@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-06-20
+
+### Fixed
+- Local repos no longer trigger a full re-embed on every scheduler Pull. The
+  previous behaviour was caused by `copy_tree` copying the source repo's
+  `.knot/` directory over the mirror's incremental state. `.knot/` and
+  `.knot.lock` are now excluded from the local sync, symmetrically with `.git`.
+
+### Added
+- `docker-compose.yml` now exposes `KNOT_SERVER_POLL_INTERVAL_SECS`,
+  `KNOT_SERVER_MAX_INDEX_AGE_SECS` and `KNOT_SERVER_STALE_LOCK_TIMEOUT_SECS`
+  so scheduler timing can be tuned without rebuilding the image.
+- More verbose worker logs for index state loading: the worker now reports
+  whether the state was loaded successfully (with entry count and file size),
+  was absent, was cleared as legacy, or fell back after a parse error.
+
 ## [0.2.2] - 2026-06-14
 
 ### Fixed
@@ -218,7 +234,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/raultov/knot-server/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/raultov/knot-server/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/raultov/knot-server/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/raultov/knot-server/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/raultov/knot-server/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/raultov/knot-server/compare/v0.1.17...v0.2.0
