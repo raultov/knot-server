@@ -1949,9 +1949,9 @@ dependencies = [
 
 [[package]]
 name = "knot"
-version = "1.4.8"
+version = "1.4.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33805e9e7eed730437e1f3ff9a489d497b94a2a127b8b48c5fa3ccd51de9903a"
+checksum = "d4295692e94d47abccf2eea138d178fccb1c934c5a41d94d566f5854e7ab804b"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1987,6 +1987,7 @@ dependencies = [
  "tree-sitter-java",
  "tree-sitter-javascript",
  "tree-sitter-kotlin-ng",
+ "tree-sitter-md",
  "tree-sitter-python",
  "tree-sitter-rust",
  "tree-sitter-scss",
@@ -2005,6 +2006,7 @@ dependencies = [
  "fs2",
  "hex",
  "hmac",
+ "ignore",
  "knot",
  "neo4rs",
  "rayon",
@@ -4381,6 +4383,16 @@ name = "tree-sitter-language"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
+
+[[package]]
+name = "tree-sitter-md"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2efd398be546456c814598ee56c0f51769a77241511b4a58077815d120afa882"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
 
 [[package]]
 name = "tree-sitter-python"

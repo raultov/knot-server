@@ -18,7 +18,8 @@ inherits = "release"
 lto = "thin"
 
 [dependencies]
-knot = "1.4.8"
+knot = "1.4.10"
+ignore = "0.4"
 axum = "0.8"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
