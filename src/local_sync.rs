@@ -2,6 +2,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use ignore::gitignore::{Gitignore, GitignoreBuilder};
+
 /// Names of directories that are never copied from `src` to `dst` during a
 /// local sync. These are universally generated build/IDE/dependency outputs
 /// that carry no source code and can be enormous (e.g. Rust `target/` is
@@ -33,6 +35,25 @@ const SKIP_DIRS: &[&str] = &[
 
 fn should_skip_dir(name: &str) -> bool {
     SKIP_DIRS.contains(&name)
+}
+
+fn build_gitignore(src_root: &Path, current_dir: &Path) -> Gitignore {
+    let mut builder = GitignoreBuilder::new(src_root);
+    let mut dir = src_root.to_path_buf();
+    let gitignore_path = dir.join(".gitignore");
+    if gitignore_path.is_file() {
+        let _ = builder.add(&gitignore_path);
+    }
+    if let Ok(relative) = current_dir.strip_prefix(src_root) {
+        for component in relative.components() {
+            dir.push(component);
+            let gitignore_path = dir.join(".gitignore");
+            if gitignore_path.is_file() {
+                let _ = builder.add(&gitignore_path);
+            }
+        }
+    }
+    builder.build().unwrap_or_else(|_| Gitignore::empty())
 }
 
 pub fn is_local_path(url: &str) -> bool {
@@ -102,13 +123,14 @@ pub fn sync_local_working_tree(src: &str, dst: &str) -> anyhow::Result<()> {
     })?;
 
     fs::create_dir_all(&dst_path)?;
-    copy_tree(&src_path, &dst_path)?;
-    prune_tree(&src_path, &dst_path)?;
+    let gitignore = build_gitignore(&src_path, &src_path);
+    copy_tree(&src_path, &dst_path, &src_path, &gitignore)?;
+    prune_tree(&src_path, &dst_path, &src_path, &gitignore)?;
 
     Ok(())
 }
 
-fn copy_tree(src: &Path, dst: &Path) -> anyhow::Result<()> {
+fn copy_tree(src: &Path, dst: &Path, src_root: &Path, gitignore: &Gitignore) -> anyhow::Result<()> {
     // Reading a subdirectory can fail with EACCES even when the parent
     // directory is fully accessible — e.g. an unrelated user's data/
     // nested inside the repo, or a `chmod 0` artifact. The whole sync
@@ -146,7 +168,7 @@ fn copy_tree(src: &Path, dst: &Path) -> anyhow::Result<()> {
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
 
-        if name_str == ".git" {
+        if name_str == ".git" || name_str == ".knot" || name_str == ".knot.lock" {
             continue;
         }
         if file_type.is_dir() && should_skip_dir(&name_str) {
@@ -154,6 +176,19 @@ fn copy_tree(src: &Path, dst: &Path) -> anyhow::Result<()> {
         }
 
         let src_child = entry.path();
+
+        if let Ok(relative) = src_child.strip_prefix(src_root) {
+            let relative_str = relative.to_string_lossy();
+            let m = gitignore.matched_path_or_any_parents(relative, file_type.is_dir());
+            if m.is_ignore() {
+                tracing::debug!(
+                    "skipping gitignored entry during local sync: {}",
+                    relative_str
+                );
+                continue;
+            }
+        }
+
         let dst_child = dst.join(&name);
 
         // Symlinks are not followed. The target might be outside the
@@ -203,7 +238,12 @@ fn copy_tree(src: &Path, dst: &Path) -> anyhow::Result<()> {
                 );
                 continue;
             }
-            if let Err(e) = copy_tree(&src_child, &dst_child) {
+            if let Err(e) = copy_tree(
+                &src_child,
+                &dst_child,
+                src_root,
+                &build_gitignore(src_root, &src_child),
+            ) {
                 tracing::warn!("error syncing subtree {}: {e:#}", src_child.display());
             }
         } else if file_type.is_file() {
@@ -280,7 +320,12 @@ fn ensure_writable(perms: &mut fs::Permissions) {
     perms.set_readonly(false);
 }
 
-fn prune_tree(src: &Path, dst: &Path) -> anyhow::Result<()> {
+fn prune_tree(
+    src: &Path,
+    dst: &Path,
+    src_root: &Path,
+    gitignore: &Gitignore,
+) -> anyhow::Result<()> {
     if !dst.is_dir() {
         return Ok(());
     }
@@ -292,19 +337,27 @@ fn prune_tree(src: &Path, dst: &Path) -> anyhow::Result<()> {
         let name_str = name.to_string_lossy();
 
         if name_str.starts_with(".knot") {
-            // Indexer state — must survive pruning.
             continue;
         }
         if file_type.is_dir() && should_skip_dir(&name_str) {
-            // Skipped dirs must never accumulate in the mirror, even if
-            // they still exist in the source (e.g. `target/` regenerated
-            // by `cargo build` between syncs).
             fs::remove_dir_all(entry.path())?;
             continue;
         }
 
         let dst_child = entry.path();
         let src_child = src.join(&name);
+
+        if let Ok(relative) = src_child.strip_prefix(src_root) {
+            let m = gitignore.matched_path_or_any_parents(relative, file_type.is_dir());
+            if m.is_ignore() {
+                if file_type.is_dir() {
+                    fs::remove_dir_all(&dst_child)?;
+                } else {
+                    fs::remove_file(&dst_child)?;
+                }
+                continue;
+            }
+        }
 
         if !src_child.exists() {
             if file_type.is_dir() {
@@ -316,7 +369,8 @@ fn prune_tree(src: &Path, dst: &Path) -> anyhow::Result<()> {
         }
 
         if file_type.is_dir() && src_child.is_dir() {
-            prune_tree(&src_child, &dst_child)?;
+            let child_gitignore = build_gitignore(src_root, &src_child);
+            prune_tree(&src_child, &dst_child, src_root, &child_gitignore)?;
         }
     }
     Ok(())
@@ -931,5 +985,224 @@ mod tests {
         let removed = clear_stale_index_state(dir.path().to_str().unwrap());
         assert!(!removed);
         assert!(dir.path().join(".knot").join("index_state.json").exists());
+    }
+
+    #[test]
+    fn test_sync_preserves_mirror_knot_state_when_source_has_no_knot() {
+        let src = TempDir::new().unwrap();
+        let dst = TempDir::new().unwrap();
+
+        fs::write(src.path().join("main.rs"), b"fn main(){}").unwrap();
+        fs::create_dir_all(dst.path().join(".knot")).unwrap();
+        let mirror_state = r#"{"version":3,"file_hashes":{"main.rs":"deadbeef"}}"#;
+        fs::write(dst.path().join(".knot/index_state.json"), mirror_state).unwrap();
+
+        sync_local_working_tree(src.path().to_str().unwrap(), dst.path().to_str().unwrap())
+            .unwrap();
+
+        let final_state = fs::read_to_string(dst.path().join(".knot/index_state.json")).unwrap();
+        assert_eq!(final_state, mirror_state);
+        assert!(dst.path().join("main.rs").exists());
+    }
+
+    #[test]
+    fn test_sync_preserves_mirror_knot_state_when_source_has_legacy_knot() {
+        let src = TempDir::new().unwrap();
+        let dst = TempDir::new().unwrap();
+
+        fs::create_dir_all(src.path().join(".knot")).unwrap();
+        let legacy_state = r#"{"file_hashes":{"old.rs":"deadbeef"}}"#;
+        fs::write(src.path().join(".knot/index_state.json"), legacy_state).unwrap();
+        fs::write(src.path().join("main.rs"), b"fn main(){}").unwrap();
+
+        fs::create_dir_all(dst.path().join(".knot")).unwrap();
+        let mirror_state = r#"{"version":3,"file_hashes":{"main.rs":"abc123","lib.rs":"def456"}}"#;
+        fs::write(dst.path().join(".knot/index_state.json"), mirror_state).unwrap();
+
+        sync_local_working_tree(src.path().to_str().unwrap(), dst.path().to_str().unwrap())
+            .unwrap();
+
+        let final_state = fs::read_to_string(dst.path().join(".knot/index_state.json")).unwrap();
+        assert_eq!(
+            final_state, mirror_state,
+            "El state del mirror debe sobrevivir al sync sin importar lo que tenga el source"
+        );
+    }
+
+    #[test]
+    fn test_sync_skips_source_knot_lock() {
+        let src = TempDir::new().unwrap();
+        let dst = TempDir::new().unwrap();
+
+        fs::write(src.path().join(".knot.lock"), b"pid:1234").unwrap();
+        fs::write(src.path().join("file.rs"), b"fn main(){}").unwrap();
+
+        sync_local_working_tree(src.path().to_str().unwrap(), dst.path().to_str().unwrap())
+            .unwrap();
+
+        assert!(!dst.path().join(".knot.lock").exists());
+        assert!(dst.path().join("file.rs").exists());
+    }
+
+    #[test]
+    fn test_sync_skips_entire_source_knot_subtree() {
+        let src = TempDir::new().unwrap();
+        let dst = TempDir::new().unwrap();
+
+        fs::create_dir_all(src.path().join(".knot/fastembed_cache")).unwrap();
+        fs::write(
+            src.path().join(".knot/fastembed_cache/blob.bin"),
+            b"binary blob",
+        )
+        .unwrap();
+        fs::write(src.path().join("main.rs"), b"fn main(){}").unwrap();
+
+        sync_local_working_tree(src.path().to_str().unwrap(), dst.path().to_str().unwrap())
+            .unwrap();
+
+        assert!(
+            !dst.path().join(".knot").exists(),
+            "copy_tree no debe crear ningún `.knot/` en el mirror si el mirror no lo tenía"
+        );
+        assert!(dst.path().join("main.rs").exists());
+    }
+
+    #[test]
+    fn test_sync_skip_is_exact_match_not_prefix() {
+        let src = TempDir::new().unwrap();
+        let dst = TempDir::new().unwrap();
+
+        fs::write(src.path().join(".knotrc"), b"user config").unwrap();
+        fs::write(src.path().join("main.rs"), b"fn main(){}").unwrap();
+
+        sync_local_working_tree(src.path().to_str().unwrap(), dst.path().to_str().unwrap())
+            .unwrap();
+
+        assert!(
+            dst.path().join(".knotrc").exists(),
+            "El skip debe ser exacto: `.knot` y `.knot.lock`, NO un prefijo `.knot*`"
+        );
+        assert!(dst.path().join("main.rs").exists());
+    }
+
+    #[test]
+    fn test_sync_gitignore_skips_matching_files() {
+        let src = TempDir::new().unwrap();
+        let dst = TempDir::new().unwrap();
+
+        fs::write(src.path().join(".gitignore"), "*.log\n").unwrap();
+        fs::write(src.path().join("app.log"), b"log data").unwrap();
+        fs::write(src.path().join("main.rs"), b"fn main(){}").unwrap();
+
+        sync_local_working_tree(src.path().to_str().unwrap(), dst.path().to_str().unwrap())
+            .unwrap();
+
+        assert!(!dst.path().join("app.log").exists());
+        assert!(dst.path().join("main.rs").exists());
+        assert!(dst.path().join(".gitignore").exists());
+    }
+
+    #[test]
+    fn test_sync_gitignore_skips_matching_directories() {
+        let src = TempDir::new().unwrap();
+        let dst = TempDir::new().unwrap();
+
+        fs::write(src.path().join(".gitignore"), "logs/\n").unwrap();
+        fs::create_dir_all(src.path().join("logs")).unwrap();
+        fs::write(src.path().join("logs/app.log"), b"log data").unwrap();
+        fs::write(src.path().join("main.rs"), b"fn main(){}").unwrap();
+
+        sync_local_working_tree(src.path().to_str().unwrap(), dst.path().to_str().unwrap())
+            .unwrap();
+
+        assert!(!dst.path().join("logs").exists());
+        assert!(dst.path().join("main.rs").exists());
+    }
+
+    #[test]
+    fn test_sync_gitignore_negation_pattern() {
+        let src = TempDir::new().unwrap();
+        let dst = TempDir::new().unwrap();
+
+        fs::write(src.path().join(".gitignore"), "*.log\n!important.log\n").unwrap();
+        fs::write(src.path().join("app.log"), b"log data").unwrap();
+        fs::write(src.path().join("important.log"), b"important data").unwrap();
+        fs::write(src.path().join("main.rs"), b"fn main(){}").unwrap();
+
+        sync_local_working_tree(src.path().to_str().unwrap(), dst.path().to_str().unwrap())
+            .unwrap();
+
+        assert!(!dst.path().join("app.log").exists());
+        assert!(dst.path().join("important.log").exists());
+        assert!(dst.path().join("main.rs").exists());
+    }
+
+    #[test]
+    fn test_sync_gitignore_nested_gitignore_files() {
+        let src = TempDir::new().unwrap();
+        let dst = TempDir::new().unwrap();
+
+        fs::write(src.path().join(".gitignore"), "*.log\n").unwrap();
+        fs::create_dir_all(src.path().join("src")).unwrap();
+        fs::write(src.path().join("src/.gitignore"), "*.tmp\n").unwrap();
+        fs::write(src.path().join("src/main.rs"), b"fn main(){}").unwrap();
+        fs::write(src.path().join("src/temp.tmp"), b"temp data").unwrap();
+        fs::write(src.path().join("app.log"), b"log data").unwrap();
+
+        sync_local_working_tree(src.path().to_str().unwrap(), dst.path().to_str().unwrap())
+            .unwrap();
+
+        assert!(!dst.path().join("app.log").exists());
+        assert!(!dst.path().join("src/temp.tmp").exists());
+        assert!(dst.path().join("src/main.rs").exists());
+    }
+
+    #[test]
+    fn test_sync_gitignore_wildcard_pattern() {
+        let src = TempDir::new().unwrap();
+        let dst = TempDir::new().unwrap();
+
+        fs::write(src.path().join(".gitignore"), "*.pyc\n").unwrap();
+        fs::write(src.path().join("module.pyc"), b"compiled").unwrap();
+        fs::write(src.path().join("module.py"), b"source").unwrap();
+
+        sync_local_working_tree(src.path().to_str().unwrap(), dst.path().to_str().unwrap())
+            .unwrap();
+
+        assert!(!dst.path().join("module.pyc").exists());
+        assert!(dst.path().join("module.py").exists());
+    }
+
+    #[test]
+    fn test_sync_gitignore_prunes_previously_copied_ignored_files() {
+        let src = TempDir::new().unwrap();
+        let dst = TempDir::new().unwrap();
+        let dst_path = dst.path().to_string_lossy().to_string();
+
+        fs::write(src.path().join("app.log"), b"log data").unwrap();
+        fs::write(src.path().join("main.rs"), b"fn main(){}").unwrap();
+        sync_local_working_tree(src.path().to_str().unwrap(), &dst_path).unwrap();
+        assert!(dst.path().join("app.log").exists());
+
+        fs::write(src.path().join(".gitignore"), "*.log\n").unwrap();
+        sync_local_working_tree(src.path().to_str().unwrap(), &dst_path).unwrap();
+
+        assert!(!dst.path().join("app.log").exists());
+        assert!(dst.path().join("main.rs").exists());
+    }
+
+    #[test]
+    fn test_sync_no_gitignore_copies_everything() {
+        let src = TempDir::new().unwrap();
+        let dst = TempDir::new().unwrap();
+
+        fs::write(src.path().join("app.log"), b"log data").unwrap();
+        fs::write(src.path().join("main.rs"), b"fn main(){}").unwrap();
+
+        sync_local_working_tree(src.path().to_str().unwrap(), dst.path().to_str().unwrap())
+            .unwrap();
+
+        assert!(dst.path().join("app.log").exists());
+        assert!(dst.path().join("main.rs").exists());
     }
 }
