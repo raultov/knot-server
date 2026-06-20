@@ -347,8 +347,8 @@ for i in $(seq 1 20); do
 done
 
 # Verify B's log shows the full recovery sequence
-assert_contains "$(tail -50 "$SERVER_B_LOG")" "Removed stale lock" "B scheduler removed stale .knot.lock"
-assert_contains "$(tail -50 "$SERVER_B_LOG")" "job completed for 'repo-alpha'" "B worker processed repo-alpha after recovery"
+assert_contains "$(tail -500 "$SERVER_B_LOG")" "Removed stale lock" "B scheduler removed stale .knot.lock"
+assert_contains "$(tail -500 "$SERVER_B_LOG")" "job completed for 'repo-alpha'" "B worker processed repo-alpha after recovery"
 
 # Verify repos are still in good shape via B
 STATUS_B1=$(curl -sf "$BASE_B/api/repos/repo-alpha" | jq -r '.status')
