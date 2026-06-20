@@ -13,6 +13,10 @@ services:
       - KNOT_NEO4J_PASSWORD=knot_secret_password
       # SSH agent forwarding — required for passphrase-protected keys (common in corporate environments)
       - SSH_AUTH_SOCK=/ssh-agent
+      # Scheduler tuning — override via shell or .env without rebuilding the image
+      - KNOT_SERVER_POLL_INTERVAL_SECS=${KNOT_SERVER_POLL_INTERVAL_SECS:-86400}
+      - KNOT_SERVER_MAX_INDEX_AGE_SECS=${KNOT_SERVER_MAX_INDEX_AGE_SECS:-86400}
+      - KNOT_SERVER_STALE_LOCK_TIMEOUT_SECS=${KNOT_SERVER_STALE_LOCK_TIMEOUT_SECS:-3600}
     volumes:
       - knot_workspace:/var/lib/knot/repos
       # fastembed model cache: must live inside KNOT_WORKSPACE_DIR (knot-server builds the path as
