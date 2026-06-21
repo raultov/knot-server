@@ -11,6 +11,11 @@ See [CHANGELOG.md](CHANGELOG.md) for the full version history.
 
 With `knot-server`, you can register Git repositories via a REST API, trigger automatic codebase indexing through webhooks (GitHub, GitLab, Bitbucket), and query the vector (Qdrant) and graph (Neo4j) databases—all while coordinating work safely across multiple server instances via NFS/EFS workspace locks.
 
+<p align="center">
+  <img src="docs/demo-graph.webp" alt="knot-server 3D codebase graph visualizer" width="49%">
+  <img src="docs/demo-swagger.webp" alt="knot-server Interactive Swagger UI" width="49%">
+</p>
+
 ---
 
 ## ✨ Key Features & API Endpoints
