@@ -1,6 +1,7 @@
 /target
 .idea/
 .opencode/
+opencode.json
 
 .fastembed_cache/
 .knot/
