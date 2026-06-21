@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-06-21
+
+### Changed
+- Upgrade `knot` dependency from 1.4.10 to 1.4.12
+
+### Docs
+- Showcase the graph viewer and Swagger UI in the README intro
+  with side-by-side animated WebP previews (`docs/demo-graph.webp`
+  and `docs/demo-swagger.webp`)
+
+### Chore
+- Ignore `opencode.json` in `.gitignore`
+
 ## [0.2.3] - 2026-06-20
 
 ### Fixed
@@ -234,8 +247,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/raultov/knot-server/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/raultov/knot-server/compare/v0.2.4...HEAD
 [0.2.3]: https://github.com/raultov/knot-server/compare/v0.2.2...v0.2.3
+[0.2.4]: https://github.com/raultov/knot-server/compare/v0.2.3...v0.2.4
 [0.2.2]: https://github.com/raultov/knot-server/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/raultov/knot-server/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/raultov/knot-server/compare/v0.1.17...v0.2.0
