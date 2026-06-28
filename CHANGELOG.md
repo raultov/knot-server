@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-06-28
+
+### Fixed
+- Graph viewer: relationship toggles (e.g. `CONTAINS`, `REFERENCES`) now
+  correctly restore the kind filters to their state before that relationship
+  was turned on, instead of leaving stray kinds active. Previously, toggling
+  `CONTAINS` on auto-enabled `functions`/`other`, and toggling it back off
+  either kept them pinned (because other active rels declared the same
+  kinds in `REL_KINDS_MAP`) or removed them unconditionally — breaking
+  the user's expected restore-to-default behavior and any subsequent chain
+  of relationship activations.
+- Chain activations: turning on a second relationship that overlaps the
+  kinds of a previously activated one now joins the claim, so deactivating
+  the first keeps the kinds alive as long as the second is still on.
+- Manual kind toggles are now "sticky": if the user activates a kind by
+  hand, no later relationship deactivation will remove it.
+
 ## [0.2.4] - 2026-06-21
 
 ### Changed
