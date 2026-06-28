@@ -6,6 +6,10 @@ description = "Distributed REST API server for knot codebase indexing. Manages G
 authors = ["Raul Tovar <raultov@protonmail.com>"]
 license = "MIT"
 repository = "https://github.com/raultov/knot-server"
+# The animated demo WebPs live on GitHub (where the README renders them)
+# but push the crate over crates.io's 10 MiB publish limit. Exclude them
+# from the package tarball while keeping them in the repo.
+exclude = ["docs/demo-graph.webp", "docs/demo-swagger.webp"]
 
 [profile.release]
 lto = true
