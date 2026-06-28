@@ -306,6 +306,9 @@
       focusedEntity: null,
       graph: null,
       previousDepth: 2,
+      // Tracks which kinds were auto-enabled by each relationship toggle,
+      // so deactivating a rel can undo only what it added.
+      autoEnabledKinds: {},
     };
 
     // ── Colores por kind ───────────────────────────────────────
@@ -627,9 +630,7 @@
         }
       });
 
-      // Relationship toggle handlers
-      // Relationship toggle handlers — auto-enable required kinds when a
-      // relationship type is activated, so its edges have visible endpoints.
+      // Kinds required by each relationship type for its edges to be visible.
       var REL_KINDS_MAP = {
         CALLS: ['functions', 'other'],
         REFERENCES: ['functions', 'other'],
@@ -641,24 +642,81 @@
         relToggles[i].addEventListener('click', function() {
           this.classList.toggle('active');
           var rel = this.getAttribute('data-rel');
+          var kindLabels = document.querySelectorAll('#kind-toggles label');
+
           if (this.classList.contains('active') && REL_KINDS_MAP[rel]) {
+            // Activating: enable any required kinds that aren't active yet,
+            // and claim them. If a required kind is already active because
+            // another active rel claims it, also claim it here (so this rel
+            // can keep it alive after the other one is turned off). Don't
+            // claim user-activated kinds (no rel claims them) — those stay sticky.
+            if (!state.autoEnabledKinds[rel]) state.autoEnabledKinds[rel] = new Set();
             var requiredKinds = REL_KINDS_MAP[rel];
-            var kindLabels = document.querySelectorAll('#kind-toggles label');
             for (var k = 0; k < kindLabels.length; k++) {
-              if (requiredKinds.indexOf(kindLabels[k].getAttribute('data-kind')) !== -1) {
+              var kindVal = kindLabels[k].getAttribute('data-kind');
+              if (requiredKinds.indexOf(kindVal) === -1) continue;
+              if (!kindLabels[k].classList.contains('active')) {
                 kindLabels[k].classList.add('active');
+                state.autoEnabledKinds[rel].add(kindVal);
+              } else {
+                var claimedByActiveRel = false;
+                var relKeys = Object.keys(state.autoEnabledKinds);
+                for (var r = 0; r < relKeys.length; r++) {
+                  if (relKeys[r] === rel) continue;
+                  if (!state.autoEnabledKinds[relKeys[r]].has(kindVal)) continue;
+                  var otherLabel = document.querySelector('#rel-toggles label[data-rel="' + relKeys[r] + '"]');
+                  if (otherLabel && otherLabel.classList.contains('active')) {
+                    claimedByActiveRel = true;
+                    break;
+                  }
+                }
+                if (claimedByActiveRel) state.autoEnabledKinds[rel].add(kindVal);
               }
             }
+          } else if (!this.classList.contains('active') && REL_KINDS_MAP[rel]) {
+            // Deactivating: undo only the kinds THIS rel auto-enabled, unless
+            // another currently-active rel also auto-enabled the same kind.
+            // Why: rels active from the default set never auto-enabled anything,
+            // so REL_KINDS_MAP alone would wrongly "pin" kinds the user only
+            // got because of this rel.
+            var autoSet = state.autoEnabledKinds[rel] || new Set();
+            for (var k = 0; k < kindLabels.length; k++) {
+              var kindVal = kindLabels[k].getAttribute('data-kind');
+              if (!autoSet.has(kindVal)) continue;
+              var stillNeeded = false;
+              var relKeys = Object.keys(state.autoEnabledKinds);
+              for (var r = 0; r < relKeys.length; r++) {
+                if (relKeys[r] === rel) continue;
+                if (!state.autoEnabledKinds[relKeys[r]].has(kindVal)) continue;
+                var otherLabel = document.querySelector('#rel-toggles label[data-rel="' + relKeys[r] + '"]');
+                if (otherLabel && otherLabel.classList.contains('active')) {
+                  stillNeeded = true;
+                  break;
+                }
+              }
+              if (!stillNeeded) {
+                kindLabels[k].classList.remove('active');
+              }
+            }
+            state.autoEnabledKinds[rel] = new Set();
           }
+
           refreshGraphWithFilters();
         });
       }
 
-      // Kind toggle handlers
+      // Kind toggle handlers — user intent is "sticky": remove the kind from
+      // all auto-tracking so a later rel deactivation won't override the user's choice.
       var kindToggles = document.querySelectorAll('#kind-toggles label');
       for (var i = 0; i < kindToggles.length; i++) {
         kindToggles[i].addEventListener('click', function() {
           this.classList.toggle('active');
+          var kindVal = this.getAttribute('data-kind');
+          // Unpin from any rel's auto-tracking so this manual decision sticks.
+          var relKeys = Object.keys(state.autoEnabledKinds);
+          for (var r = 0; r < relKeys.length; r++) {
+            state.autoEnabledKinds[relKeys[r]].delete(kindVal);
+          }
           refreshGraphWithFilters();
         });
       }
@@ -681,6 +739,7 @@
         document.querySelectorAll('#kind-toggles label').forEach(function(l) {
           l.classList.toggle('active', defaultKinds.includes(l.getAttribute('data-kind')));
         });
+        state.autoEnabledKinds = {};
 
         var hasRepo = !!state.selectedRepo;
         document.getElementById('search-input').disabled = !hasRepo;
@@ -816,6 +875,8 @@
       for (var i = 0; i < allToggles.length; i++) {
         allToggles[i].classList.add('active');
       }
+      // Clear auto-tracking: everything is explicitly active in focused mode.
+      state.autoEnabledKinds = {};
 
       resetGraph();
       refreshGraph();
@@ -912,6 +973,7 @@
           allKindLabels[i].classList.remove('active');
         }
       }
+      state.autoEnabledKinds = {};
 
       resetGraph();
       refreshGraph();
