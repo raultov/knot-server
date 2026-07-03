@@ -12,6 +12,7 @@ mod tests {
     use axum::routing::{get, post};
     use knot::db::graph::ConnectExt;
     use knot::db::vector::VectorConnectExt;
+    use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
     use tempfile::TempDir;
     use tower::ServiceExt;
@@ -92,6 +93,7 @@ mod tests {
                 batch_size: 64,
                 ingest_concurrency: 4,
                 start_time: std::time::Instant::now(),
+                progress_trackers: Arc::new(Mutex::new(HashMap::new())),
             }),
             job_rx,
         )
@@ -450,6 +452,7 @@ mod tests {
             batch_size: 64,
             ingest_concurrency: 4,
             start_time: std::time::Instant::now(),
+            progress_trackers: Arc::new(Mutex::new(HashMap::new())),
         });
 
         let app = build_test_app(state2);

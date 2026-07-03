@@ -211,24 +211,49 @@ else
     exit 1
 fi
 
-# Test D: Wait for indexing to complete (status=indexed, last_indexed not null)
-echo -e "\n${CYAN}Test D: Wait for indexing completion${NC}"
+# Test D: Wait for indexing to complete + check /progress endpoint
+echo -e "\n${CYAN}Test D: Wait for indexing completion & monitor /progress${NC}"
 INDEXED_OK=false
+LAST_PCT=-1
+PROGRESS_ENDPOINT_OK=false
+
 for i in $(seq 1 60); do
     REPO_JSON=$(curl -sf "$BASE_URL/api/repos/$REPO_ID")
     STATUS=$(echo "$REPO_JSON" | jq -r '.status')
     LAST_INDEXED=$(echo "$REPO_JSON" | jq -r '.last_indexed')
+    
+    # Poll progress endpoint
+    PROG_JSON=$(curl -sf "$BASE_URL/api/repos/$REPO_ID/progress" || echo "{}")
+    PROG_STAGE=$(echo "$PROG_JSON" | jq -r '.stage // "missing"')
+    PROG_PCT=$(echo "$PROG_JSON" | jq -r '.percent_complete // -1')
+
+    if [ "$PROG_STAGE" != "missing" ]; then
+        PROGRESS_ENDPOINT_OK=true
+        # Ensure percentage never decreases
+        if awk "BEGIN {exit !($PROG_PCT < $LAST_PCT)}"; then
+            echo -e "${RED}FAIL${NC} — percent_complete decreased from $LAST_PCT to $PROG_PCT"
+            exit 1
+        fi
+        LAST_PCT=$PROG_PCT
+    fi
 
     if [ "$STATUS" = "indexed" ] && [ "$LAST_INDEXED" != "null" ] && [ -n "$LAST_INDEXED" ]; then
-        echo -e "${GREEN}PASS${NC} — indexing complete (last_indexed: $LAST_INDEXED)"
-        INDEXED_OK=true
-        break
+        # Terminal state check on progress
+        if [ "$PROG_STAGE" = "completed" ] && awk "BEGIN {exit !($PROG_PCT >= 100)}"; then
+            echo -e "${GREEN}PASS${NC} — indexing complete (last_indexed: $LAST_INDEXED) & progress=100%"
+            INDEXED_OK=true
+            break
+        else
+            echo -e "${RED}FAIL${NC} — status is indexed but progress is not completed (stage: $PROG_STAGE, pct: $PROG_PCT)"
+            exit 1
+        fi
     elif [ "$STATUS" = "error" ]; then
         echo -e "${RED}FAIL${NC} — indexing failed with error status"
         echo "Server log tail:"
         tail -30 /tmp/knot-server-e2e.log 2>/dev/null || true
         exit 1
     fi
+    
     if [ "$i" -eq 60 ]; then
         echo -e "${RED}FAIL${NC} — indexing did not complete within 60s (status: $STATUS)"
         echo "Server log tail:"
@@ -237,6 +262,11 @@ for i in $(seq 1 60); do
     fi
     sleep 1
 done
+
+if [ "$PROGRESS_ENDPOINT_OK" != "true" ]; then
+    echo -e "${RED}FAIL${NC} — /progress endpoint did not return valid data during indexing"
+    exit 1
+fi
 
 # -------------------------------------------------------
 # Step 5: Query tests (only run if indexing succeeded)
@@ -484,6 +514,11 @@ if [ "$CODE" = "400" ]; then echo -e "${GREEN}PASS${NC}"; else echo -e "${RED}FA
 # Test I: Delete nonexistent → 404
 echo -e "\n${CYAN}Test I: Delete nonexistent → 404${NC}"
 CODE=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE "$BASE_URL/api/repos/ghost")
+if [ "$CODE" = "404" ]; then echo -e "${GREEN}PASS${NC}"; else echo -e "${RED}FAIL${NC} — got $CODE"; exit 1; fi
+
+# Test I2: Progress nonexistent → 404
+echo -e "\n${CYAN}Test I2: Progress nonexistent → 404${NC}"
+CODE=$(curl -s -w "%{http_code}" -o /dev/null "$BASE_URL/api/repos/ghost/progress")
 if [ "$CODE" = "404" ]; then echo -e "${GREEN}PASS${NC}"; else echo -e "${RED}FAIL${NC} — got $CODE"; exit 1; fi
 
 # Test J: Webhook without signature → 401
