@@ -70,6 +70,7 @@ With `knot-server`, you can register Git repositories via a REST API, trigger au
 
 ### 🔄 Indexing & Webhooks
 - **`POST /api/repos/:id/sync`**: Manually trigger an asynchronous sync and re-indexing job for a repository. (No request body required).
+- **`GET /api/repos/:id/progress`**: Get live indexing progress (`percent_complete`, `stage`, parsed files, ingested entities). Note that progress reflects the latest pipeline run and resets when a new sync starts. If the server is restarted during indexing, progress may show as `idle` until the next scheduled sync auto-heals it.
 - **`POST /api/webhook/:id`**: Endpoint for Git provider webhooks (GitHub, GitLab, Bitbucket). Securely validates payload signatures (HMAC-SHA256) or tokens, triggering a fast, incremental background re-index on push events. The request body should be the standard JSON webhook payload sent by the Git provider.
 
 ### 🔍 Code Intelligence Search

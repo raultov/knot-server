@@ -204,6 +204,28 @@
       "response": []
     },
     {
+      "name": "Indexing Progress",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/api/repos/knot/progress",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "api",
+            "repos",
+            "knot",
+            "progress"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
       "name": "Trigger webhook",
       "request": {
         "method": "POST",
