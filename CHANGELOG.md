@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-07-03
+
+### Added
+- `GET /api/repos/{id}/progress` endpoint exposing live indexing progress (stage, files parsed/total, percent, entities/batches ingested, error) powered by knot 1.5.0's `ProgressTracker`.
+
+### Changed
+- Upgrade `knot` dependency from 1.4.13 to 1.5.0.
+
 ## [0.2.6] - 2026-06-28
 
 ### Changed
