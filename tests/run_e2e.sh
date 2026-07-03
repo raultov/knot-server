@@ -69,6 +69,49 @@ wait_for_port() {
     return 1
 }
 
+# Trigger POST /sync on a repo and wait for the NEW sync to complete.
+# Polling status=="indexed" alone is racy: right after the 202 the worker
+# may not have picked up the job yet, so the repo still reports the
+# previous "indexed" state and the caller proceeds before re-indexing
+# happened (made Test S2 flaky on slow CI runners).
+# Instead capture last_indexed before the sync and wait until it changes.
+sync_and_wait_indexed() {
+    local repo_id="$1"
+    local max_wait="${2:-60}"
+    local log_file="${3:-/tmp/knot-server-e2e.log}"
+    local before code json status last i
+
+    before=$(curl -sf "$BASE_URL/api/repos/$repo_id" 2>/dev/null \
+        | jq -r '.last_indexed // ""' 2>/dev/null || echo "")
+    # last_indexed has 1-second granularity: guarantee the new value differs
+    sleep 1
+
+    code=$(curl -s -w "%{http_code}" -o /dev/null \
+        -X POST "$BASE_URL/api/repos/$repo_id/sync")
+    if [ "$code" != "202" ]; then
+        echo -e "${RED}FAIL${NC} — sync returned $code (expected 202)"
+        return 1
+    fi
+    echo -e "  ${GREEN}sync accepted (202)${NC}"
+
+    for i in $(seq 1 "$max_wait"); do
+        json=$(curl -sf "$BASE_URL/api/repos/$repo_id" 2>/dev/null || echo "")
+        status=$(echo "$json" | jq -r '.status' 2>/dev/null || echo "")
+        last=$(echo "$json" | jq -r '.last_indexed // ""' 2>/dev/null || echo "")
+        if [ "$status" = "indexed" ] && [ -n "$last" ] && [ "$last" != "$before" ]; then
+            return 0
+        elif [ "$status" = "error" ]; then
+            echo -e "${RED}FAIL${NC} — sync failed with error status"
+            tail -30 "$log_file" 2>/dev/null || true
+            return 1
+        fi
+        sleep 1
+    done
+    echo -e "${RED}FAIL${NC} — sync did not complete within ${max_wait}s (status: $status, last_indexed: $last)"
+    tail -30 "$log_file" 2>/dev/null || true
+    return 1
+}
+
 # Create local bare git repos with fixture source files.
 # Knot-indexer needs parseable source files to produce results.
 # Produces: $FIXTURE_REPO (main), $SIGTEST_REPO, $DUPTEST_REPO
@@ -558,17 +601,23 @@ fi
 
 # Test M: Manual sync → 202
 echo -e "\n${CYAN}Test M: Manual sync → 202${NC}"
-# Brief pause to let worker drain the queue from previous tests
+M_LAST_BEFORE=$(curl -sf "$BASE_URL/api/repos/$REPO_ID" | jq -r '.last_indexed // ""')
+# Brief pause to let worker drain the queue from previous tests, and to
+# guarantee the new last_indexed (1s granularity) differs from the old one
 sleep 1
 SYNC_CODE=$(curl -s -w "%{http_code}" -o /dev/null -X POST "$BASE_URL/api/repos/$REPO_ID/sync")
 if [ "$SYNC_CODE" = "202" ]; then echo -e "${GREEN}PASS${NC}"; else echo -e "${RED}FAIL${NC} — got $SYNC_CODE"; exit 1; fi
 
-# Wait for the sync job to complete before deleting
+# Wait for the NEW sync job to complete before deleting. Checking
+# status=="indexed" alone is racy (the repo already reports the previous
+# "indexed" until the worker picks up the job), so require last_indexed
+# to change as well.
 echo -e "\n${CYAN}  Waiting for sync to complete...${NC}"
 for i in $(seq 1 30); do
     REPO_JSON=$(curl -sf "$BASE_URL/api/repos/$REPO_ID")
     STATUS=$(echo "$REPO_JSON" | jq -r '.status')
-    if [ "$STATUS" = "indexed" ]; then
+    M_LAST_NOW=$(echo "$REPO_JSON" | jq -r '.last_indexed // ""')
+    if [ "$STATUS" = "indexed" ] && [ -n "$M_LAST_NOW" ] && [ "$M_LAST_NOW" != "$M_LAST_BEFORE" ]; then
         echo -e "  ${GREEN}sync complete (status: indexed)${NC}"
         break
     elif [ "$STATUS" = "error" ]; then
@@ -944,32 +993,7 @@ if [ -z "$UNCOMMITTED_PROOF" ]; then
 fi
 echo "  Confirmed uncommitted: $UNCOMMITTED_PROOF"
 
-SYNC_CODE=$(curl -s -w "%{http_code}" -o /dev/null \
-    -X POST "$BASE_URL/api/repos/$LOCAL_REPO_ID/sync")
-if [ "$SYNC_CODE" = "202" ]; then
-    echo -e "  ${GREEN}sync accepted (202)${NC}"
-else
-    echo -e "${RED}FAIL${NC} — sync returned $SYNC_CODE (expected 202)"
-    exit 1
-fi
-
-for i in $(seq 1 60); do
-    REPO_JSON=$(curl -sf "$BASE_URL/api/repos/$LOCAL_REPO_ID" 2>/dev/null || echo "")
-    STATUS=$(echo "$REPO_JSON" | jq -r '.status' 2>/dev/null || echo "")
-    if [ "$STATUS" = "indexed" ]; then
-        break
-    elif [ "$STATUS" = "error" ]; then
-        echo -e "${RED}FAIL${NC} — sync re-index failed with error status"
-        tail -30 /tmp/knot-server-e2e.log 2>/dev/null || true
-        exit 1
-    fi
-    if [ "$i" -eq 60 ]; then
-        echo -e "${RED}FAIL${NC} — sync did not reach indexed within 60s (status: $STATUS)"
-        tail -30 /tmp/knot-server-e2e.log 2>/dev/null || true
-        exit 1
-    fi
-    sleep 1
-done
+sync_and_wait_indexed "$LOCAL_REPO_ID" 60 "$RECOVERY_LOG_R" || exit 1
 
 # Search for the new class
 SEARCH=$(curl -sf "$BASE_URL/api/repos/$LOCAL_REPO_ID/search?q=SyncTestService" 2>/dev/null || echo "")
@@ -1009,25 +1033,7 @@ if [ -z "$UNCOMMITTED_PROOF" ]; then
 fi
 echo "  Confirmed uncommitted modification: $UNCOMMITTED_PROOF"
 
-curl -sf -X POST "$BASE_URL/api/repos/$LOCAL_REPO_ID/sync" > /dev/null
-
-for i in $(seq 1 60); do
-    REPO_JSON=$(curl -sf "$BASE_URL/api/repos/$LOCAL_REPO_ID" 2>/dev/null || echo "")
-    STATUS=$(echo "$REPO_JSON" | jq -r '.status' 2>/dev/null || echo "")
-    if [ "$STATUS" = "indexed" ]; then
-        break
-    elif [ "$STATUS" = "error" ]; then
-        echo -e "${RED}FAIL${NC} — re-sync failed with error"
-        tail -30 /tmp/knot-server-e2e.log 2>/dev/null || true
-        exit 1
-    fi
-    if [ "$i" -eq 60 ]; then
-        echo -e "${RED}FAIL${NC} — re-sync did not reach indexed within 60s (status: $STATUS)"
-        tail -30 /tmp/knot-server-e2e.log 2>/dev/null || true
-        exit 1
-    fi
-    sleep 1
-done
+sync_and_wait_indexed "$LOCAL_REPO_ID" 60 "$RECOVERY_LOG_R" || exit 1
 
 CALLERS=$(curl -sf "$BASE_URL/api/repos/$LOCAL_REPO_ID/callers?entity=uncommittedNewMethod" 2>/dev/null || echo "")
 if echo "$CALLERS" | jq -e '.' > /dev/null 2>&1; then
@@ -1076,44 +1082,10 @@ JSON
 echo "  Injected stale state file at $STALE_STATE_FILE (no 'version' key)"
 
 # Trigger sync — the worker should detect staleness, clear the file,
-# and complete indexing successfully.
-SYNC_CODE=$(curl -s -w "%{http_code}" -o /dev/null \
-    -X POST "$BASE_URL/api/repos/$LOCAL_REPO_ID/sync")
-if [ "$SYNC_CODE" = "202" ]; then
-    echo -e "  ${GREEN}sync accepted (202)${NC}"
-else
-    echo -e "${RED}FAIL${NC} — sync returned $SYNC_CODE (expected 202)"
-    tail -30 /tmp/knot-server-e2e.log 2>/dev/null || true
-    exit 1
-fi
-
-# Wait for indexing to reach 'indexed' (NOT 'error')
-S5_INDEXED=false
-for i in $(seq 1 60); do
-    REPO_JSON=$(curl -sf "$BASE_URL/api/repos/$LOCAL_REPO_ID" 2>/dev/null || echo "")
-    STATUS=$(echo "$REPO_JSON" | jq -r '.status' 2>/dev/null || echo "")
-
-    if [ "$STATUS" = "indexed" ]; then
-        S5_INDEXED=true
-        break
-    elif [ "$STATUS" = "error" ]; then
-        echo -e "${RED}FAIL${NC} — sync failed with error status (stale state was not auto-cleared)"
-        tail -30 /tmp/knot-server-e2e.log 2>/dev/null || true
-        exit 1
-    fi
-    if [ "$i" -eq 60 ]; then
-        echo -e "${RED}FAIL${NC} — sync did not reach 'indexed' within 60s (status: $STATUS)"
-        tail -30 /tmp/knot-server-e2e.log 2>/dev/null || true
-        exit 1
-    fi
-    sleep 1
-done
-if [ "$S5_INDEXED" = "true" ]; then
-    echo -e "${GREEN}PASS${NC} — sync reached 'indexed' (stale state was auto-cleared, not propagated as error)"
-else
-    echo -e "${RED}FAIL${NC} — sync never reached 'indexed'"
-    exit 1
-fi
+# and complete indexing successfully (an 'error' status here would mean
+# the stale state was not auto-cleared).
+sync_and_wait_indexed "$LOCAL_REPO_ID" 60 "$RECOVERY_LOG_R" || exit 1
+echo -e "${GREEN}PASS${NC} — sync reached 'indexed' (stale state was auto-cleared, not propagated as error)"
 
 # Verify the indexer rewrote the state file with a current version.
 if [ ! -f "$STALE_STATE_FILE" ]; then
@@ -1239,18 +1211,7 @@ fi
 # Trigger a second sync. If the prune logic is correct, the dst's
 # `.knot/` state is preserved AND no artifact dir accumulates. Total
 # size of the mirror should stay small and not double.
-curl -sf -X POST "$BASE_URL/api/repos/$ARTIFACT_REPO_ID/sync" > /dev/null
-for i in $(seq 1 60); do
-    STATUS=$(curl -sf "$BASE_URL/api/repos/$ARTIFACT_REPO_ID" 2>/dev/null \
-        | jq -r '.status' 2>/dev/null || echo "")
-    if [ "$STATUS" = "indexed" ]; then break; fi
-    if [ "$i" -eq 60 ]; then
-        echo -e "${RED}FAIL${NC} — re-sync timed out (status: $STATUS)"
-        tail -30 /tmp/knot-server-e2e.log 2>/dev/null || true
-        exit 1
-    fi
-    sleep 1
-done
+sync_and_wait_indexed "$ARTIFACT_REPO_ID" 60 "$RECOVERY_LOG_R" || exit 1
 if [ -e "$ARTIFACT_DEST/target" ] || [ -e "$ARTIFACT_DEST/node_modules" ]; then
     echo -e "${RED}FAIL${NC} — artifact dir appeared after a second sync"
     exit 1
