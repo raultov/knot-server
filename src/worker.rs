@@ -191,6 +191,7 @@ async fn process_repository(
         ingest_concurrency: state.ingest_concurrency,
         rayon_threads: state.rayon_threads,
         include_config_files: false,
+        embedder_reset_interval: 0,
     };
 
     // 5. Load IndexState
@@ -236,13 +237,22 @@ async fn process_repository(
     }
     let mut index_state = loaded.state;
 
-    // 6. Run the indexing pipeline
+    // 6. Run the indexing pipeline with progress tracking
+    let tracker = {
+        let mut map = state
+            .progress_trackers
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Progress tracker lock poisoned: {}", e))?;
+        Arc::clone(map.entry(repo.id.clone()).or_default())
+    };
+
     tracing::info!("Worker: starting indexing pipeline for '{}'", repo.id);
-    knot::pipeline::runner::run_indexing_pipeline(
+    knot::pipeline::runner::run_indexing_pipeline_with_progress(
         &knot_cfg,
         &state.vector_db,
         &state.graph_db,
         &mut index_state,
+        tracker,
     )
     .await?;
     tracing::info!("Worker: indexing pipeline complete for '{}'", repo.id);
@@ -269,6 +279,7 @@ mod tests {
     use crate::registry::Registry;
     use knot::db::graph::ConnectExt;
     use knot::db::vector::VectorConnectExt;
+    use std::collections::HashMap;
     use std::sync::Mutex;
     use tempfile::TempDir;
 
@@ -300,6 +311,7 @@ mod tests {
             batch_size: 64,
             ingest_concurrency: 4,
             start_time: std::time::Instant::now(),
+            progress_trackers: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -458,5 +470,48 @@ mod tests {
         let result = load_index_state_with_recovery(dir.path().to_str().unwrap(), false);
 
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_process_repository_adds_tracker_to_state() {
+        let dir = TempDir::new().unwrap();
+
+        let src_dir = dir.path().join("src-repo");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        std::fs::create_dir_all(src_dir.join(".git")).unwrap();
+        std::fs::create_dir_all(src_dir.join(".knot")).unwrap();
+        let raw = r#"{"version":3,"file_hashes":{"a.rs":"h1"}}"#;
+        std::fs::write(src_dir.join(".knot").join("index_state.json"), raw).unwrap();
+
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+
+        let state = create_test_state(&workspace).await;
+
+        let repo = RepoEntry {
+            id: "test-repo".into(),
+            url: src_dir.to_string_lossy().into(),
+            local_path: workspace.join("test-repo").to_string_lossy().into(),
+            auth_type: AuthType::Ssh,
+            branch: "main".into(),
+            webhook_secret: None,
+            last_indexed: None,
+            status: RepoStatus::Indexed,
+        };
+
+        state
+            .registry
+            .lock()
+            .unwrap()
+            .add_or_replace(repo.clone())
+            .unwrap();
+
+        let _ = process_repository(&repo, &state).await;
+
+        let map = state.progress_trackers.lock().unwrap();
+        assert!(
+            map.contains_key("test-repo"),
+            "tracker was not added to state.progress_trackers"
+        );
     }
 }

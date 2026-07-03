@@ -195,6 +195,13 @@ pub async fn delete_repo_handler(
 
     match registry.remove(&id) {
         Ok(()) => {
+            drop(registry);
+
+            {
+                let mut trackers = state.progress_trackers.lock().unwrap();
+                trackers.remove(&id);
+            }
+
             // Clean up databases in background (fire-and-forget)
             let graph_db = state.graph_db.clone();
             let vector_db = state.vector_db.clone();
@@ -225,5 +232,96 @@ pub async fn delete_repo_handler(
                 error_response(StatusCode::INTERNAL_SERVER_ERROR, msg)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::AuthType;
+    use knot::db::graph::ConnectExt;
+    use knot::db::vector::VectorConnectExt;
+    use knot::pipeline::progress::ProgressTracker;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+    use tempfile::TempDir;
+
+    async fn create_test_state(workspace: &std::path::Path) -> Arc<AppState> {
+        let registry = crate::registry::Registry::load_or_create(workspace)
+            .expect("Failed to create test registry");
+
+        let graph_db =
+            knot::db::graph::GraphDb::connect("bolt://localhost:9999", "neo4j", "badpassword")
+                .await
+                .expect("connect for test db");
+
+        let vector_db =
+            knot::db::vector::VectorDb::connect("http://localhost:9999", "test_collection", 384)
+                .await
+                .expect("connect for test vector db");
+
+        let (job_tx, _job_rx) = tokio::sync::mpsc::channel::<crate::models::IndexJob>(16);
+
+        Arc::new(AppState {
+            vector_db: Arc::new(vector_db),
+            graph_db: Arc::new(graph_db),
+            embedder: None,
+            workspace_dir: workspace.to_string_lossy().into(),
+            registry: Arc::new(Mutex::new(registry)),
+            job_tx,
+            qdrant_url: "http://localhost:6334".into(),
+            qdrant_collection: "knot_entities".into(),
+            neo4j_uri: "bolt://localhost:7687".into(),
+            neo4j_user: "neo4j".into(),
+            neo4j_password: "secret".into(),
+            embed_dim: 384,
+            rayon_threads: None,
+            batch_size: 64,
+            ingest_concurrency: 4,
+            start_time: std::time::Instant::now(),
+            progress_trackers: Arc::new(Mutex::new(HashMap::new())),
+        })
+    }
+
+    #[tokio::test]
+    async fn test_delete_removes_tracker_from_state() {
+        let dir = TempDir::new().unwrap();
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+
+        let state = create_test_state(&workspace).await;
+
+        let entry = crate::models::RepoEntry {
+            id: "delete-test".into(),
+            url: "git@github.com:org/delete-test.git".into(),
+            local_path: "/tmp/delete-test".into(),
+            auth_type: AuthType::Ssh,
+            branch: "main".into(),
+            webhook_secret: None,
+            last_indexed: None,
+            status: crate::models::RepoStatus::Indexed,
+        };
+        state
+            .registry
+            .lock()
+            .unwrap()
+            .add_or_replace(entry)
+            .unwrap();
+
+        state
+            .progress_trackers
+            .lock()
+            .unwrap()
+            .insert("delete-test".into(), Arc::new(ProgressTracker::new()));
+
+        let response = delete_repo_handler(State(state.clone()), Path("delete-test".into())).await;
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+
+        let map = state.progress_trackers.lock().unwrap();
+        assert!(
+            !map.contains_key("delete-test"),
+            "tracker should be removed after delete"
+        );
     }
 }

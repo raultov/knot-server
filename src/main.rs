@@ -24,6 +24,7 @@ use knot::db::vector::{VectorConnectExt, VectorDb};
 use knot::pipeline::embed::Embedder;
 use models::AppState;
 use registry::Registry;
+use std::collections::HashMap;
 use tokio::signal;
 use tracing_subscriber::EnvFilter;
 use utoipa::OpenApi;
@@ -77,6 +78,7 @@ async fn main() -> anyhow::Result<()> {
         batch_size: cfg.batch_size,
         ingest_concurrency: cfg.ingest_concurrency,
         start_time,
+        progress_trackers: Arc::new(Mutex::new(HashMap::new())),
     });
 
     // Spawn the worker loop
@@ -137,6 +139,7 @@ async fn main() -> anyhow::Result<()> {
             handlers::delete_repo_handler
         ))
         .routes(routes!(handlers::sync_repo_handler))
+        .routes(routes!(handlers::progress_handler))
         .routes(routes!(handlers::search_handler))
         .routes(routes!(handlers::callers_handler))
         .routes(routes!(handlers::explore_handler))

@@ -2,6 +2,8 @@ use crate::registry::Registry;
 use knot::db::graph::GraphDb;
 use knot::db::vector::VectorDb;
 use knot::pipeline::embed::Embedder;
+use knot::pipeline::progress::ProgressTracker;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -165,6 +167,7 @@ pub struct AppState {
     pub batch_size: usize,
     pub ingest_concurrency: usize,
     pub start_time: std::time::Instant,
+    pub progress_trackers: Arc<Mutex<HashMap<String, Arc<ProgressTracker>>>>,
 }
 
 #[cfg(test)]
