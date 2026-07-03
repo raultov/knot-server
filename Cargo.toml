@@ -22,9 +22,9 @@ inherits = "release"
 lto = "thin"
 
 [dependencies]
-knot = "1.4.13"
+knot = "1.5.0"
 ignore = "0.4"
-axum = "0.8"
+axum = "0.8.9"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -34,10 +34,10 @@ clap = { version = "4", features = ["derive", "env"] }
 anyhow = "1"
 fs2 = "0.4"
 rayon = "1"
-hmac = "0.12"
-sha2 = "0.10"
+hmac = "0.13"
+sha2 = "0.11"
 hex = "0.4"
-neo4rs = "0.9.0-rc.9"
+neo4rs = "0.9.0-rc.10"
 utoipa = { version = "5", features = ["axum_extras"] }
 utoipa-axum = "0.2"
 utoipa-swagger-ui = { version = "9", features = ["axum"] }
