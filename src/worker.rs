@@ -451,7 +451,7 @@ mod tests {
         let repo_path = dir.path().to_str().unwrap();
         let knot_dir = dir.path().join(".knot");
         std::fs::create_dir_all(&knot_dir).unwrap();
-        let raw = r#"{"version":3,"file_hashes":{"a.rs":"h1","b.rs":"h2"}}"#;
+        let raw = r#"{"version":4,"file_hashes":{"a.rs":"h1","b.rs":"h2"}}"#;
         std::fs::write(knot_dir.join("index_state.json"), raw).unwrap();
 
         let loaded = load_index_state_with_recovery(repo_path, true).unwrap();
@@ -498,7 +498,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let knot_dir = dir.path().join(".knot");
         std::fs::create_dir_all(&knot_dir).unwrap();
-        let raw = r#"{"version":3,"file_hashes":NOT_VALID_JSON}"#;
+        let raw = r#"{"version":4,"file_hashes":NOT_VALID_JSON}"#;
         std::fs::write(knot_dir.join("index_state.json"), raw).unwrap();
 
         let loaded = load_index_state_with_recovery(dir.path().to_str().unwrap(), true).unwrap();
@@ -537,7 +537,7 @@ mod tests {
         std::fs::create_dir_all(&src_dir).unwrap();
         std::fs::create_dir_all(src_dir.join(".git")).unwrap();
         std::fs::create_dir_all(src_dir.join(".knot")).unwrap();
-        let raw = r#"{"version":3,"file_hashes":{"a.rs":"h1"}}"#;
+        let raw = r#"{"version":4,"file_hashes":{"a.rs":"h1"}}"#;
         std::fs::write(src_dir.join(".knot").join("index_state.json"), raw).unwrap();
 
         let workspace = dir.path().join("workspace");

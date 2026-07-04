@@ -1060,7 +1060,7 @@ fi
 
 # ── Test S5: Stale .knot/index_state.json from an older knot is auto-cleared ──
 # Regression test for the version-mismatch bug:
-#   "Detected index_state v0; current version is v3. The on-disk index is
+#   "Detected index_state v0; current version is v4. The on-disk index is
 #    incompatible."
 # When `local_sync` mirrors a source tree into the destination, it preserves
 # `.knot/` (indexer state) so future syncs remain incremental. But if the
