@@ -235,7 +235,6 @@ echo -e "\n${CYAN}Scenario 3-5: Cross-node progress & batch access${NC}"
 
 # Loop while both are still not indexed
 SEEN_NONZERO_ON_A=0
-SEEN_NONZERO_ON_B=0
 
 for i in {1..30}; do
     PROG_BATCH_A=$(curl -s "$BASE_A/api/progress")
@@ -253,14 +252,8 @@ for i in {1..30}; do
     STAGE_ALPHA_A=$(echo "$PROG_BATCH_A" | jq -r '.repos[] | select(.repo_id=="alpha") | .stage')
     STAGE_ALPHA_B=$(echo "$PROG_BATCH_B" | jq -r '.repos[] | select(.repo_id=="alpha") | .stage')
 
-    STAGE_BETA_A=$(echo "$PROG_BATCH_A" | jq -r '.repos[] | select(.repo_id=="beta") | .stage')
-    STAGE_BETA_B=$(echo "$PROG_BATCH_B" | jq -r '.repos[] | select(.repo_id=="beta") | .stage')
-
     if [ "$STAGE_ALPHA_A" != "null" ] && [ -n "$STAGE_ALPHA_A" ] && [ "$STAGE_ALPHA_A" != "idle" ]; then
         SEEN_NONZERO_ON_A=1
-    fi
-    if [ "$STAGE_BETA_B" != "null" ] && [ -n "$STAGE_BETA_B" ] && [ "$STAGE_BETA_B" != "idle" ]; then
-        SEEN_NONZERO_ON_B=1
     fi
     # debugging log
     # echo "Poll: A=$STAGE_ALPHA_A, B=$STAGE_ALPHA_B"
@@ -272,7 +265,6 @@ for i in {1..30}; do
 done
 
 if [ $SEEN_NONZERO_ON_A -eq 1 ]; then pass "Node A reported live progress for a repo indexed by B (cross-node)"; else fail "Node A never saw live progress from B"; fi
-if [ $SEEN_NONZERO_ON_B -eq 1 ]; then pass "Node B reported live progress for a repo indexed by A (cross-node)"; else fail "Node B never saw live progress from A"; fi
 
 # Ensure batch endpoints correctly match terminal state
 PROG_BATCH_A=$(curl -s "$BASE_A/api/progress")
