@@ -57,6 +57,7 @@ fn build_gitignore(src_root: &Path, current_dir: &Path) -> Gitignore {
 }
 
 pub fn is_local_path(url: &str) -> bool {
+    let url = url.strip_prefix("file://").unwrap_or(url);
     if url.starts_with("https://")
         || url.starts_with("http://")
         || url.starts_with("git@")
@@ -250,8 +251,11 @@ fn copy_tree(src: &Path, dst: &Path, src_root: &Path, gitignore: &Gitignore) -> 
             if let Some(parent) = dst_child.parent() {
                 let _ = fs::create_dir_all(parent);
             }
-            if let Err(e) = make_writable(&dst_child) {
-                tracing::warn!("cannot make mirror writable {}: {e}", dst_child.display());
+            if dst_child.exists() {
+                if let Err(e) = make_writable(&dst_child) {
+                    tracing::warn!("cannot make mirror writable {}: {e}", dst_child.display());
+                }
+                let _ = fs::remove_file(&dst_child);
             }
             if let Err(e) = fs::copy(&src_child, &dst_child) {
                 // EACCES on the source file is the common case (unreadable
