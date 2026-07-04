@@ -274,4 +274,14 @@ FINAL_STATUS_B=$(echo "$PROG_BATCH_B" | jq -r '.repos[] | select(.repo_id=="alph
 assert_status "$FINAL_STATUS_A" "indexed" "Node A sees terminal batch status as indexed"
 assert_status "$FINAL_STATUS_B" "indexed" "Node B sees terminal batch status as indexed"
 
+# The progress persister removes the snapshot asynchronously after
+# the worker signals cancel. Give it a small window to drain before
+# asserting the file is gone (CI runners can be slower than local).
+for i in {1..10}; do
+    if [ ! -f "$SHARED_WORKSPACE/progress/alpha.json" ]; then
+        break
+    fi
+    sleep 0.3
+done
+
 if [ ! -f "$SHARED_WORKSPACE/progress/alpha.json" ]; then pass "Snapshot file removed on completion"; else fail "Snapshot file still exists"; fi
