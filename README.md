@@ -9,6 +9,14 @@ See [CHANGELOG.md](CHANGELOG.md) for the full version history.
 
 **knot-server** and the [knot](https://github.com/raultov/knot) indexing engine are in **beta**. Expect rough edges, occasional breaking changes, and indexing quirks as we approach a stable 1.0 release.
 
+> ⚠️ **Upgrading to v0.2.9 (knot 1.5.1) — automatic full re-index.** knot 1.5.1
+> bumps the on-disk index-state format (v3 → v4) and switches stored `file_path`
+> values to repo-relative form. The older state is incompatible, so the **first
+> sync of each repository after upgrading is a full re-index** (expect it to take
+> as long as the initial index). No manual action is required — knot-server
+> detects the stale state, discards it, and rebuilds the Neo4j/Qdrant entries
+> automatically. See the [CHANGELOG](CHANGELOG.md) for details.
+
 With `knot-server`, you can register Git repositories via a REST API, trigger automatic codebase indexing through webhooks (GitHub, GitLab, Bitbucket), and query the vector (Qdrant) and graph (Neo4j) databases—all while coordinating work safely across multiple server instances via NFS/EFS workspace locks.
 
 <p align="center">

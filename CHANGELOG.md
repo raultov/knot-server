@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.9] - 2026-07-04
+
+### Changed
+- Upgrade `knot` dependency from 1.5.0 to 1.5.1.
+
+### ⚠️ Breaking (indexer state & stored paths)
+- **On-disk index state bumped v3 → v4.** knot 1.5.1 rejects the older v3
+  `.knot/index_state.json` with *"Detected index_state v3; current version is
+  v4. The on-disk index is incompatible."* The first sync after upgrading a
+  repository automatically discards the incompatible state and performs a full
+  re-index — no manual `knot-indexer --clean` is required for repos managed by
+  knot-server (the worker's recovery path clears the stale file and rebuilds).
+  Expect the first post-upgrade sync of each repository to take as long as an
+  initial index.
+- **Stored `file_path` is now repo-relative** instead of absolute (see the knot
+  `relative_file_paths` spec). This too is materialized by the automatic
+  re-index above; the Neo4j/Qdrant entries for a repo are rebuilt on its first
+  post-upgrade sync.
+
+### Fixed
+- `GET /api/repos/{id}/explore?path=...` returned an empty `entities` array
+  after the upgrade because the handler still prepended the repo's
+  `local_path` to build an absolute path, which no longer matches knot 1.5.1's
+  repo-relative `file_path` storage. The handler now passes the caller-supplied
+  relative path straight through to `run_explore_file`, which normalizes it.
+- Unit-test fixtures that seed a valid `index_state.json` now write `version: 4`
+  so they load successfully under knot 1.5.1.
+
+### Removed
+- E2E: dropped the inherently racy *"Node B never saw live progress from A"*
+  assertion from the cluster progress-coherence suite. Its `beta` observation
+  could never win the timing race against `alpha`'s multi-second head start
+  before the poll loop exited on `alpha` reaching `indexed`. Cross-node progress
+  visibility remains covered by the reciprocal *"Node A reported live progress
+  for a repo indexed by B"* assertion plus the terminal-coherence and
+  snapshot-cleanup checks.
+
 ## [0.2.8] - 2026-07-04
 
 ### Added
@@ -297,7 +334,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/raultov/knot-server/compare/v0.2.8...HEAD
+[Unreleased]: https://github.com/raultov/knot-server/compare/v0.2.9...HEAD
+[0.2.9]: https://github.com/raultov/knot-server/compare/v0.2.8...v0.2.9
 [0.2.8]: https://github.com/raultov/knot-server/compare/v0.2.7...v0.2.8
 [0.2.7]: https://github.com/raultov/knot-server/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/raultov/knot-server/compare/v0.2.5...v0.2.6
