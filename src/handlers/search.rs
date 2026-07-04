@@ -127,25 +127,23 @@ pub async fn explore_handler(
         _ => return error_response(StatusCode::BAD_REQUEST, "Missing required parameter 'path'"),
     };
 
-    // Neo4j stores absolute file paths from the indexer. Build the full path
-    // by prepending the repo's local_path.
-    let full_path = {
+    // knot 1.5.1+ stores repo-relative file paths in Neo4j (see the knot
+    // `relative_file_paths` spec). Pass the caller-supplied relative path
+    // straight through — `run_explore_file` normalizes it (POSIX separators,
+    // strips a leading "./"). We still look up the repo so unknown ids return
+    // 404 instead of an empty result.
+    let relative_path = {
         let mut registry = state.registry.lock().unwrap();
-        match registry.get(&id) {
-            Some(entry) => {
-                let trimmed = relative.trim_start_matches('/');
-                format!("{}/{}", entry.local_path.trim_end_matches('/'), trimmed)
-            }
-            None => {
-                return error_response(
-                    StatusCode::NOT_FOUND,
-                    format!("Repository '{}' not found", id),
-                );
-            }
+        if registry.get(&id).is_none() {
+            return error_response(
+                StatusCode::NOT_FOUND,
+                format!("Repository '{}' not found", id),
+            );
         }
+        relative.trim_start_matches('/').to_string()
     };
 
-    match knot::cli_tools::run_explore_file(&full_path, Some(&id), &state.graph_db).await {
+    match knot::cli_tools::run_explore_file(&relative_path, Some(&id), &state.graph_db).await {
         Ok((_display_path, entities_json)) => (StatusCode::OK, Json(entities_json)).into_response(),
         Err(e) => error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
