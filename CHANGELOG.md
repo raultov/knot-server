@@ -7,7 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [0.2.8] - 2026-07-04
+
+### Added
+- `GET /api/progress` batch endpoint: returns live indexing progress for every registered repository in a single call. Each entry resolves via the in-process `ProgressTracker`, then falls back to the on-disk snapshot at `<workspace>/progress/<id>.json`, so a request served by node B reports the real progress of a job running on node A.
+- New `src/progress_store` module: atomic (temp + rename) write/read/remove of per-repo progress snapshots in the shared workspace. Worker persists the in-memory `ProgressTracker` snapshot at most every 1 s; the snapshot is removed on terminal success or failure.
+- Graph viewer: the repository dropdown now refreshes its option labels every time the user opens it (mouse and keyboard), showing live percentages for repos that are actively indexing. Requests to `/api/progress` are throttled to 1.5 s so rapid re-opens do not spam the API; failures degrade silently.
+
+### Fixed
+- Registry: cross-instance coherence bugs (BUG-1, BUG-2 from the design plan).
+  `Registry` is now read-through with an mtime fast-path, and all mutations
+  (`add_or_replace`, `remove`, `update_status`, `update_last_indexed`) perform
+  read-modify-write under the `repos.json.lock` so a node's stale in-memory
+  copy can no longer clobber a peer's recent status change. `get`/`list` take
+  `&mut self` (callers already hold the `Mutex<Registry>` in `AppState`,
+  so only borrow sites changed). `repos.json` is now written atomically
+  (temp + `fsync` + rename) so readers never observe a partially written
+  file.
+- Cross-instance progress visibility (BUG-3): a node with no in-process
+  `ProgressTracker` for a repo now serves the peer's live progress from the
+  shared snapshot file, so `GET /api/repos/{id}/progress` and
+  `GET /api/progress` stay coherent across nodes.
 
 ## [0.2.7] - 2026-07-03
 
@@ -277,8 +297,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/raultov/knot-server/compare/v0.2.4...HEAD
-[0.2.3]: https://github.com/raultov/knot-server/compare/v0.2.2...v0.2.3
+[Unreleased]: https://github.com/raultov/knot-server/compare/v0.2.8...HEAD
+[0.2.8]: https://github.com/raultov/knot-server/compare/v0.2.7...v0.2.8
+[0.2.7]: https://github.com/raultov/knot-server/compare/v0.2.6...v0.2.7
+[0.2.6]: https://github.com/raultov/knot-server/compare/v0.2.5...v0.2.6
+[0.2.5]: https://github.com/raultov/knot-server/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/raultov/knot-server/compare/v0.2.3...v0.2.4
 [0.2.2]: https://github.com/raultov/knot-server/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/raultov/knot-server/compare/v0.2.0...v0.2.1
