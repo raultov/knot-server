@@ -309,7 +309,17 @@
       // Tracks which kinds were auto-enabled by each relationship toggle,
       // so deactivating a rel can undo only what it added.
       autoEnabledKinds: {},
+      // Timestamp (ms since epoch) of the last successful /api/progress
+      // fetch. Used to throttle refreshes on dropdown open.
+      lastProgressFetch: 0,
+      // In-flight request so concurrent openers reuse the same fetch.
+      progressFetchInFlight: null,
     };
+
+    // Minimum interval between /api/progress requests triggered by the
+    // user opening the dropdown. Prevents API spam when the user reopens
+    // the popup several times in a row.
+    var PROGRESS_THROTTLE_MS = 1500;
 
     // ── Colores por kind ───────────────────────────────────────
     const KIND_COLORS = {
@@ -373,6 +383,68 @@
     async function fetchRepos() {
       const data = await apiGet('/api/repos');
       return data.repositories || [];
+    }
+
+    // Build the dropdown label for a repo. When the batch progress endpoint
+    // reports the repo is actively indexing, embed the percentage so the
+    // user sees the live counter without an extra round-trip. Other
+    // statuses (indexed, cloning, error, …) just use the registry status
+    // — same as the legacy behavior — so existing UX stays intact.
+    function formatRepoLabel(repoId, progressEntry) {
+      if (progressEntry && progressEntry.status === 'indexing') {
+        var pct = Math.round(progressEntry.percent_complete || 0);
+        return repoId + ' (indexing ' + pct + '%)';
+      }
+      var status = progressEntry ? progressEntry.status : 'unknown';
+      return repoId + ' (' + status + ')';
+    }
+
+    // Refresh the labels of every option in the #repo-select dropdown in
+    // place. We mutate only `option.textContent` — adding/removing/reordering
+    // options while the native popup is open can close it on some
+    // browsers; text-only mutation is safe in Chrome/Firefox.
+    function applyProgressToOptions(progressById) {
+      var options = document.querySelectorAll('#repo-select option[value]');
+      for (var i = 0; i < options.length; i++) {
+        var opt = options[i];
+        var id = opt.value;
+        if (!id) continue;
+        var entry = progressById.get(id);
+        opt.textContent = formatRepoLabel(id, entry);
+      }
+    }
+
+    // Fetch /api/progress (throttled) and refresh option labels. Safe to
+    // call frequently: rapid re-opens inside the throttle window are
+    // ignored, and API failures degrade silently (existing labels are
+    // preserved).
+    function refreshRepoProgress() {
+      var now = Date.now();
+      if (now - state.lastProgressFetch < PROGRESS_THROTTLE_MS) {
+        return;
+      }
+      if (state.progressFetchInFlight) {
+        // Coalesce: an earlier request is on the way; let it apply.
+        return;
+      }
+      state.lastProgressFetch = now;
+      state.progressFetchInFlight = apiGet('/api/progress')
+        .then(function(data) {
+          var byId = new Map();
+          var repos = (data && data.repos) || [];
+          for (var i = 0; i < repos.length; i++) {
+            byId.set(repos[i].repo_id, repos[i]);
+          }
+          applyProgressToOptions(byId);
+        })
+        .catch(function() {
+          // Silent: keep existing labels. Reset the throttle clock so
+          // the next attempt can retry sooner than the full window.
+          state.lastProgressFetch = 0;
+        })
+        .then(function() {
+          state.progressFetchInFlight = null;
+        });
     }
 
     async function fetchSubgraph(repoId, entity, entityId, depth, relationships, direction, kinds) {
@@ -605,9 +677,17 @@
           var repo = state.repos[i];
           var opt = document.createElement('option');
           opt.value = repo.id;
-          opt.textContent = repo.id + ' (' + repo.status + ')';
+          // Initial paint uses registry status; a follow-up
+          // refreshRepoProgress() (no throttle on first call) will replace
+          // the labels with live percentages once the progress endpoint
+          // responds.
+          opt.textContent = formatRepoLabel(repo.id, { status: repo.status });
           select.appendChild(opt);
         }
+        // Force the first refresh past the throttle so the initial paint
+        // already shows live percentages.
+        state.lastProgressFetch = 0;
+        refreshRepoProgress();
       } catch (err) {
         setStatus('Error loading repos: ' + err.message);
       }
@@ -720,6 +800,18 @@
           refreshGraphWithFilters();
         });
       }
+
+      // Refresh the dropdown labels whenever the user opens it. Both
+      // mousedown (mouse) and keydown (keyboard: Alt+↓, Enter, Space)
+      // can open the native popup, so we listen to both.
+      var repoSelect = document.getElementById('repo-select');
+      repoSelect.addEventListener('mousedown', refreshRepoProgress);
+      repoSelect.addEventListener('keydown', function(e) {
+        // Match the keys that natively open the dropdown.
+        if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+          refreshRepoProgress();
+        }
+      });
 
       document.getElementById('repo-select').addEventListener('change', function(e) {
         state.selectedRepo = e.target.value || null;
