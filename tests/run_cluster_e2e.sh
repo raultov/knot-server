@@ -121,9 +121,9 @@ JAVA
     echo "# $name fixture" > "$tmp/README.md"
 
     git -C "$tmp" add . > /dev/null 2>&1
-    git -C "$tmp" commit -m "initial commit for $name" > /dev/null 2>&1
-    git -C "$tmp" branch -M main > /dev/null 2>&1
-    git -C "$tmp" push origin main > /dev/null 2>&1
+    git -C "$tmp" -c user.email=test@test.com -c user.name=Test \
+        commit -m "initial commit for $name" > /dev/null 2>&1
+    git -C "$tmp" push origin main 2>/dev/null || { git -C "$tmp" branch -M main && git -C "$tmp" push origin main 2>/dev/null; }
     rm -rf "$tmp"
 
     echo "$bare"
