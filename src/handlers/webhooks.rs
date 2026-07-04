@@ -31,7 +31,7 @@ pub async fn webhook_handler(
 ) -> Response {
     // Check repo exists and get webhook secret
     let webhook_secret = {
-        let registry = state.registry.lock().unwrap();
+        let mut registry = state.registry.lock().unwrap();
         match registry.get(&id) {
             Some(entry) => entry.webhook_secret.clone(),
             None => {

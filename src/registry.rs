@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use crate::locking::acquire_file_lock;
 use crate::models::{RegistryData, RepoEntry, RepoStatus};
@@ -8,6 +9,7 @@ pub struct Registry {
     data: RegistryData,
     json_path: PathBuf,
     lock_path: PathBuf,
+    last_load: SystemTime,
 }
 
 impl Registry {
@@ -40,13 +42,51 @@ impl Registry {
             data,
             json_path,
             lock_path,
+            last_load: SystemTime::now(),
         })
     }
 
     fn save(&self) -> anyhow::Result<()> {
+        use std::io::Write;
+
         let _lock = acquire_file_lock(&self.lock_path)?;
         let json = serde_json::to_string_pretty(&self.data)?;
-        fs::write(&self.json_path, json)?;
+        let temp_path = self.json_path.with_extension("json.tmp");
+        {
+            let mut f = fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&temp_path)?;
+            f.write_all(json.as_bytes())?;
+            f.sync_all()?;
+        }
+        if self.json_path.exists() {
+            let _ = fs::remove_file(&self.json_path);
+        }
+        fs::rename(&temp_path, &self.json_path)?;
+        Ok(())
+    }
+
+    fn reload_if_stale(&mut self) -> anyhow::Result<()> {
+        if !self.json_path.exists() {
+            return Ok(());
+        }
+        let mtime = match fs::metadata(&self.json_path) {
+            Ok(m) => m.modified().ok(),
+            Err(_) => None,
+        };
+        let stale = match mtime {
+            Some(t) => t > self.last_load,
+            None => fs::metadata(&self.json_path).map(|m| m.len()).unwrap_or(0) != 0,
+        };
+        if stale
+            && let Ok(content) = fs::read_to_string(&self.json_path)
+            && let Ok(parsed) = serde_json::from_str::<RegistryData>(&content)
+        {
+            self.data = parsed;
+            self.last_load = SystemTime::now();
+        }
         Ok(())
     }
 
@@ -81,11 +121,13 @@ impl Registry {
         Ok(())
     }
 
-    pub fn get(&self, id: &str) -> Option<&RepoEntry> {
+    pub fn get(&mut self, id: &str) -> Option<&RepoEntry> {
+        let _ = self.reload_if_stale();
         self.data.repositories.iter().find(|r| r.id == id)
     }
 
-    pub fn list(&self) -> &[RepoEntry] {
+    pub fn list(&mut self) -> &[RepoEntry] {
+        let _ = self.reload_if_stale();
         &self.data.repositories
     }
 
@@ -136,7 +178,7 @@ mod tests {
     #[test]
     fn test_create_empty_registry() {
         let dir = TempDir::new().unwrap();
-        let registry = Registry::load_or_create(dir.path()).unwrap();
+        let mut registry = Registry::load_or_create(dir.path()).unwrap();
         assert!(registry.list().is_empty());
     }
 
@@ -147,7 +189,7 @@ mod tests {
         let repo = make_entry("test-repo", "git@github.com:org/test.git", "/tmp/test-repo");
         registry.add_or_replace(repo.clone()).unwrap();
 
-        let reloaded = Registry::load_or_create(dir.path()).unwrap();
+        let mut reloaded = Registry::load_or_create(dir.path()).unwrap();
         assert_eq!(reloaded.list().len(), 1);
         assert_eq!(reloaded.list()[0].id, "test-repo");
     }
@@ -177,7 +219,7 @@ mod tests {
         assert_eq!(registry.list()[0].url, "git@github.com:org/new.git");
 
         // Reload to confirm the replacement was persisted.
-        let reloaded = Registry::load_or_create(dir.path()).unwrap();
+        let mut reloaded = Registry::load_or_create(dir.path()).unwrap();
         assert_eq!(reloaded.list().len(), 1);
         assert_eq!(reloaded.list()[0].url, "git@github.com:org/new.git");
     }

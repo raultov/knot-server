@@ -27,7 +27,7 @@ pub async fn sync_repo_handler(
 ) -> Response {
     // Check repo exists
     {
-        let registry = state.registry.lock().unwrap();
+        let mut registry = state.registry.lock().unwrap();
         if registry.get(&id).is_none() {
             return error_response(
                 StatusCode::NOT_FOUND,

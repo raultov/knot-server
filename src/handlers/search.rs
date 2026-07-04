@@ -130,7 +130,7 @@ pub async fn explore_handler(
     // Neo4j stores absolute file paths from the indexer. Build the full path
     // by prepending the repo's local_path.
     let full_path = {
-        let registry = state.registry.lock().unwrap();
+        let mut registry = state.registry.lock().unwrap();
         match registry.get(&id) {
             Some(entry) => {
                 let trimmed = relative.trim_start_matches('/');

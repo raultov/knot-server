@@ -21,7 +21,7 @@ pub async fn scheduler_loop(
         tracing::info!("Scheduler: checking repositories for stale locks and overdue indexing");
 
         let repos = {
-            let registry = state.registry.lock().unwrap();
+            let mut registry = state.registry.lock().unwrap();
             registry.list().to_vec()
         };
 

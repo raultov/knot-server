@@ -16,7 +16,7 @@ use crate::models::AppState;
     description = "Check server health, uptime, queue capacity, and repository statistics.",
 )]
 pub async fn health_handler(State(state): State<Arc<AppState>>) -> Response {
-    let registry = state.registry.lock().unwrap();
+    let mut registry = state.registry.lock().unwrap();
     let repos = registry.list();
     let cloning_count = repos
         .iter()

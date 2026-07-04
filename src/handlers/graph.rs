@@ -234,7 +234,7 @@ pub async fn graph_expand_handler(
 
 /// Helper to verify if the repository exists in the registry.
 fn check_repo_exists(state: &AppState, id: &str) -> Option<Response> {
-    let registry = state.registry.lock().unwrap();
+    let mut registry = state.registry.lock().unwrap();
     if registry.get(id).is_none() {
         Some(error_response(
             StatusCode::NOT_FOUND,

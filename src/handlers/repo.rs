@@ -18,7 +18,7 @@ use crate::models::{RegisterRepoRequest, RegisterRepoResponse, RepoEntry, RepoLi
     description = "List all registered Git repositories with their current status and metadata.",
 )]
 pub async fn list_repos_handler(State(state): State<Arc<AppState>>) -> Response {
-    let registry = state.registry.lock().unwrap();
+    let mut registry = state.registry.lock().unwrap();
     let repos = registry.list().to_vec();
     let response = RepoListResponse {
         repositories: repos,
@@ -43,7 +43,7 @@ pub async fn get_repo_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Response {
-    let registry = state.registry.lock().unwrap();
+    let mut registry = state.registry.lock().unwrap();
     match registry.get(&id) {
         Some(entry) => (StatusCode::OK, Json(entry.clone())).into_response(),
         None => error_response(
@@ -291,7 +291,7 @@ mod tests {
 
         let state = create_test_state(&workspace).await;
 
-        let entry = crate::models::RepoEntry {
+        let entry = RepoEntry {
             id: "delete-test".into(),
             url: "git@github.com:org/delete-test.git".into(),
             local_path: "/tmp/delete-test".into(),
@@ -316,7 +316,7 @@ mod tests {
 
         let response = delete_repo_handler(State(state.clone()), Path("delete-test".into())).await;
 
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert_eq!(response.status(), StatusCode::OK);
 
         let map = state.progress_trackers.lock().unwrap();
         assert!(
