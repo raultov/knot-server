@@ -28,24 +28,17 @@ pub fn build_progress_response(
     snapshot: Option<knot::pipeline::progress::IndexingProgress>,
 ) -> ProgressResponse {
     match snapshot {
-        Some(snap) => {
-            let stage_str = serde_json::to_value(snap.stage)
-                .ok()
-                .and_then(|v| v.as_str().map(String::from))
-                .unwrap_or_else(|| "idle".to_string());
-
-            ProgressResponse {
-                repo_id: repo_id.to_string(),
-                status,
-                stage: stage_str,
-                total_files: snap.total_files,
-                parsed_files: snap.parsed_files,
-                percent_complete: snap.percent_complete,
-                entities_ingested: snap.entities_ingested,
-                batches_ingested: snap.batches_ingested,
-                error: snap.error,
-            }
-        }
+        Some(snap) => ProgressResponse {
+            repo_id: repo_id.to_string(),
+            status,
+            stage: crate::progress_store::format_stage(snap.stage),
+            total_files: snap.total_files,
+            parsed_files: snap.parsed_files,
+            percent_complete: snap.percent_complete,
+            entities_ingested: snap.entities_ingested,
+            batches_ingested: snap.batches_ingested,
+            error: snap.error,
+        },
         None => ProgressResponse {
             repo_id: repo_id.to_string(),
             status,
@@ -77,26 +70,113 @@ pub async fn progress_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Response {
-    let status = {
-        let registry = state.registry.lock().unwrap();
+    let (status, repo_exists) = {
+        let mut registry = state.registry.lock().unwrap();
         match registry.get(&id) {
-            Some(entry) => entry.status.clone(),
-            None => {
-                return error_response(
-                    StatusCode::NOT_FOUND,
-                    format!("Repository '{}' not found", id),
-                );
-            }
+            Some(entry) => (entry.status.clone(), true),
+            None => (RepoStatus::Indexed, false),
         }
     };
+
+    if !repo_exists {
+        return error_response(
+            StatusCode::NOT_FOUND,
+            format!("Repository '{}' not found", id),
+        );
+    }
 
     let snapshot = {
         let map = state.progress_trackers.lock().unwrap();
         map.get(&id).map(|tracker| tracker.snapshot())
     };
 
-    let response = build_progress_response(&id, status, snapshot);
+    if snapshot.is_some() {
+        let response = build_progress_response(&id, status, snapshot);
+        return (StatusCode::OK, Json(response)).into_response();
+    }
+
+    if let Some(persisted) =
+        crate::progress_store::read_snapshot(&std::path::PathBuf::from(&state.workspace_dir), &id)
+    {
+        let response = ProgressResponse {
+            repo_id: id,
+            status: persisted.status,
+            stage: persisted.stage,
+            total_files: persisted.total_files,
+            parsed_files: persisted.parsed_files,
+            percent_complete: persisted.percent_complete,
+            entities_ingested: persisted.entities_ingested,
+            batches_ingested: persisted.batches_ingested,
+            error: persisted.error,
+        };
+        return (StatusCode::OK, Json(response)).into_response();
+    }
+
+    let response = build_progress_response(&id, status, None);
     (StatusCode::OK, Json(response)).into_response()
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/progress",
+    tag = "Indexing",
+    responses(
+        (status = 200, description = "Indexing progress for all repositories"),
+    ),
+    description = "Get live indexing progress for all registered repositories.",
+)]
+pub async fn batch_progress_handler(State(state): State<Arc<AppState>>) -> Response {
+    let repos: Vec<crate::models::RepoEntry> = {
+        let mut registry = state.registry.lock().unwrap();
+        registry.list().to_vec()
+    };
+
+    let workspace = std::path::PathBuf::from(&state.workspace_dir);
+    let mut results: Vec<ProgressResponse> = Vec::new();
+
+    for repo in &repos {
+        let snapshot = {
+            let map = state.progress_trackers.lock().unwrap();
+            map.get(&repo.id).map(|tracker| tracker.snapshot())
+        };
+
+        if let Some(snap) = snapshot {
+            results.push(build_progress_response(
+                &repo.id,
+                repo.status.clone(),
+                Some(snap),
+            ));
+            continue;
+        }
+
+        if let Some(persisted) = crate::progress_store::read_snapshot(&workspace, &repo.id) {
+            results.push(ProgressResponse {
+                repo_id: repo.id.clone(),
+                status: persisted.status,
+                stage: persisted.stage,
+                total_files: persisted.total_files,
+                parsed_files: persisted.parsed_files,
+                percent_complete: persisted.percent_complete,
+                entities_ingested: persisted.entities_ingested,
+                batches_ingested: persisted.batches_ingested,
+                error: persisted.error,
+            });
+            continue;
+        }
+
+        results.push(build_progress_response(&repo.id, repo.status.clone(), None));
+    }
+
+    #[derive(Serialize)]
+    struct BatchProgressResponse {
+        repos: Vec<ProgressResponse>,
+    }
+
+    (
+        StatusCode::OK,
+        Json(BatchProgressResponse { repos: results }),
+    )
+        .into_response()
 }
 
 #[cfg(test)]
@@ -202,7 +282,7 @@ mod tests {
 
         fn build_progress_test_app(state: Arc<AppState>) -> Router {
             Router::new()
-                .route("/api/repos/{id}/progress", get(super::progress_handler))
+                .route("/api/repos/{id}/progress", get(progress_handler))
                 .with_state(state)
         }
 

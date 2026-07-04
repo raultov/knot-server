@@ -69,7 +69,7 @@ pub async fn worker_loop(
         tracing::info!("Worker picked up job: {:?} for {}", job, repo_id);
 
         let repo = {
-            let registry = match state.registry.lock() {
+            let mut registry = match state.registry.lock() {
                 Ok(guard) => guard,
                 Err(e) => {
                     tracing::error!("Registry lock poisoned: {}", e);
@@ -104,7 +104,7 @@ pub async fn worker_loop(
 
 async fn process_repository(
     repo: &RepoEntry,
-    state: &crate::models::AppState,
+    state: &Arc<crate::models::AppState>,
 ) -> anyhow::Result<()> {
     // 1. Acquire exclusive file lock
     let lock_path = PathBuf::from(&repo.local_path).join(".knot.lock");
@@ -246,15 +246,31 @@ async fn process_repository(
         Arc::clone(map.entry(repo.id.clone()).or_default())
     };
 
+    let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let persister =
+        spawn_progress_persister(state, repo.id.clone(), Arc::clone(&tracker), cancel.clone());
+
     tracing::info!("Worker: starting indexing pipeline for '{}'", repo.id);
-    knot::pipeline::runner::run_indexing_pipeline_with_progress(
+    let pipeline_result = knot::pipeline::runner::run_indexing_pipeline_with_progress(
         &knot_cfg,
         &state.vector_db,
         &state.graph_db,
         &mut index_state,
         tracker,
     )
-    .await?;
+    .await;
+
+    cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+    if let Some(handle) = persister {
+        handle.await.ok();
+    }
+
+    crate::progress_store::remove_snapshot(
+        &std::path::PathBuf::from(&state.workspace_dir),
+        &repo.id,
+    );
+
+    pipeline_result?;
     tracing::info!("Worker: indexing pipeline complete for '{}'", repo.id);
 
     // 7. Update registry
@@ -272,6 +288,47 @@ async fn process_repository(
     Ok(())
 }
 
+fn spawn_progress_persister(
+    state: &Arc<crate::models::AppState>,
+    repo_id: String,
+    tracker: Arc<knot::pipeline::progress::ProgressTracker>,
+    cancel: Arc<std::sync::atomic::AtomicBool>,
+) -> Option<tokio::task::JoinHandle<()>> {
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
+    let workspace = std::path::PathBuf::from(&state.workspace_dir);
+    Some(tokio::spawn(async move {
+        let mut last_signature: Option<String> = None;
+        while !cancel.load(Ordering::Relaxed) {
+            let snap = tracker.snapshot();
+            let signature = format!(
+                "{:?}|{:.3}|{}|{}|{}|{}",
+                snap.stage,
+                snap.percent_complete,
+                snap.parsed_files,
+                snap.total_files,
+                snap.entities_ingested,
+                snap.batches_ingested
+            );
+            if last_signature.as_deref() != Some(signature.as_str()) {
+                let persisted = crate::progress_store::PersistedProgress::from_tracker(
+                    &repo_id,
+                    crate::models::RepoStatus::Indexing,
+                    &snap,
+                );
+                if let Err(e) = crate::progress_store::write_snapshot(&workspace, &persisted) {
+                    tracing::warn!(
+                        "Worker: failed to persist progress snapshot for {}: {e:#}",
+                        repo_id
+                    );
+                } else {
+                    last_signature = Some(signature);
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }))
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -513,5 +570,35 @@ mod tests {
             map.contains_key("test-repo"),
             "tracker was not added to state.progress_trackers"
         );
+    }
+    #[tokio::test]
+    async fn test_spawn_progress_persister_writes_and_exits() {
+        let dir = TempDir::new().unwrap();
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let state = create_test_state(&workspace).await;
+
+        let repo_id = "progress-repo".to_string();
+        let tracker = Arc::new(knot::pipeline::progress::ProgressTracker::new());
+        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        let handle = super::spawn_progress_persister(
+            &state,
+            repo_id.clone(),
+            tracker.clone(),
+            cancel.clone(),
+        )
+        .unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+
+        let progress_file = workspace.join("progress").join("progress-repo.json");
+        assert!(
+            progress_file.exists(),
+            "Snapshot file should have been written"
+        );
+
+        cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+        handle.await.unwrap();
     }
 }

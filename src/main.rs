@@ -5,6 +5,7 @@ mod handlers;
 mod local_sync;
 mod locking;
 mod models;
+mod progress_store;
 mod registry;
 mod scheduler;
 mod time_utils;
@@ -140,6 +141,7 @@ async fn main() -> anyhow::Result<()> {
         ))
         .routes(routes!(handlers::sync_repo_handler))
         .routes(routes!(handlers::progress_handler))
+        .routes(routes!(handlers::batch_progress_handler))
         .routes(routes!(handlers::search_handler))
         .routes(routes!(handlers::callers_handler))
         .routes(routes!(handlers::explore_handler))
@@ -255,7 +257,7 @@ async fn setup_neo4j(uri: &str, user: &str, pass: &str) -> GraphDb {
 }
 
 fn setup_fastembed_cache(workspace_dir: &str) -> anyhow::Result<std::path::PathBuf> {
-    let fastembed_cache_dir = std::path::Path::new(workspace_dir).join("fastembed_cache");
+    let fastembed_cache_dir = Path::new(workspace_dir).join("fastembed_cache");
     let cache_str = fastembed_cache_dir
         .to_str()
         .expect("workspace_dir contains invalid UTF-8");
@@ -302,7 +304,7 @@ fn recover_stuck_repos(
         .collect();
 
     for repo in stuck {
-        let git_dir = std::path::Path::new(&repo.local_path).join(".git");
+        let git_dir = Path::new(&repo.local_path).join(".git");
         if git_dir.exists() {
             tracing::warn!(
                 "Recovering stuck repo '{}' (was {}): .git exists, enqueuing Pull",
@@ -318,7 +320,7 @@ fn recover_stuck_repos(
                 repo.id,
                 repo.status
             );
-            if std::path::Path::new(&repo.local_path).exists()
+            if Path::new(&repo.local_path).exists()
                 && let Err(e) = std::fs::remove_dir_all(&repo.local_path)
             {
                 tracing::warn!("Failed to remove partial repo dir {}: {e}", repo.local_path);
