@@ -425,7 +425,7 @@ mod tests {
         let workspace = dir.path().to_owned();
         let workspace2 = workspace.join("ws2");
         std::fs::create_dir_all(&workspace2).unwrap();
-        let registry2 = crate::registry::Registry::load_or_create(&workspace2).expect("registry");
+        let registry2 = Registry::load_or_create(&workspace2).expect("registry");
 
         let graph_db2 = knot::db::graph::GraphDb::connect("bolt://localhost:9999", "neo4j", "bad")
             .await

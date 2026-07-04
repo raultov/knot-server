@@ -25,7 +25,7 @@ static GRAPH_VIEWER_HTML: std::sync::LazyLock<String> = std::sync::LazyLock::new
     GRAPH_VIEWER_HTML_TEMPLATE.replace("{{KNOT_SERVER_VERSION}}", env!("CARGO_PKG_VERSION"))
 });
 
-pub async fn docs_handler() -> axum::response::Response {
+pub async fn docs_handler() -> Response {
     const DOCS_HTML_TEMPLATE: &str = include_str!("../../assets/swagger-ui.html");
     static DOCS_HTML: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
         DOCS_HTML_TEMPLATE.replace("{{KNOT_VERSION}}", env!("KNOT_VERSION"))

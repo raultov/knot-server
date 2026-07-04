@@ -265,10 +265,7 @@ async fn process_repository(
         handle.await.ok();
     }
 
-    crate::progress_store::remove_snapshot(
-        &std::path::PathBuf::from(&state.workspace_dir),
-        &repo.id,
-    );
+    crate::progress_store::remove_snapshot(&PathBuf::from(&state.workspace_dir), &repo.id);
 
     pipeline_result?;
     tracing::info!("Worker: indexing pipeline complete for '{}'", repo.id);
@@ -296,7 +293,7 @@ fn spawn_progress_persister(
 ) -> Option<tokio::task::JoinHandle<()>> {
     use std::sync::atomic::Ordering;
     use std::time::Duration;
-    let workspace = std::path::PathBuf::from(&state.workspace_dir);
+    let workspace = PathBuf::from(&state.workspace_dir);
     Some(tokio::spawn(async move {
         let mut last_signature: Option<String> = None;
         while !cancel.load(Ordering::Relaxed) {
@@ -582,13 +579,9 @@ mod tests {
         let tracker = Arc::new(knot::pipeline::progress::ProgressTracker::new());
         let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
-        let handle = super::spawn_progress_persister(
-            &state,
-            repo_id.clone(),
-            tracker.clone(),
-            cancel.clone(),
-        )
-        .unwrap();
+        let handle =
+            spawn_progress_persister(&state, repo_id.clone(), tracker.clone(), cancel.clone())
+                .unwrap();
 
         tokio::time::sleep(std::time::Duration::from_millis(150)).await;
 

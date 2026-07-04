@@ -148,7 +148,7 @@ pub async fn fetch_all_entities(
     visible_kinds: &[&str],
     include_other: bool,
 ) -> anyhow::Result<GraphResponse> {
-    let graph = neo4rs::Graph::new(&state.neo4j_uri, &state.neo4j_user, &state.neo4j_password)
+    let graph = Graph::new(&state.neo4j_uri, &state.neo4j_user, &state.neo4j_password)
         .context("Failed to connect to Neo4j")?;
 
     let rel_filter = relationships.join("|");
