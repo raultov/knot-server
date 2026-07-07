@@ -11,6 +11,7 @@ opencode.json
 # Test artifacts
 .last-e2e-server.log
 .last-recovery-r.log
+.last-recovery-e2e-server.log
 /tmp/
 
 # Local knot workspace for dev
