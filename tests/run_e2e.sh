@@ -136,7 +136,7 @@ create_fixture_repo() {
 
     cd "$work_path"
     git add .
-    git commit -m "initial commit with fixture sources"
+    git -c user.email=e2e@test -c user.name=e2e commit -m "initial commit with fixture sources"
     git push origin main 2>/dev/null || { git branch -M main && git push origin main; }
     cd "$SCRIPT_DIR"
 
@@ -168,13 +168,13 @@ wait_for_port 17687 "Neo4j" 60
 wait_for_port 16334 "Qdrant" 30
 
 echo -n "  Waiting for Neo4j health check..."
-for i in $(seq 1 30); do
+for i in $(seq 1 120); do
     STATUS=$(docker inspect --format='{{.State.Health.Status}}' knot_server_neo4j_e2e 2>/dev/null || echo "unknown")
     if [ "$STATUS" = "healthy" ]; then
         echo -e " ${GREEN}healthy${NC}"
         break
     fi
-    if [ "$i" -eq 30 ]; then
+    if [ "$i" -eq 120 ]; then
         echo -e " ${RED}timeout (status: $STATUS)${NC}"
         exit 1
     fi
@@ -211,13 +211,13 @@ RUST_LOG="${RUST_LOG:-info}" \
 SERVER_PID=$!
 
 echo "Waiting for knot-server on port $SERVER_PORT..."
-for i in $(seq 1 30); do
+for i in $(seq 1 90); do
     if curl -sf "http://localhost:$SERVER_PORT/api/repos" > /dev/null 2>&1; then
         echo -e "${GREEN}knot-server is ready${NC}"
         break
     fi
-    if [ "$i" -eq 30 ]; then
-        echo -e "${RED}ERROR: knot-server did not start within 30s${NC}"
+    if [ "$i" -eq 90 ]; then
+        echo -e "${RED}ERROR: knot-server did not start within 90s${NC}"
         exit 1
     fi
     sleep 1
@@ -738,7 +738,7 @@ start_recovery_server() {
         "$PROJECT_ROOT/target/debug/knot-server" > "$logfile" 2>&1 &
     SERVER_PID=$!
 
-    for i in $(seq 1 30); do
+    for i in $(seq 1 90); do
         if curl -sf "http://localhost:$SERVER_PORT/api/repos" > /dev/null 2>&1; then
             return 0
         fi

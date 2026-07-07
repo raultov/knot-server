@@ -14,10 +14,10 @@ services:
       - neo4j_logs_e2e:/logs
     healthcheck:
       test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "e2e_test_password", "CALL db.ping()"]
-      interval: 5s
-      timeout: 3s
+      interval: 10s
+      timeout: 10s
       retries: 10
-      start_period: 10s
+      start_period: 15s
 
   qdrant-e2e:
     image: qdrant/qdrant:latest

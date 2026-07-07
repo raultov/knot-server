@@ -33,6 +33,7 @@ run_test() {
 
 # Run suites
 run_test "Full E2E: Lifecycle + Errors" "run_e2e.sh"
+run_test "Issue #7: Reindex/Recovery on Fail" "run_reindex_recovery_e2e.sh"
 run_test "Cluster Coordination: Stale Lock Recovery" "run_cluster_e2e.sh"
 run_test "Cluster Progress Coherence" "run_progress_cluster_e2e.sh"
 

@@ -171,12 +171,12 @@ SERVER_A_LOG="/tmp/knot-cluster-e2e-a-$$.log"
 SERVER_A_PID=$(start_server "$SERVER_A_PORT" "$SERVER_A_LOG")
 
 # Wait for Instance A to be ready
-for i in $(seq 1 30); do
+for i in $(seq 1 90); do
     if curl -sf "http://localhost:$SERVER_A_PORT/api/health" > /dev/null 2>&1; then
         echo "  Instance A ready"
         break
     fi
-    if [ "$i" -eq 30 ]; then
+    if [ "$i" -eq 90 ]; then
         echo -e "${RED}Instance A failed to start${NC}"
         cat "$SERVER_A_LOG"
         exit 1
@@ -248,12 +248,12 @@ SERVER_B_LOG="/tmp/knot-cluster-e2e-b-$$.log"
 SERVER_B_PID=$(start_server "$SERVER_B_PORT" "$SERVER_B_LOG")
 
 # Wait for Instance B to be ready
-for i in $(seq 1 30); do
+for i in $(seq 1 90); do
     if curl -sf "http://localhost:$SERVER_B_PORT/api/health" > /dev/null 2>&1; then
         echo "  Instance B ready"
         break
     fi
-    if [ "$i" -eq 30 ]; then
+    if [ "$i" -eq 90 ]; then
         echo -e "${RED}Instance B failed to start${NC}"
         cat "$SERVER_B_LOG"
         exit 1
