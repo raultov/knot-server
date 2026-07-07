@@ -143,6 +143,26 @@ impl Registry {
         Ok(())
     }
 
+    pub fn transition_status(
+        &mut self,
+        id: &str,
+        from: &[RepoStatus],
+        to: RepoStatus,
+    ) -> anyhow::Result<bool> {
+        let entry = self
+            .data
+            .repositories
+            .iter_mut()
+            .find(|r| r.id == id)
+            .ok_or_else(|| anyhow::anyhow!("Repository '{}' not found", id))?;
+        if !from.contains(&entry.status) {
+            return Ok(false);
+        }
+        entry.status = to;
+        self.save()?;
+        Ok(true)
+    }
+
     pub fn update_last_indexed(&mut self, id: &str) -> anyhow::Result<()> {
         let entry = self
             .data
@@ -285,5 +305,71 @@ mod tests {
         let found = registry.get("target").unwrap();
         assert_eq!(found.id, "target");
         assert!(registry.get("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_transition_status_valid() {
+        let dir = TempDir::new().unwrap();
+        let mut registry = Registry::load_or_create(dir.path()).unwrap();
+        let repo = make_entry("r1", "git@github.com:org/r1.git", "/tmp/r1");
+        registry.add_or_replace(repo).unwrap();
+
+        let ok = registry
+            .transition_status(
+                "r1",
+                &[RepoStatus::Pending, RepoStatus::Indexed],
+                RepoStatus::Cloning,
+            )
+            .unwrap();
+        assert!(ok);
+        assert_eq!(registry.get("r1").unwrap().status, RepoStatus::Cloning);
+    }
+
+    #[test]
+    fn test_transition_status_rejected_when_current_not_in_from() {
+        let dir = TempDir::new().unwrap();
+        let mut registry = Registry::load_or_create(dir.path()).unwrap();
+        let repo = make_entry("r1", "git@github.com:org/r1.git", "/tmp/r1");
+        registry.add_or_replace(repo).unwrap();
+
+        let ok = registry
+            .transition_status(
+                "r1",
+                &[RepoStatus::Queued, RepoStatus::Cloning],
+                RepoStatus::Indexing,
+            )
+            .unwrap();
+        assert!(
+            !ok,
+            "transition should be rejected for Indexed -> Indexing via Queued/Cloning"
+        );
+        assert_eq!(registry.get("r1").unwrap().status, RepoStatus::Indexed);
+    }
+
+    #[test]
+    fn test_transition_status_multiple_from_states() {
+        let dir = TempDir::new().unwrap();
+        let mut registry = Registry::load_or_create(dir.path()).unwrap();
+        let repo = make_entry("r1", "git@github.com:org/r1.git", "/tmp/r1");
+        registry.add_or_replace(repo).unwrap();
+
+        let ok = registry
+            .transition_status(
+                "r1",
+                &[RepoStatus::Indexed, RepoStatus::Pending, RepoStatus::Error],
+                RepoStatus::Queued,
+            )
+            .unwrap();
+        assert!(ok);
+        assert_eq!(registry.get("r1").unwrap().status, RepoStatus::Queued);
+    }
+
+    #[test]
+    fn test_transition_status_nonexistent_repo() {
+        let dir = TempDir::new().unwrap();
+        let mut registry = Registry::load_or_create(dir.path()).unwrap();
+        let result =
+            registry.transition_status("ghost", &[RepoStatus::Pending], RepoStatus::Queued);
+        assert!(result.is_err());
     }
 }
