@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.10] - 2026-07-07
+
+### Fixed
+- **Re-registering a repository no longer races with the indexing worker
+  (issue #7, Bug A).** `POST /api/repos` used to spawn a background task that
+  wiped the databases and `remove_dir_all`'d the local directory while the
+  worker could already be pulling the *same* directory, causing
+  `git fetch failed ... 255` (`Unable to read current working directory`) and
+  leaving a previously-healthy repo in `error` with emptied databases. The
+  destructive cleanup now happens exclusively inside the worker's `Clone` job,
+  under the per-repo file lock, so it is serialized with all git/index work.
+
+### Added — Recuperación de fallos de indexado (issue #7)
+- The indexing jobs now have explicit semantics: `Clone` = *wipe databases +
+  wipe local directory + fresh clone* ("start from scratch"); `Pull` =
+  incremental, **falling back to a fresh clone when the local directory is
+  missing** (so `POST /api/repos/{id}/sync` on an errored repo without a
+  directory recovers instead of failing with "cannot pull").
+- **On indexing failure**, the repo is always set to `error`, its progress
+  snapshot and in-memory tracker are dropped, and the registry entry is kept
+  (still visible via `GET /api/repos`; re-registering re-clones it clean).
+  Additionally, **only** when the repo never indexed successfully
+  (`last_indexed == None`) its Neo4j/Qdrant data and local directory are wiped
+  ("remove from databases and erase metadata in disk"). A repo that was already
+  indexed and fails a transient pull keeps its index and directory.
+
+### Notes
+- A registration with a malformed URL (e.g. `...repo.gitr`) derives a *different*
+  id than the corrected URL, so the broken entry persists; remove it with
+  `DELETE /api/repos/{id}`.
+- Known limitation (multi-node): the file lock is per-fd, so on a shared
+  workspace another node could recreate the lock file after the wipe's unlink.
+  Pre-existing and not made worse here; documented in `worker.rs`/`cleanup.rs`.
+
+---
+
 ## [0.2.9] - 2026-07-04
 
 ### Changed

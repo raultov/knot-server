@@ -1,6 +1,6 @@
 [package]
 name = "knot-server"
-version = "0.2.9"
+version = "0.2.10"
 edition = "2024"
 description = "Distributed REST API server for knot codebase indexing. Manages Git repositories across a cluster with shared workspace coordination."
 authors = ["Raul Tovar <raultov@protonmail.com>"]
