@@ -87,12 +87,24 @@ pub async fn webhook_handler(
 }
 
 async fn enqueue_pull_job(state: &Arc<AppState>, repo_id: &str) -> Response {
+    let previous_status = {
+        let mut registry = state.registry.lock().unwrap();
+        let entry = registry.get(repo_id);
+        let prev = entry
+            .map(|e| e.status.clone())
+            .unwrap_or(crate::models::RepoStatus::Indexed);
+        let _ = registry.update_status(repo_id, crate::models::RepoStatus::Queued);
+        prev
+    };
+
     let job = crate::models::IndexJob::Pull {
         repo_id: repo_id.to_string(),
     };
     match state.job_tx.try_send(job) {
         Ok(()) => {}
         Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+            let mut registry = state.registry.lock().unwrap();
+            let _ = registry.update_status(repo_id, previous_status);
             return error_response(
                 StatusCode::TOO_MANY_REQUESTS,
                 "Server is at maximum capacity: indexing queue is full",
@@ -100,6 +112,8 @@ async fn enqueue_pull_job(state: &Arc<AppState>, repo_id: &str) -> Response {
         }
         Err(e) => {
             tracing::error!("Failed to enqueue webhook Pull job for {}: {e}", repo_id);
+            let mut registry = state.registry.lock().unwrap();
+            let _ = registry.update_status(repo_id, previous_status);
             return error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Failed to enqueue indexing job",

@@ -19,30 +19,37 @@ use crate::models::AppState;
         (status = 404, description = "Repository not found", body = ErrorResponse),
         (status = 429, description = "Indexing queue is full", body = ErrorResponse),
     ),
-    description = "Manually trigger a sync (pull + re-index) for a repository.",
+    description = "Manually trigger a sync (incremental pull + re-index) for a repository. If the local checkout is missing (e.g. the repo is in `error` with no directory), the worker automatically falls back to a fresh clone instead of failing.",
 )]
 pub async fn sync_repo_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Response {
-    // Check repo exists
-    {
+    let previous_status = {
         let mut registry = state.registry.lock().unwrap();
-        if registry.get(&id).is_none() {
-            return error_response(
-                StatusCode::NOT_FOUND,
-                format!("Repository '{}' not found", id),
-            );
+        match registry.get(&id) {
+            Some(entry) => {
+                let prev = entry.status.clone();
+                let _ = registry.update_status(&id, crate::models::RepoStatus::Queued);
+                prev
+            }
+            None => {
+                return error_response(
+                    StatusCode::NOT_FOUND,
+                    format!("Repository '{}' not found", id),
+                );
+            }
         }
-    }
+    };
 
-    // Enqueue Pull job
     let job = crate::models::IndexJob::Pull {
         repo_id: id.clone(),
     };
     match state.job_tx.try_send(job) {
         Ok(()) => {}
         Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+            let mut registry = state.registry.lock().unwrap();
+            let _ = registry.update_status(&id, previous_status);
             return error_response(
                 StatusCode::TOO_MANY_REQUESTS,
                 "Server is at maximum capacity: indexing queue is full",
@@ -50,6 +57,8 @@ pub async fn sync_repo_handler(
         }
         Err(e) => {
             tracing::error!("Failed to enqueue Pull job for {}: {e}", id);
+            let mut registry = state.registry.lock().unwrap();
+            let _ = registry.update_status(&id, previous_status);
             return error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Failed to enqueue sync job",

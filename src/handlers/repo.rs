@@ -62,7 +62,7 @@ pub async fn get_repo_handler(
         (status = 202, description = "Repository registered (or re-registered) and clone job enqueued", body = RegisterRepoResponse),
         (status = 429, description = "Indexing queue is full", body = ErrorResponse),
     ),
-    description = "Register a new Git repository, or re-register an existing one. The endpoint is idempotent: if a repository with the same derived id already exists, the existing database entries and local files are cleaned up and the repository is cloned from scratch. The response message indicates whether the call was a fresh registration or a re-registration."
+    description = "Register a new Git repository, or re-register an existing one. The endpoint is idempotent: if a repository with the same derived id already exists, it is re-registered and a fresh Clone job is enqueued. The destructive cleanup (wiping the Neo4j/Qdrant data and the local directory) is performed by the indexing worker under its file lock — not by this endpoint — so a re-registration never races with in-flight indexing. The response message indicates whether the call was a fresh registration or a re-registration."
 )]
 pub async fn register_repo_handler(
     State(state): State<Arc<AppState>>,
@@ -90,24 +90,25 @@ pub async fn register_repo_handler(
         branch: body.branch.clone(),
         webhook_secret: body.webhook_secret.clone(),
         last_indexed: None,
-        status: crate::models::RepoStatus::Pending,
+        status: crate::models::RepoStatus::Queued,
     };
 
     let mut registry = state.registry.lock().unwrap();
     match registry.add_or_replace(entry) {
         Ok(was_replaced) => {
-            // Enqueue Clone job for the repository. On re-registration this
-            // effectively resets the job stream: any in-flight work for the
-            // old id will be discarded by the worker because the local_path
-            // is gone (we removed it just below) and the new Clone job will
-            // start from a clean slate.
+            // Enqueue a Clone job. The worker is the sole owner of destructive
+            // cleanup: when it picks up this job it wipes the databases and the
+            // local directory *under the file lock*, then clones from scratch
+            // (see `worker::decide_job_plan`). The handler deliberately does NOT
+            // touch `local_path` here — doing so in a background task raced with
+            // the worker and left previously-healthy repos corrupted (Bug A).
             let job = crate::models::IndexJob::Clone {
                 repo_id: id.clone(),
             };
             match state.job_tx.try_send(job) {
                 Ok(()) => {}
                 Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
-                    let _ = registry.remove(&id);
+                    let _ = registry.update_status(&id, crate::models::RepoStatus::Pending);
                     return error_response(
                         StatusCode::TOO_MANY_REQUESTS,
                         "Server is at maximum capacity: indexing queue is full",
@@ -115,6 +116,7 @@ pub async fn register_repo_handler(
                 }
                 Err(e) => {
                     tracing::error!("Failed to enqueue Clone job for {}: {e}", id);
+                    let _ = registry.update_status(&id, crate::models::RepoStatus::Pending);
                 }
             }
 
@@ -132,29 +134,6 @@ pub async fn register_repo_handler(
                     body.url,
                     body.auth_type
                 );
-            }
-
-            // On re-registration, the old data is stale: clear the
-            // databases and remove the old local_path so the new Clone
-            // starts from a clean slate. Both operations are best-effort
-            // and run in the background — the new Clone job is already
-            // enqueued and will overwrite whatever survives.
-            if was_replaced {
-                let graph_db = state.graph_db.clone();
-                let vector_db = state.vector_db.clone();
-                let rid = id.clone();
-                let repo_path = crate::models::repo_local_path(&state.workspace_dir, &id);
-                tokio::spawn(async move {
-                    crate::cleanup::delete_repo_from_databases(&rid, &graph_db, &vector_db).await;
-                    if std::path::Path::new(&repo_path).exists()
-                        && let Err(e) = std::fs::remove_dir_all(&repo_path)
-                    {
-                        tracing::warn!(
-                            "Failed to remove repo directory {} on re-registration: {e}",
-                            repo_path
-                        );
-                    }
-                });
             }
 
             let response = RegisterRepoResponse {
@@ -191,32 +170,29 @@ pub async fn delete_repo_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Response {
-    let mut registry = state.registry.lock().unwrap();
+    // Scope the (non-Send) registry guard so it is fully released before the
+    // `.await` below — otherwise the handler future is not `Send`/`Sync` and
+    // fails axum's `Handler` bound.
+    let removed = {
+        let mut registry = state.registry.lock().unwrap();
+        registry.remove(&id)
+    };
 
-    match registry.remove(&id) {
+    match removed {
         Ok(()) => {
-            drop(registry);
+            // Same cleanup the worker performs on a wipe, but for a full
+            // delete: databases + local directory + progress snapshot/tracker.
+            crate::cleanup::cleanup_repo_artifacts(
+                &state,
+                &id,
+                crate::cleanup::CleanupScope {
+                    databases: true,
+                    local_dir: true,
+                    progress: true,
+                },
+            )
+            .await;
 
-            {
-                let mut trackers = state.progress_trackers.lock().unwrap();
-                trackers.remove(&id);
-            }
-
-            // Clean up databases in background (fire-and-forget)
-            let graph_db = state.graph_db.clone();
-            let vector_db = state.vector_db.clone();
-            let rid = id.clone();
-            tokio::spawn(async move {
-                crate::cleanup::delete_repo_from_databases(&rid, &graph_db, &vector_db).await;
-            });
-
-            // Clean up local directory
-            let repo_path = crate::models::repo_local_path(&state.workspace_dir, &id);
-            if std::path::Path::new(&repo_path).exists()
-                && let Err(e) = std::fs::remove_dir_all(&repo_path)
-            {
-                tracing::warn!("Failed to remove repo directory {}: {e}", repo_path);
-            }
             tracing::info!("Deleted repository '{}'", id);
             (
                 StatusCode::OK,
@@ -281,6 +257,112 @@ mod tests {
             start_time: std::time::Instant::now(),
             progress_trackers: Arc::new(Mutex::new(HashMap::new())),
         })
+    }
+
+    async fn create_test_state_with_rx(
+        workspace: &std::path::Path,
+    ) -> (
+        Arc<AppState>,
+        tokio::sync::mpsc::Receiver<crate::models::IndexJob>,
+    ) {
+        let registry = crate::registry::Registry::load_or_create(workspace)
+            .expect("Failed to create test registry");
+        let graph_db =
+            knot::db::graph::GraphDb::connect("bolt://localhost:9999", "neo4j", "badpassword")
+                .await
+                .expect("connect for test db");
+        let vector_db =
+            knot::db::vector::VectorDb::connect("http://localhost:9999", "test_collection", 384)
+                .await
+                .expect("connect for test vector db");
+        let (job_tx, job_rx) = tokio::sync::mpsc::channel::<crate::models::IndexJob>(16);
+        (
+            Arc::new(AppState {
+                vector_db: Arc::new(vector_db),
+                graph_db: Arc::new(graph_db),
+                embedder: None,
+                workspace_dir: workspace.to_string_lossy().into(),
+                registry: Arc::new(Mutex::new(registry)),
+                job_tx,
+                qdrant_url: "http://localhost:6334".into(),
+                qdrant_collection: "knot_entities".into(),
+                neo4j_uri: "bolt://localhost:7687".into(),
+                neo4j_user: "neo4j".into(),
+                neo4j_password: "secret".into(),
+                embed_dim: 384,
+                rayon_threads: None,
+                batch_size: 64,
+                ingest_concurrency: 4,
+                start_time: std::time::Instant::now(),
+                progress_trackers: Arc::new(Mutex::new(HashMap::new())),
+            }),
+            job_rx,
+        )
+    }
+
+    #[tokio::test]
+    async fn test_reregister_does_not_delete_local_dir_in_handler() {
+        let dir = TempDir::new().unwrap();
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let (state, mut job_rx) = create_test_state_with_rx(&workspace).await;
+
+        let url = "git@github.com:org/reg-test.git";
+        let id = crate::models::RegisterRepoRequest {
+            url: url.into(),
+            auth_type: AuthType::Ssh,
+            branch: "main".into(),
+            webhook_secret: None,
+        }
+        .generate_id();
+
+        // Pre-existing, healthy local checkout: a .git dir and a file that a
+        // stray background cleanup would have deleted.
+        let local_path = crate::models::repo_local_path(&state.workspace_dir, &id);
+        std::fs::create_dir_all(std::path::Path::new(&local_path).join(".git")).unwrap();
+        std::fs::write(std::path::Path::new(&local_path).join("keep.txt"), b"keep").unwrap();
+
+        // Register the same repo once so the second call is a re-registration.
+        let entry = RepoEntry {
+            id: id.clone(),
+            url: url.into(),
+            auth_type: AuthType::Ssh,
+            local_path: local_path.clone(),
+            branch: "main".into(),
+            webhook_secret: None,
+            last_indexed: Some("2026-07-06T00:00:00Z".into()),
+            status: crate::models::RepoStatus::Indexed,
+        };
+        state
+            .registry
+            .lock()
+            .unwrap()
+            .add_or_replace(entry)
+            .unwrap();
+
+        let body = crate::models::RegisterRepoRequest {
+            url: url.into(),
+            auth_type: AuthType::Ssh,
+            branch: "main".into(),
+            webhook_secret: None,
+        };
+        let response = register_repo_handler(State(state.clone()), Json(body)).await;
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        // Give any (now-removed) background task a chance to run.
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        assert!(
+            std::path::Path::new(&local_path).join("keep.txt").exists(),
+            "handler must NOT delete the local dir on re-registration (worker does it)"
+        );
+
+        // Exactly one Clone job was enqueued.
+        match job_rx.try_recv() {
+            Ok(crate::models::IndexJob::Clone { repo_id }) => assert_eq!(repo_id, id),
+            other => panic!("expected exactly one Clone job, got {other:?}"),
+        }
+        assert!(job_rx.try_recv().is_err(), "no extra jobs expected");
     }
 
     #[tokio::test]

@@ -8,6 +8,10 @@ use crate::models::RepoEntry;
 pub async fn run_git_clone(repo: &RepoEntry) -> anyhow::Result<()> {
     let local_path = Path::new(&repo.local_path);
 
+    // Idempotency guard. In the normal `FreshClone` flow the worker has
+    // already wiped the directory (`decide_job_plan` → wipe_before), so this
+    // branch is not hit; it only protects direct/legacy callers and a retried
+    // clone whose previous attempt already succeeded.
     if local_path.join(".git").exists() {
         tracing::info!(
             "Repository already exists at {}, skipping clone",
@@ -134,7 +138,15 @@ mod tests {
             .output()
             .unwrap();
         StdCommand::new("git")
-            .args(["commit", "-m", "initial commit"])
+            .args([
+                "-c",
+                "user.email=test@example.com",
+                "-c",
+                "user.name=test",
+                "commit",
+                "-m",
+                "initial commit",
+            ])
             .current_dir(&clone_path)
             .output()
             .unwrap();
@@ -196,7 +208,15 @@ mod tests {
             .output()
             .unwrap();
         StdCommand::new("git")
-            .args(["commit", "-m", "add file"])
+            .args([
+                "-c",
+                "user.email=test@example.com",
+                "-c",
+                "user.name=test",
+                "commit",
+                "-m",
+                "add file",
+            ])
             .current_dir(&clone_dest)
             .output()
             .unwrap();

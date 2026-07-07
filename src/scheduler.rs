@@ -38,10 +38,17 @@ pub async fn scheduler_loop(
                         lock_path.display()
                     );
                     remove_stale_lock(&lock_path);
+                    {
+                        let mut registry = state.registry.lock().unwrap();
+                        let _ = registry.update_status(&repo.id, RepoStatus::Queued);
+                    }
                     let job = IndexJob::Pull {
                         repo_id: repo.id.clone(),
                     };
-                    let _ = state.job_tx.try_send(job);
+                    if state.job_tx.try_send(job).is_err() {
+                        let mut registry = state.registry.lock().unwrap();
+                        let _ = registry.update_status(&repo.id, RepoStatus::Pending);
+                    }
                     continue;
                 }
             }
@@ -49,6 +56,8 @@ pub async fn scheduler_loop(
             // Pick up Pending repos that have no lock — prevent them from
             // remaining stuck forever when the startup recovery loop missed
             // them (e.g. a single pending repo after a clean shutdown).
+            // The Pending → Queued transition is atomic (CAS) so duplicate
+            // enqueues are impossible even when the worker is slow to start.
             if repo.status == RepoStatus::Pending && !lock_path.exists() {
                 let git_dir = Path::new(&repo.local_path).join(".git");
                 let job = if git_dir.exists() {
@@ -60,12 +69,35 @@ pub async fn scheduler_loop(
                         repo_id: repo.id.clone(),
                     }
                 };
-                tracing::info!(
-                    "Picking up Pending repo '{}' (no lock), enqueuing {:?}",
-                    repo.id,
-                    job
-                );
-                let _ = state.job_tx.try_send(job);
+                let mut registry = state.registry.lock().unwrap();
+                match registry.transition_status(
+                    &repo.id,
+                    &[RepoStatus::Pending],
+                    RepoStatus::Queued,
+                ) {
+                    Ok(true) => {
+                        tracing::info!(
+                            "Picking up Pending repo '{}' (no lock), enqueuing {:?}",
+                            repo.id,
+                            job
+                        );
+                        if state.job_tx.try_send(job).is_err() {
+                            let _ = registry.update_status(&repo.id, RepoStatus::Pending);
+                        }
+                    }
+                    Ok(false) => {
+                        tracing::debug!(
+                            "Repo '{}' no longer Pending, scheduler skipped enqueue",
+                            repo.id
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to claim Pending repo '{}' for enqueue: {e}",
+                            repo.id
+                        );
+                    }
+                }
                 continue;
             }
 

@@ -295,6 +295,7 @@ fn recover_stuck_repos(
             matches!(
                 r.status,
                 models::RepoStatus::Pending
+                    | models::RepoStatus::Queued
                     | models::RepoStatus::Cloning
                     | models::RepoStatus::Pulling
                     | models::RepoStatus::Indexing
@@ -305,32 +306,33 @@ fn recover_stuck_repos(
 
     for repo in stuck {
         let git_dir = Path::new(&repo.local_path).join(".git");
-        if git_dir.exists() {
+        let job = if git_dir.exists() {
             tracing::warn!(
                 "Recovering stuck repo '{}' (was {}): .git exists, enqueuing Pull",
                 repo.id,
                 repo.status
             );
-            let _ = job_tx.try_send(models::IndexJob::Pull {
+            models::IndexJob::Pull {
                 repo_id: repo.id.clone(),
-            });
+            }
         } else {
             tracing::warn!(
-                "Recovering stuck repo '{}' (was {}): .git missing, removing partial path and enqueuing Clone",
+                "Recovering stuck repo '{}' (was {}): .git missing, enqueuing Clone (worker will wipe + fresh-clone)",
                 repo.id,
                 repo.status
             );
-            if Path::new(&repo.local_path).exists()
-                && let Err(e) = std::fs::remove_dir_all(&repo.local_path)
-            {
-                tracing::warn!("Failed to remove partial repo dir {}: {e}", repo.local_path);
-            }
-            let _ = job_tx.try_send(models::IndexJob::Clone {
+            models::IndexJob::Clone {
                 repo_id: repo.id.clone(),
-            });
-        }
-        if let Err(e) = registry.update_status(&repo.id, models::RepoStatus::Pending) {
-            tracing::warn!("Failed to reset status for '{}': {e}", repo.id);
+            }
+        };
+        if job_tx.try_send(job).is_err() {
+            tracing::warn!(
+                "Failed to enqueue recovery job for '{}', leaving Pending",
+                repo.id
+            );
+            let _ = registry.update_status(&repo.id, models::RepoStatus::Pending);
+        } else {
+            let _ = registry.update_status(&repo.id, models::RepoStatus::Queued);
         }
     }
 }
