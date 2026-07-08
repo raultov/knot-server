@@ -74,6 +74,9 @@ pub struct ServerConfig {
 
     #[arg(long, env = "KNOT_SERVER_QUEUE_CAPACITY", default_value_t = 16)]
     pub queue_capacity: usize,
+
+    #[arg(long, env = "KNOT_SERVER_METRICS_ENABLED", default_value_t = true)]
+    pub metrics_enabled: bool,
 }
 
 impl ServerConfig {
@@ -129,5 +132,12 @@ mod tests {
         ];
         let cfg = ServerConfig::try_parse_from(args).expect("Failed to parse");
         assert_eq!(cfg.workspace_dir, "/custom/path");
+    }
+
+    #[test]
+    fn test_metrics_enabled_default_true() {
+        let args = vec!["knot-server", "--neo4j-password", "secret"];
+        let cfg = ServerConfig::try_parse_from(args).expect("Failed to parse");
+        assert!(cfg.metrics_enabled);
     }
 }

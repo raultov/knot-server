@@ -4,6 +4,7 @@ mod git;
 mod handlers;
 mod local_sync;
 mod locking;
+mod metrics;
 mod models;
 mod progress_store;
 mod registry;
@@ -16,7 +17,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use axum::Router;
-use axum::extract::Request;
+use axum::extract::{Request, State};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::get;
@@ -38,6 +39,15 @@ async fn main() -> anyhow::Result<()> {
     setup_tracing();
 
     let cfg = config::ServerConfig::from_env();
+
+    let metrics_handle = if cfg.metrics_enabled {
+        let handle = metrics::init()?;
+        metrics::set_build_info();
+        Some(handle)
+    } else {
+        None
+    };
+
     tracing::info!("Starting knot-server v{}", env!("CARGO_PKG_VERSION"));
     tracing::info!("Binding to {}:{}", cfg.bind_addr, cfg.port);
 
@@ -155,12 +165,30 @@ async fn main() -> anyhow::Result<()> {
     // Merge the generated API routes with non-API routes and Swagger UI
     let app = api_router
         .route("/favicon.ico", get(handlers::favicon_handler))
-        .route("/graph", get(handlers::graph_viewer_handler))
-        .merge(
-            Router::from(SwaggerUi::new("/docs").url("/api-docs/openapi.json", api))
-                .layer(middleware::from_fn(docs_html_override)),
+        .route("/graph", get(handlers::graph_viewer_handler));
+
+    let app = if let Some(ref handle) = metrics_handle {
+        let mh = handle.clone();
+        app.route(
+            "/metrics",
+            get(move |State(s): State<Arc<AppState>>| metrics::metrics_handler(s, mh.clone())),
         )
-        .with_state(state);
+    } else {
+        app
+    };
+
+    let app = app.merge(
+        Router::from(SwaggerUi::new("/docs").url("/api-docs/openapi.json", api))
+            .layer(middleware::from_fn(docs_html_override)),
+    );
+
+    let app = if metrics_handle.is_some() {
+        app.layer(middleware::from_fn(metrics::track_http))
+    } else {
+        app
+    };
+
+    let app = app.with_state(state);
 
     let listener = tokio::net::TcpListener::bind(format!("{}:{}", cfg.bind_addr, cfg.port)).await?;
     tracing::info!("knot-server listening on {}:{}", cfg.bind_addr, cfg.port);

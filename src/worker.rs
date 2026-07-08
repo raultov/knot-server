@@ -197,10 +197,18 @@ pub async fn worker_loop(
             }
         }
 
-        if let Err(e) = process_repository(&repo, &state, &job).await {
+        let start = std::time::Instant::now();
+        let result = process_repository(&repo, &state, &job).await;
+        let ok = result.is_ok();
+        if let Err(e) = &result {
             tracing::error!("Indexing failed for {}: {e:#}", repo.id);
             handle_job_failure(&state, &repo).await;
         }
+        let kind = match &job {
+            IndexJob::Clone { .. } => crate::metrics::JobKind::Clone,
+            IndexJob::Pull { .. } => crate::metrics::JobKind::Pull,
+        };
+        crate::metrics::record_indexing_job(&repo_id, kind, ok, start.elapsed());
     }
 }
 
@@ -439,6 +447,7 @@ async fn process_repository(
             .map_err(|e| anyhow::anyhow!("Registry lock poisoned: {}", e))?;
         registry.update_status(&repo.id, crate::models::RepoStatus::Indexed)?;
         registry.update_last_indexed(&repo.id)?;
+        crate::metrics::set_last_success(&repo.id);
         tracing::info!("Worker: status=indexed for '{}'", repo.id);
     }
 
@@ -459,6 +468,8 @@ fn spawn_progress_persister(
         let mut last_signature: Option<String> = None;
         while !cancel.load(Ordering::Relaxed) {
             let snap = tracker.snapshot();
+            let stage = crate::progress_store::format_stage(snap.stage);
+            crate::metrics::set_indexing_progress(&repo_id, &stage, &snap);
             let signature = format!(
                 "{:?}|{:.3}|{}|{}|{}|{}",
                 snap.stage,

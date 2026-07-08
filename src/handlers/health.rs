@@ -42,6 +42,7 @@ pub async fn health_handler(State(state): State<Arc<AppState>>) -> Response {
         "repositories_pulling": pulling_count,
         "repositories_indexing": indexing_count,
         "workspace_dir": state.workspace_dir,
+        "metrics_endpoint": "/metrics",
     });
 
     (StatusCode::OK, Json(health)).into_response()
