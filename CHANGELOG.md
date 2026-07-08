@@ -7,7 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.2.10] - 2026-07-07
+## [0.2.11] - 2026-07-08
+
+### Added
+- **Prometheus Metrics:** Added `/metrics` endpoint (on the same port) to expose HTTP, indexing pipeline, registry queue, and process metrics.
+- End-to-end metrics tests (`run_metrics_e2e.sh`).
+- Documentation and scrape config for Grafana/Prometheus integration in `README.md`.
+
+### Fixed
+- Stabilized `Cluster Coordination: Stale Lock Recovery` E2E tests by adding wait loop for recovery job completion.
+
+---
 
 ### Fixed
 - **Re-registering a repository no longer races with the indexing worker
