@@ -596,6 +596,7 @@ AI (via knot-server):
 | `KNOT_SERVER_STALE_LOCK_TIMEOUT_SECS` | `3600` (1h) | Timeout before a `.knot.lock` file is considered orphaned and removed |
 | `KNOT_SERVER_QUEUE_CAPACITY` | `16` | Maximum number of jobs in the background indexing queue. Returns `429 Too Many Requests` when full. |
 | `RUST_LOG` | `info` | Log level (`debug`, `info`, `warn`, `error`) |
+| `KNOT_SERVER_METRICS_ENABLED` | `true` | Enable Prometheus metrics endpoint at `/metrics` |
 
 > **Note:** When using Docker Compose, export `KNOT_SERVER_PORT` _before_ `docker compose up`
 > so the port mapping in `docker-compose.yml` also changes (defaults to `3000:3000`).
@@ -674,7 +675,85 @@ services:
 
 ---
 
-## 🔄 Example Workflow
+## 📊 Metrics
+
+`knot-server` exposes Prometheus metrics at `GET /metrics` on the same port (default 3000). The endpoint requires no authentication and is served outside the OpenAPI spec (not visible in Swagger UI).
+
+### Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KNOT_SERVER_METRICS_ENABLED` | `true` | Enable/disable the Prometheus metrics endpoint |
+
+### Prometheus Scrape Config
+
+```yaml
+scrape_configs:
+  - job_name: 'knot-server'
+    scrape_interval: 15s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['knot-server:3000']
+```
+
+### Metric Reference
+
+#### HTTP
+
+| Metric | Type | Labels |
+|--------|------|--------|
+| `knot_http_requests_total` | counter | `route`, `method`, `status` |
+| `knot_http_request_duration_seconds` | histogram | `route`, `method` |
+| `knot_http_requests_in_flight` | gauge | — |
+
+#### Indexing Pipeline
+
+| Metric | Type | Labels |
+|--------|------|--------|
+| `knot_indexing_jobs_total` | counter | `repo_id`, `kind` (clone\|pull), `result` (ok\|err) |
+| `knot_indexing_duration_seconds` | histogram | `kind`, `result` |
+| `knot_indexing_percent_complete` | gauge | `repo_id`, `stage` |
+| `knot_indexing_parsed_files` | gauge | `repo_id` |
+| `knot_indexing_total_files` | gauge | `repo_id` |
+| `knot_indexing_entities_ingested` | gauge | `repo_id` |
+| `knot_indexing_last_success_timestamp_seconds` | gauge | `repo_id` |
+
+#### Registry & Queue
+
+| Metric | Type | Labels |
+|--------|------|--------|
+| `knot_repositories_total` | gauge | — |
+| `knot_repositories_by_status` | gauge | `status` (pending, queued, indexed, cloning, pulling, indexing, error) |
+| `knot_queue_available_capacity` | gauge | — |
+
+#### Process
+
+| Metric | Type | Labels |
+|--------|------|--------|
+| `knot_process_uptime_seconds` | gauge | — |
+| `knot_build_info` | gauge (=1) | `version`, `knot_version` |
+
+### Example Grafana Queries
+
+| Panel | PromQL |
+|-------|--------|
+| Request rate per route | `sum by (route) (rate(knot_http_requests_total[1m]))` |
+| 5xx error rate | `sum(rate(knot_http_requests_total{status=~"5.."}[5m]))` |
+| Latency P95 | `histogram_quantile(0.95, sum by (le, route) (rate(knot_http_request_duration_seconds_bucket[5m])))` |
+| Requests in flight | `knot_http_requests_in_flight` |
+| Repos by status | `knot_repositories_by_status` |
+| Queue capacity | `knot_queue_available_capacity` |
+| Indexing duration P95 | `histogram_quantile(0.95, sum by (le, kind) (rate(knot_indexing_duration_seconds_bucket[15m])))` |
+| Failed jobs per hour | `sum(increase(knot_indexing_jobs_total{result="err"}[1h]))` |
+| Progress by repo | `knot_indexing_percent_complete` |
+| Age of last index | `time() - knot_indexing_last_success_timestamp_seconds` |
+| Uptime | `knot_process_uptime_seconds` |
+
+### Security Note
+
+`/metrics` has no authentication — it assumes deployment on an internal network. If port 3000 is exposed publicly, protect the endpoint via a reverse proxy (nginx, Traefik) rather than modifying the server.
+
+---
 
 Here is an end-to-end example of managing a repository with `knot-server` using `curl`:
 
