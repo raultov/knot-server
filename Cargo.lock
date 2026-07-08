@@ -2075,7 +2075,7 @@ dependencies = [
 
 [[package]]
 name = "knot-server"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "anyhow",
  "axum 0.8.9",
