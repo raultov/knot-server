@@ -346,6 +346,26 @@ for i in $(seq 1 20); do
     fi
 done
 
+# Removing the stale lock only *enqueues* the recovery Pull job; the actual
+# pull + parse + embed + ingest takes several seconds. Wait for the worker to
+# finish before asserting the terminal state, otherwise we race and observe a
+# transient 'indexing' status.
+echo "  Waiting for B to complete the recovery job for repo-alpha..."
+for i in $(seq 1 90); do
+    if grep -q "job completed for 'repo-alpha'" "$SERVER_B_LOG" 2>/dev/null; then
+        echo "  B worker completed repo-alpha recovery after ${i}s"
+        break
+    fi
+    if [ "$(curl -sf "$BASE_B/api/repos/repo-alpha" | jq -r '.status')" = "indexed" ]; then
+        echo "  repo-alpha reported 'indexed' on B after ${i}s"
+        break
+    fi
+    if [ "$i" -eq 90 ]; then
+        echo -e "${YELLOW}  Recovery job did not complete within 90s${NC}"
+    fi
+    sleep 1
+done
+
 # Verify B's log shows the full recovery sequence
 assert_contains "$(tail -500 "$SERVER_B_LOG")" "Removed stale lock" "B scheduler removed stale .knot.lock"
 assert_contains "$(tail -500 "$SERVER_B_LOG")" "job completed for 'repo-alpha'" "B worker processed repo-alpha after recovery"
@@ -363,8 +383,8 @@ echo ""
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}Cluster Coordination E2E: Results${NC}"
 echo -e "${GREEN}========================================${NC}"
-echo "  Passed: ${GREEN}$PASSED${NC}"
-echo "  Failed: ${RED}$FAILED${NC}"
+echo -e "  Passed: ${GREEN}$PASSED${NC}"
+echo -e "  Failed: ${RED}$FAILED${NC}"
 echo ""
 echo "Validated:"
 echo "  - Shared workspace (repos.json, .knot.lock)"
