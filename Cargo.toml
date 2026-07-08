@@ -41,7 +41,10 @@ neo4rs = "0.9.0-rc.10"
 utoipa = { version = "5", features = ["axum_extras"] }
 utoipa-axum = "0.2"
 utoipa-swagger-ui = { version = "9", features = ["axum"] }
+metrics = "0.24"
+metrics-exporter-prometheus = { version = "0.16", default-features = false }
 
 [dev-dependencies]
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
+metrics-util = "0.19"

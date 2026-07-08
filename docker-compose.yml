@@ -17,6 +17,7 @@ services:
       - KNOT_SERVER_POLL_INTERVAL_SECS=${KNOT_SERVER_POLL_INTERVAL_SECS:-86400}
       - KNOT_SERVER_MAX_INDEX_AGE_SECS=${KNOT_SERVER_MAX_INDEX_AGE_SECS:-86400}
       - KNOT_SERVER_STALE_LOCK_TIMEOUT_SECS=${KNOT_SERVER_STALE_LOCK_TIMEOUT_SECS:-3600}
+      - KNOT_SERVER_METRICS_ENABLED=${KNOT_SERVER_METRICS_ENABLED:-true}
     volumes:
       - knot_workspace:/var/lib/knot/repos
       # fastembed model cache: must live inside KNOT_WORKSPACE_DIR (knot-server builds the path as
