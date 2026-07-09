@@ -11,7 +11,7 @@ use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 
 use crate::models::{AppState, RepoStatus};
 
-const KNOWN_ROUTES: &[&str] = &[
+pub(crate) const KNOWN_ROUTES: &[&str] = &[
     "/api/repos",
     "/api/repos/{id}",
     "/api/repos/{id}/sync",
@@ -27,7 +27,7 @@ const KNOWN_ROUTES: &[&str] = &[
     "/api/health",
 ];
 
-fn intern_route(path: &str) -> &str {
+pub(crate) fn intern_route(path: &str) -> &str {
     KNOWN_ROUTES
         .iter()
         .find(|&&r| r == path)
