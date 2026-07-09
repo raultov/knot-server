@@ -37,6 +37,7 @@ run_test "Issue #7: Reindex/Recovery on Fail" "run_reindex_recovery_e2e.sh"
 run_test "Cluster Coordination: Stale Lock Recovery" "run_cluster_e2e.sh"
 run_test "Cluster Progress Coherence" "run_progress_cluster_e2e.sh"
 run_test "Metrics Endpoint" "run_metrics_e2e.sh"
+run_test "Distributed Tracing" "run_tracing_e2e.sh"
 
 # Summary
 echo -e "\n${BLUE}========================================${NC}"

@@ -28,6 +28,18 @@ services:
     volumes:
       - qdrant_data_e2e:/qdrant/storage
 
+  # Jaeger backend for the tracing e2e. Non-default host ports (26686/24317) so
+  # this never collides with a dev Jaeger on the standard 16686/4317 ports,
+  # matching the 17687/16334 convention used by neo4j/qdrant above.
+  jaeger-e2e:
+    image: jaegertracing/all-in-one:1.62.0
+    container_name: knot_server_jaeger_e2e
+    ports:
+      - "26686:16686"   # query UI + HTTP API
+      - "24317:4317"    # OTLP gRPC ingest
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+
 volumes:
   neo4j_data_e2e:
   neo4j_logs_e2e:

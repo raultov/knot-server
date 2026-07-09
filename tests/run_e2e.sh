@@ -168,13 +168,13 @@ wait_for_port 17687 "Neo4j" 60
 wait_for_port 16334 "Qdrant" 30
 
 echo -n "  Waiting for Neo4j health check..."
-for i in $(seq 1 120); do
+for i in $(seq 1 300); do
     STATUS=$(docker inspect --format='{{.State.Health.Status}}' knot_server_neo4j_e2e 2>/dev/null || echo "unknown")
     if [ "$STATUS" = "healthy" ]; then
         echo -e " ${GREEN}healthy${NC}"
         break
     fi
-    if [ "$i" -eq 120 ]; then
+    if [ "$i" -eq 300 ]; then
         echo -e " ${RED}timeout (status: $STATUS)${NC}"
         exit 1
     fi
