@@ -755,6 +755,26 @@ scrape_configs:
 
 ---
 
+## 🔭 Tracing (OpenTelemetry)
+
+`knot-server` supports distributed tracing via OpenTelemetry, exporting spans to any OTLP gRPC compatible collector (Jaeger, Tempo, OpenTelemetry Collector, etc.).
+
+### Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KNOT_SERVER_TRACING_ENABLED` | `false` | Enable/disable OpenTelemetry tracing |
+| `KNOT_SERVER_OTLP_ENDPOINT` | `http://localhost:4317` | OTLP gRPC endpoint URL |
+| `KNOT_SERVER_TRACE_SAMPLE_RATIO` | `1.0` | Sampling ratio (0.0 to 1.0) |
+
+When enabled, `knot-server` automatically instruments:
+- All incoming HTTP requests (with `http.route` and status codes)
+- Background worker jobs (git clone/pull, index pipeline)
+- Scheduler poll loops
+- W3C `traceparent` context propagation across service boundaries
+
+---
+
 Here is an end-to-end example of managing a repository with `knot-server` using `curl`:
 
 **1. Start the server**
