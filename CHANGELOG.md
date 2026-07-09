@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.12] - 2026-07-09
+
+### Added
+- **Distributed Tracing (OpenTelemetry):** Implemented W3C-compliant distributed tracing via `tracing-opentelemetry`. 
+- Spans are exported asynchronously via OTLP gRPC. Disabled by default (`KNOT_SERVER_TRACING_ENABLED=false`).
+- Instrumented all HTTP endpoints (with `http.route` and status codes), background indexing jobs (`Clone`, `Pull`, `Sync`), and the scheduler loop.
+- Support for distributed context propagation: inbound W3C `traceparent` headers are correctly picked up and used as the root span's parent.
+- E2E tests for tracing (`run_tracing_e2e.sh`) verifying OTLP export, Jaeger ingestion, and `traceparent` propagation.
+
+---
+
 ## [0.2.11] - 2026-07-08
 
 ### Added
