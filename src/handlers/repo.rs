@@ -64,6 +64,11 @@ pub async fn get_repo_handler(
     ),
     description = "Register a new Git repository, or re-register an existing one. The endpoint is idempotent: if a repository with the same derived id already exists, it is re-registered and a fresh Clone job is enqueued. The destructive cleanup (wiping the Neo4j/Qdrant data and the local directory) is performed by the indexing worker under its file lock — not by this endpoint — so a re-registration never races with in-flight indexing. The response message indicates whether the call was a fresh registration or a re-registration."
 )]
+#[tracing::instrument(
+    name = "register_repo",
+    skip_all,
+    fields(repo_id = tracing::field::Empty)
+)]
 pub async fn register_repo_handler(
     State(state): State<Arc<AppState>>,
     Json(body): Json<RegisterRepoRequest>,
@@ -73,6 +78,7 @@ pub async fn register_repo_handler(
     }
 
     let id = body.generate_id();
+    tracing::Span::current().record("repo_id", id.as_str());
     if id.is_empty() {
         return error_response(
             StatusCode::BAD_REQUEST,
@@ -166,6 +172,7 @@ pub async fn register_repo_handler(
     ),
     description = "Delete a repository and clean up its databases and local files.",
 )]
+#[tracing::instrument(name = "delete_repo", skip_all, fields(repo_id = %id))]
 pub async fn delete_repo_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,

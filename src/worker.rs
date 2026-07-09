@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use tracing::Instrument;
+
 use crate::cleanup::CleanupScope;
 use crate::locking::acquire_file_lock;
 use crate::models::{IndexJob, RepoEntry};
@@ -197,10 +199,30 @@ pub async fn worker_loop(
             }
         }
 
+        // Root span for the whole job. Jobs are consumed off an mpsc queue, so
+        // this is a *separate trace* from the HTTP request that enqueued the
+        // job (context propagation via IndexJob is future work).
+        let kind_str = match &job {
+            IndexJob::Clone { .. } => "clone",
+            IndexJob::Pull { .. } => "pull",
+        };
+        let job_span = tracing::info_span!(
+            "indexing_job",
+            repo_id = %repo_id,
+            kind = kind_str,
+            otel.kind = "internal",
+            result = tracing::field::Empty,
+            otel.status_code = tracing::field::Empty,
+        );
+
         let start = std::time::Instant::now();
-        let result = process_repository(&repo, &state, &job).await;
+        let result = process_repository(&repo, &state, &job)
+            .instrument(job_span.clone())
+            .await;
         let ok = result.is_ok();
+        job_span.record("result", if ok { "ok" } else { "err" });
         if let Err(e) = &result {
+            job_span.record("otel.status_code", "ERROR");
             tracing::error!("Indexing failed for {}: {e:#}", repo.id);
             handle_job_failure(&state, &repo).await;
         }
@@ -314,17 +336,22 @@ async fn process_repository(
             tokio::task::spawn_blocking(move || {
                 crate::local_sync::sync_local_working_tree(&src, &dst)
             })
+            .instrument(tracing::info_span!("git_sync"))
             .await??;
             tracing::info!("Worker: local sync complete for '{}'", repo.id);
         }
         GitAction::Pull => {
             tracing::info!("Worker: pulling '{}' from {}", repo.id, repo.url);
-            crate::git::run_git_pull(repo).await?;
+            crate::git::run_git_pull(repo)
+                .instrument(tracing::info_span!("git_pull"))
+                .await?;
             tracing::info!("Worker: pull complete for '{}'", repo.id);
         }
         GitAction::FreshClone => {
             tracing::info!("Worker: cloning '{}' from {}", repo.id, repo.url);
-            crate::git::run_git_clone(repo).await?;
+            crate::git::run_git_clone(repo)
+                .instrument(tracing::info_span!("git_clone"))
+                .await?;
             tracing::info!("Worker: clone complete for '{}'", repo.id);
         }
     }
@@ -420,6 +447,10 @@ async fn process_repository(
         spawn_progress_persister(state, repo.id.clone(), Arc::clone(&tracker), cancel.clone());
 
     tracing::info!("Worker: starting indexing pipeline for '{}'", repo.id);
+    // The knot pipeline runs parse → embed → graph-ingest internally as one
+    // call; a single child span captures the whole indexing phase (finer-grained
+    // per-stage spans would require instrumenting the `knot` library — future
+    // work, see TRACING_PLAN §4.1/Future work).
     let pipeline_result = knot::pipeline::runner::run_indexing_pipeline_with_progress(
         &knot_cfg,
         &state.vector_db,
@@ -427,6 +458,7 @@ async fn process_repository(
         &mut index_state,
         tracker,
     )
+    .instrument(tracing::info_span!("index_pipeline"))
     .await;
 
     cancel.store(true, std::sync::atomic::Ordering::Relaxed);

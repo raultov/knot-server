@@ -27,6 +27,11 @@ use std::sync::Arc;
     ),
     description = "Query entity relationship graph. Without entity/entity_id returns an overview; with one returns a subgraph centered on that entity.",
 )]
+#[tracing::instrument(
+    name = "graph",
+    skip_all,
+    fields(repo_id = %id, depth = params.depth.unwrap_or(2))
+)]
 pub async fn graph_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -140,6 +145,11 @@ pub async fn graph_handler(
         (status = 500, description = "Internal server error", body = ErrorResponse),
     ),
     description = "Expand entity relationship graph. Returns a subgraph centered on an entity while excluding specified node UUIDs.",
+)]
+#[tracing::instrument(
+    name = "graph_expand",
+    skip_all,
+    fields(repo_id = %id, depth = params.depth.unwrap_or(2))
 )]
 pub async fn graph_expand_handler(
     State(state): State<Arc<AppState>>,

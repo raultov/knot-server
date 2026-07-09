@@ -77,6 +77,19 @@ pub struct ServerConfig {
 
     #[arg(long, env = "KNOT_SERVER_METRICS_ENABLED", default_value_t = true)]
     pub metrics_enabled: bool,
+
+    #[arg(long, env = "KNOT_SERVER_TRACING_ENABLED", default_value_t = false)]
+    pub tracing_enabled: bool,
+
+    #[arg(
+        long,
+        env = "KNOT_SERVER_OTLP_ENDPOINT",
+        default_value = "http://localhost:4317"
+    )]
+    pub otlp_endpoint: String,
+
+    #[arg(long, env = "KNOT_SERVER_TRACE_SAMPLE_RATIO", default_value_t = 1.0)]
+    pub trace_sample_ratio: f64,
 }
 
 impl ServerConfig {
@@ -139,5 +152,33 @@ mod tests {
         let args = vec!["knot-server", "--neo4j-password", "secret"];
         let cfg = ServerConfig::try_parse_from(args).expect("Failed to parse");
         assert!(cfg.metrics_enabled);
+    }
+
+    #[test]
+    fn test_tracing_defaults() {
+        let args = vec!["knot-server", "--neo4j-password", "secret"];
+        let cfg = ServerConfig::try_parse_from(args).expect("Failed to parse");
+        // Off by default: exporting spans requires a running OTLP collector.
+        assert!(!cfg.tracing_enabled);
+        assert_eq!(cfg.otlp_endpoint, "http://localhost:4317");
+        assert_eq!(cfg.trace_sample_ratio, 1.0);
+    }
+
+    #[test]
+    fn test_tracing_custom_values() {
+        let args = vec![
+            "knot-server",
+            "--neo4j-password",
+            "secret",
+            "--tracing-enabled",
+            "--otlp-endpoint",
+            "http://jaeger:4317",
+            "--trace-sample-ratio",
+            "0.25",
+        ];
+        let cfg = ServerConfig::try_parse_from(args).expect("Failed to parse");
+        assert!(cfg.tracing_enabled);
+        assert_eq!(cfg.otlp_endpoint, "http://jaeger:4317");
+        assert_eq!(cfg.trace_sample_ratio, 0.25);
     }
 }

@@ -9,6 +9,7 @@ mod models;
 mod progress_store;
 mod registry;
 mod scheduler;
+mod telemetry;
 mod time_utils;
 mod webhook;
 mod worker;
@@ -28,7 +29,6 @@ use models::AppState;
 use registry::Registry;
 use std::collections::HashMap;
 use tokio::signal;
-use tracing_subscriber::EnvFilter;
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -36,9 +36,17 @@ use utoipa_swagger_ui::SwaggerUi;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    setup_tracing();
-
+    // Order matters: parse config first (clap may print help/errors to stderr,
+    // which is fine), build the tracer provider if enabled, then install the
+    // subscriber. No `tracing::` macro runs before the subscriber is installed.
     let cfg = config::ServerConfig::from_env();
+
+    let tracer_provider = if cfg.tracing_enabled {
+        Some(telemetry::init_tracer_provider(&cfg)?)
+    } else {
+        None
+    };
+    telemetry::init_subscriber(tracer_provider.as_ref());
 
     let metrics_handle = if cfg.metrics_enabled {
         let handle = metrics::init()?;
@@ -188,6 +196,15 @@ async fn main() -> anyhow::Result<()> {
         app
     };
 
+    // Layered *after* (i.e. outside) the metrics layer so the metrics timing
+    // runs inside the trace span. Added last => outermost => sees the request
+    // first and owns the root span for its whole lifetime.
+    let app = if tracer_provider.is_some() {
+        app.layer(middleware::from_fn(telemetry::trace_http))
+    } else {
+        app
+    };
+
     let app = app.with_state(state);
 
     let listener = tokio::net::TcpListener::bind(format!("{}:{}", cfg.bind_addr, cfg.port)).await?;
@@ -196,6 +213,11 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
+
+    // Flush the batch span processor so the last spans aren't dropped.
+    if let Some(provider) = tracer_provider {
+        telemetry::shutdown(provider).await;
+    }
 
     tracing::info!("knot-server shut down gracefully");
     Ok(())
@@ -240,14 +262,6 @@ async fn shutdown_signal() {
             tracing::info!("Received SIGTERM, shutting down...");
         },
     }
-}
-
-fn setup_tracing() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .init();
 }
 
 fn setup_rayon(threads: Option<usize>) {

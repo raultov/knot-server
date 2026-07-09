@@ -22,6 +22,15 @@ use crate::models::AppState;
     ),
     description = "Semantic + structural search. Find code by meaning, class name, method signature, or docstrings.",
 )]
+#[tracing::instrument(
+    name = "search",
+    skip_all,
+    fields(
+        repo_id = %id,
+        query_len = tracing::field::Empty,
+        max_results = tracing::field::Empty,
+    )
+)]
 pub async fn search_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -33,6 +42,12 @@ pub async fn search_handler(
     };
 
     let max_results = params.max_results.unwrap_or(5);
+
+    // Record only the query *length* — never the query text itself, which for a
+    // code search may contain proprietary source.
+    let span = tracing::Span::current();
+    span.record("query_len", query.len());
+    span.record("max_results", max_results);
 
     let embedder = match &state.embedder {
         Some(e) => e,
@@ -77,6 +92,11 @@ pub async fn search_handler(
     ),
     description = "Find all callers referencing a specific entity. Returns reverse dependency graph.",
 )]
+#[tracing::instrument(
+    name = "callers",
+    skip_all,
+    fields(repo_id = %id, entity = tracing::field::Empty)
+)]
 pub async fn callers_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -91,6 +111,7 @@ pub async fn callers_handler(
             );
         }
     };
+    tracing::Span::current().record("entity", entity_name);
 
     match knot::cli_tools::run_find_callers(entity_name, Some(&id), &state.graph_db).await {
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),
@@ -117,6 +138,11 @@ pub async fn callers_handler(
     ),
     description = "Explore a file's architecture. Returns all classes, methods, and properties with signatures.",
 )]
+#[tracing::instrument(
+    name = "explore",
+    skip_all,
+    fields(repo_id = %id, path = tracing::field::Empty)
+)]
 pub async fn explore_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -126,6 +152,7 @@ pub async fn explore_handler(
         Some(p) if !p.trim().is_empty() => p.as_str(),
         _ => return error_response(StatusCode::BAD_REQUEST, "Missing required parameter 'path'"),
     };
+    tracing::Span::current().record("path", relative);
 
     // knot 1.5.1+ stores repo-relative file paths in Neo4j (see the knot
     // `relative_file_paths` spec). Pass the caller-supplied relative path
@@ -167,6 +194,11 @@ pub async fn explore_handler(
     ),
     description = "Cross-repository dependency lookup. Shows which repos depend on this one or vice versa.",
 )]
+#[tracing::instrument(
+    name = "deps",
+    skip_all,
+    fields(repo_id = %id, max_depth = tracing::field::Empty, reverse = tracing::field::Empty)
+)]
 pub async fn deps_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -174,6 +206,9 @@ pub async fn deps_handler(
 ) -> Response {
     let max_depth = params.max_depth.unwrap_or(3);
     let reverse = params.reverse.unwrap_or(false);
+    let span = tracing::Span::current();
+    span.record("max_depth", max_depth);
+    span.record("reverse", reverse);
 
     match knot::cli_tools::run_deps(&id, max_depth, reverse, &state.graph_db).await {
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),

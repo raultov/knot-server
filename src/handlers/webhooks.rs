@@ -23,6 +23,11 @@ use crate::models::AppState;
     ),
     description = "Endpoint for Git provider webhooks (GitHub, GitLab, Bitbucket). Validates payload signatures and triggers incremental re-indexing on push events.",
 )]
+#[tracing::instrument(
+    name = "webhook",
+    skip_all,
+    fields(repo_id = %id, provider = tracing::field::Empty)
+)]
 pub async fn webhook_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -52,6 +57,7 @@ pub async fn webhook_handler(
 
     // Try GitLab token validation
     if let Some(token) = headers.get("X-Gitlab-Token").and_then(|v| v.to_str().ok()) {
+        tracing::Span::current().record("provider", "gitlab");
         if crate::webhook::validate_gitlab_token(token, &secret) {
             return enqueue_pull_job(&state, &id).await;
         }
@@ -63,6 +69,7 @@ pub async fn webhook_handler(
         .get("X-Hub-Signature-256")
         .and_then(|v| v.to_str().ok())
     {
+        tracing::Span::current().record("provider", "github");
         if crate::webhook::validate_github_signature(sig, &body, &secret) {
             return enqueue_pull_job(&state, &id).await;
         }
@@ -71,6 +78,7 @@ pub async fn webhook_handler(
 
     // Try Bitbucket signature validation
     if let Some(sig) = headers.get("X-Hub-Signature").and_then(|v| v.to_str().ok()) {
+        tracing::Span::current().record("provider", "bitbucket");
         if crate::webhook::validate_bitbucket_signature(sig, &body, &secret) {
             return enqueue_pull_job(&state, &id).await;
         }
