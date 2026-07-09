@@ -18,6 +18,11 @@ services:
       - KNOT_SERVER_MAX_INDEX_AGE_SECS=${KNOT_SERVER_MAX_INDEX_AGE_SECS:-86400}
       - KNOT_SERVER_STALE_LOCK_TIMEOUT_SECS=${KNOT_SERVER_STALE_LOCK_TIMEOUT_SECS:-3600}
       - KNOT_SERVER_METRICS_ENABLED=${KNOT_SERVER_METRICS_ENABLED:-true}
+      # Distributed tracing (OpenTelemetry / OTLP gRPC) — opt-in, off by default.
+      # Point KNOT_SERVER_OTLP_ENDPOINT at your collector (Jaeger, Tempo, OTel
+      # Collector, …) and set KNOT_SERVER_TRACING_ENABLED=true to enable.
+      - KNOT_SERVER_TRACING_ENABLED=${KNOT_SERVER_TRACING_ENABLED:-false}
+      - KNOT_SERVER_OTLP_ENDPOINT=${KNOT_SERVER_OTLP_ENDPOINT:-http://localhost:4317}
     volumes:
       - knot_workspace:/var/lib/knot/repos
       # fastembed model cache: must live inside KNOT_WORKSPACE_DIR (knot-server builds the path as

@@ -1,11 +1,30 @@
 # docker-compose.dev.yml
 # Development overlay — extends docker-compose.yml to build the image from source
-# instead of pulling from DockerHub.
+# instead of pulling from DockerHub, and adds a Jaeger all-in-one backend so
+# distributed tracing works out of the box in local dev.
 #
 # Usage (from the repo root):
 #   docker compose -f docker-compose.yml -f docker-compose.dev.yml build
 #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+#
+# Jaeger UI: http://localhost:16686
 services:
   knot-server:
     build: .
+    environment:
+      # Tracing on by default in dev; spans are exported to the Jaeger service
+      # over OTLP gRPC. Override KNOT_SERVER_TRACING_ENABLED=false to opt out.
+      - KNOT_SERVER_TRACING_ENABLED=${KNOT_SERVER_TRACING_ENABLED:-true}
+      - KNOT_SERVER_OTLP_ENDPOINT=http://jaeger:4317
+    depends_on:
+      jaeger:
+        condition: service_started
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    ports:
+      - "16686:16686"   # Jaeger UI + query API
+      - "4317:4317"     # OTLP gRPC ingest
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
