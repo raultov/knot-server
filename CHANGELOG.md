@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.13] - 2026-07-09
+
+### Fixed
+- **CI/CD:** Fixed an issue where the `dist` binary was not found in the `$PATH` on `macos-14` (Apple Silicon) runners during the GitHub Actions release workflow.
+
+---
+
 ## [0.2.12] - 2026-07-09
 
 ### Added

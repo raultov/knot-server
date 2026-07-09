@@ -128,7 +128,9 @@ jobs:
             echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           fi
       - name: Install dist
-        run: ${{ matrix.install_dist.run }}
+        run: |
+          ${{ matrix.install_dist.run }}
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
       # Get the dist-manifest
       - name: Fetch local artifacts
         uses: actions/download-artifact@v4
