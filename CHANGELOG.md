@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.14] - 2026-07-11
+
+### Changed
+- **Bump `knot` to v1.5.2:** includes composite index `entity_repo_fqn ON (repo_name, fqn)` that fixes CONTAINS auto-link timeouts on large repositories (~50K entities). The index is created with `IF NOT EXISTS` so it migrates automatically into existing deployments without manual intervention.
+
+### Added
+- **E2E regression test B0:** verifies `entity_repo_fqn` index is created at server startup.
+- **E2E regression test Qa:** verifies the index survives server restart (guards the `IF NOT EXISTS` migration path).
+- **README roadmap:** updated language support status.
+
+---
+
 ## [0.2.13] - 2026-07-09
 
 ### Fixed
