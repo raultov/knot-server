@@ -223,6 +223,20 @@ for i in $(seq 1 90); do
     sleep 1
 done
 
+# ── Test B0: Composite index entity_repo_fqn created at startup ──
+echo -e "\n${CYAN}Test B0: Composite index entity_repo_fqn created on startup${NC}"
+NEO4J_PASS="${NEO4J_PASSWORD:-e2e_test_password}"
+IDX_CHECK=$(docker exec knot_server_neo4j_e2e cypher-shell -u neo4j -p "$NEO4J_PASS" \
+    "SHOW INDEXES YIELD name WHERE name = 'entity_repo_fqn' RETURN name" 2>/dev/null \
+    | awk 'NF && NR > 1 && $0 !~ /^(Available|neo4j>|Connection|Disconnect|Connected)/' || echo "")
+if echo "$IDX_CHECK" | grep -q "entity_repo_fqn"; then
+    echo -e "${GREEN}PASS${NC} — entity_repo_fqn index found after server startup"
+else
+    echo -e "${RED}FAIL${NC} — entity_repo_fqn index NOT found in SHOW INDEXES"
+    echo "  output: $IDX_CHECK"
+    exit 1
+fi
+
 BASE_URL="http://localhost:$SERVER_PORT"
 
 # -------------------------------------------------------
@@ -802,6 +816,19 @@ if ! start_recovery_server "$RECOVERY_LOG_Q"; then
     exit 1
 fi
 echo "  Server restarted, waiting for recovery to index '$RECOVERY_Q_ID'..."
+
+# ── Test Qa: Composite index survives restart (migration test) ──
+echo -e "\n${CYAN}Test Qa: entity_repo_fqn index survives server restart${NC}"
+IDX_AFTER_RESTART=$(docker exec knot_server_neo4j_e2e cypher-shell -u neo4j -p "$NEO4J_PASS" \
+    "SHOW INDEXES YIELD name WHERE name = 'entity_repo_fqn' RETURN name" 2>/dev/null \
+    | awk 'NF && NR > 1 && $0 !~ /^(Available|neo4j>|Connection|Disconnect|Connected)/' || echo "")
+if echo "$IDX_AFTER_RESTART" | grep -q "entity_repo_fqn"; then
+    echo -e "${GREEN}PASS${NC} — index survived restart (IF NOT EXISTS migration works)"
+else
+    echo -e "${RED}FAIL${NC} — entity_repo_fqn index lost after server restart"
+    echo "  output: $IDX_AFTER_RESTART"
+    exit 1
+fi
 
 if wait_for_recovery_indexed "$RECOVERY_Q_ID" "$RECOVERY_LOG_Q"; then
     echo -e "${GREEN}PASS${NC} — Pending repo recovered to 'indexed' after restart"
