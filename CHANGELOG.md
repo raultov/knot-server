@@ -49,6 +49,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.10] - 2026-07-07
+
 ### Fixed
 - **Re-registering a repository no longer races with the indexing worker
   (issue #7, Bug A).** `POST /api/repos` used to spawn a background task that
