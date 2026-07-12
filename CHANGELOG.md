@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.15] - 2026-07-12
+
+### Changed
+- **Bump `knot` to v1.5.3:** brings more complete Groovy language support to the indexing engine. Verified against the full unit suite (185 tests) and all six E2E suites (lifecycle, reindex/recovery, cluster coordination, progress coherence, metrics, tracing).
+
+---
+
 ## [0.2.14] - 2026-07-11
 
 ### Changed
