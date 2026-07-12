@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.16] - 2026-07-12
+
+### Fixed
+- **Release builds no longer download Swagger UI at compile time:** enabled the `vendored` feature of `utoipa-swagger-ui`, embedding the Swagger UI assets in the crate. This fixes the v0.2.15 release pipeline failure on the `aarch64-apple-darwin` runner, where the build script's `curl` download of Swagger UI failed with a DNS resolution error (`Could not resolve host: github.com`).
+
+---
+
 ## [0.2.15] - 2026-07-12
 
 ### Changed
