@@ -22,7 +22,7 @@ inherits = "release"
 lto = "thin"
 
 [dependencies]
-knot = "1.5.3"
+knot = "1.5.4"
 ignore = "0.4"
 axum = "0.8.9"
 tokio = { version = "1", features = ["full"] }
