@@ -53,7 +53,7 @@ pub struct ServerConfig {
     #[arg(long, env = "KNOT_SERVER_RAYON_THREADS")]
     pub rayon_threads: Option<usize>,
 
-    #[arg(long, env = "KNOT_SERVER_BATCH_SIZE", default_value_t = 64)]
+    #[arg(long, env = "KNOT_SERVER_BATCH_SIZE", default_value_t = 128)]
     pub batch_size: usize,
 
     #[arg(long, env = "KNOT_SERVER_INGEST_CONCURRENCY", default_value_t = 4)]
@@ -132,6 +132,7 @@ mod tests {
         assert_eq!(cfg.neo4j_uri, "bolt://localhost:7687");
         assert_eq!(cfg.neo4j_user, "neo4j");
         assert_eq!(cfg.embed_dim, 384);
+        assert_eq!(cfg.batch_size, 128);
     }
 
     #[test]
