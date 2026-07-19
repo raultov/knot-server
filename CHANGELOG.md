@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.17] - 2026-07-19
+
+### Changed
+- **Bump `knot` to v1.5.4:** latest patch release of the indexing engine. Verified against the full unit suite (185 tests) and all six E2E suites (lifecycle, reindex/recovery, cluster coordination, progress coherence, metrics, tracing).
+- **Double default `KNOT_SERVER_BATCH_SIZE` from 64 to 128:** better fits typical Neo4j ingestion throughput and reduces per-batch commit overhead on large repositories.
+
+### Added
+- Test in `src/config.rs` asserting the default `batch_size` is 128.
+
+---
+
 ## [0.2.16] - 2026-07-12
 
 ### Fixed
