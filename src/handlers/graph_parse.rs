@@ -75,3 +75,46 @@ pub fn parse_relationships(relationships: &str) -> Result<Vec<&str>, String> {
 
     Ok(parsed)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_relationships_accepts_calls() {
+        let parsed = parse_relationships("CALLS").expect("CALLS must be accepted");
+        assert_eq!(parsed, vec!["CALLS"]);
+    }
+
+    #[test]
+    fn parse_relationships_accepts_overrides() {
+        let parsed = parse_relationships("OVERRIDES").expect("OVERRIDES must be accepted");
+        assert_eq!(parsed, vec!["OVERRIDES"]);
+    }
+
+    #[test]
+    fn parse_relationships_accepts_overrides_combined_with_others() {
+        let parsed = parse_relationships("CALLS,OVERRIDES,IMPLEMENTS").unwrap();
+        assert_eq!(parsed, vec!["CALLS", "OVERRIDES", "IMPLEMENTS"]);
+    }
+
+    #[test]
+    fn parse_relationships_rejects_lowercase_overrides() {
+        assert!(parse_relationships("overrides").is_err());
+    }
+
+    #[test]
+    fn parse_relationships_rejects_unknown_type() {
+        let err = parse_relationships("OVERRIDE").unwrap_err();
+        assert!(
+            err.contains("OVERRIDES"),
+            "error should advertise the valid type"
+        );
+    }
+
+    #[test]
+    fn overrides_is_not_in_default_overview() {
+        assert!(!DEFAULT_RELATIONSHIPS_OVERVIEW.contains("OVERRIDES"));
+        assert!(!DEFAULT_RELATIONSHIPS_SUBGRAPH.contains("OVERRIDES"));
+    }
+}
