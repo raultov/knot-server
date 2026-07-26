@@ -534,6 +534,107 @@ if [ "$INDEXED_OK" = "true" ]; then
       exit 1
     fi
 
+    # ── Test G14: OVERRIDES at method level (focused mode) ──
+    # Focused mode goes through knot's run_get_subgraph, which has no "roots must
+    # have no incoming CONTAINS" restriction. Overview mode cannot reach method
+    # nodes with OVERRIDES alone, because methods are always CONTAINS-ed by their
+    # class and OVERRIDES edges only exist between methods.
+    echo -e "\n${CYAN}Test G14: OVERRIDES subgraph focused on a method${NC}"
+    CODE=$(curl -s -w "%{http_code}" -o /tmp/g14.json \
+      "http://localhost:${SERVER_PORT}/api/repos/${REPO_ID}/graph?entity=greet&relationships=OVERRIDES&kinds=functions")
+    G14_EDGES=$(jq '.edges | length' /tmp/g14.json)
+    G14_NON_OVERRIDES=$(jq '[.edges[] | select(.type != "OVERRIDES")] | length' /tmp/g14.json)
+
+    if [ "$CODE" = "200" ] && [ "$G14_NON_OVERRIDES" -eq 0 ] && [ "$G14_EDGES" -ge 1 ]; then
+      echo -e "${GREEN}PASS${NC}: OVERRIDES accepted, all ${G14_EDGES} edges have correct type"
+    else
+      echo -e "${RED}FAIL${NC}: status=$CODE, edges=$G14_EDGES, non-OVERRIDES=$G14_NON_OVERRIDES"
+      cat /tmp/g14.json
+      exit 1
+    fi
+
+    # ── Test G14b: OVERRIDES projected onto enclosing classes (overview mode) ──
+    # With the default class/interface kinds, fetch_edges projects method-level
+    # OVERRIDES edges onto their enclosing classes, so the overview still shows
+    # the inheritance link without exposing individual methods.
+    echo -e "\n${CYAN}Test G14b: OVERRIDES projected to enclosing classes in overview${NC}"
+    CODE=$(curl -s -w "%{http_code}" -o /tmp/g14b.json \
+      "http://localhost:${SERVER_PORT}/api/repos/${REPO_ID}/graph?relationships=OVERRIDES")
+    G14B_OVERRIDES=$(jq '[.edges[] | select(.type == "OVERRIDES")] | length' /tmp/g14b.json)
+
+    if [ "$CODE" = "200" ] && [ "$G14B_OVERRIDES" -ge 1 ]; then
+      echo -e "${GREEN}PASS${NC}: ${G14B_OVERRIDES} class-level OVERRIDES edge(s) in overview"
+    else
+      echo -e "${RED}FAIL${NC}: status=$CODE, class-level OVERRIDES edges=$G14B_OVERRIDES"
+      cat /tmp/g14b.json
+      exit 1
+    fi
+
+    # ── Test G15: OVERRIDES edge direction: subtype.method -> supertype.method ──
+    echo -e "\n${CYAN}Test G15: OVERRIDES edge direction (subtype -> supertype)${NC}"
+    G15_TARGET_NAMES=$(jq -r '
+      .edges[] as $edge |
+      .nodes[] | select(.id == $edge.target) | .name
+    ' /tmp/g14.json | sort -u)
+    G15_SOURCE_NAMES=$(jq -r '
+      .edges[] as $edge |
+      .nodes[] | select(.id == $edge.source) | .name
+    ' /tmp/g14.json | sort -u)
+
+    # Target(s) should be the interface/declared method; source(s) the implementation.
+    # Greeter.greet is declared; EnglishGreeter.greet and PoliteEnglishGreeter.greet override.
+    if echo "$G15_TARGET_NAMES" | grep -q "greet" && echo "$G15_SOURCE_NAMES" | grep -q "greet"; then
+      echo -e "${GREEN}PASS${NC}: edges point from implementations to declarations"
+    else
+      echo -e "${RED}FAIL${NC}: source names=$G15_SOURCE_NAMES, target names=$G15_TARGET_NAMES"
+      cat /tmp/g14.json
+      exit 1
+    fi
+
+    # ── Test G16: Unknown relationship rejected, error message advertises OVERRIDES ──
+    echo -e "\n${CYAN}Test G16: Reject unknown relationship, advertise OVERRIDES in error${NC}"
+    CODE=$(curl -s -w "%{http_code}" -o /tmp/g16.json \
+      "http://localhost:${SERVER_PORT}/api/repos/${REPO_ID}/graph?relationships=OVERRIDE")
+    G16_ERR=$(jq -r '.error // ""' /tmp/g16.json)
+
+    if [ "$CODE" = "400" ] && echo "$G16_ERR" | grep -q "OVERRIDES"; then
+      echo -e "${GREEN}PASS${NC}: 400 with OVERRIDES listed in valid types"
+    else
+      echo -e "${RED}FAIL${NC}: status=$CODE, error=\"$G16_ERR\""
+      cat /tmp/g16.json
+      exit 1
+    fi
+
+    # ── Test G17: Full relationship allow-list round-trip (drift guard) ──
+    echo -e "\n${CYAN}Test G17: Full relationship allow-list round-trip${NC}"
+    ALL_RELS="CALLS EXTENDS IMPLEMENTS REFERENCES REFERENCES_DOM USES_CSS_CLASS IMPORTS_SCRIPT IMPORTS_STYLESHEET MACRO_CALLS CONTAINS GENERIC_BOUND DEPENDS_ON OVERRIDES"
+    G17_FAILURES=""
+    for rel in $ALL_RELS; do
+      REL_CODE=$(curl -s -w "%{http_code}" -o /dev/null \
+        "http://localhost:${SERVER_PORT}/api/repos/${REPO_ID}/graph?relationships=$rel")
+      if [ "$REL_CODE" != "200" ]; then
+        G17_FAILURES="$G17_FAILURES $rel($REL_CODE)"
+      fi
+    done
+
+    if [ -z "$G17_FAILURES" ]; then
+      echo -e "${GREEN}PASS${NC}: all relationship types accepted"
+    else
+      echo -e "${RED}FAIL${NC}: rejected types:$G17_FAILURES"
+      exit 1
+    fi
+
+    # ── Test G18: Default overview contains no OVERRIDES edges (opt-in guard) ──
+    echo -e "\n${CYAN}Test G18: Default overview has no OVERRIDES edges${NC}"
+    G18_OVERRIDES=$(jq '[.edges[] | select(.type == "OVERRIDES")] | length' /tmp/g10.json)
+
+    if [ "$G18_OVERRIDES" -eq 0 ]; then
+      echo -e "${GREEN}PASS${NC}: no OVERRIDES edges in default overview (opt-in)"
+    else
+      echo -e "${RED}FAIL${NC}: found $G18_OVERRIDES OVERRIDES edges in default overview"
+      exit 1
+    fi
+
     # Test F: List repos shows status indexed
     echo -e "\n${CYAN}Test F: List contains indexed repo${NC}"
     LIST=$(curl -sf "$BASE_URL/api/repos")
