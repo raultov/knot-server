@@ -253,6 +253,7 @@
       <label class="active" data-rel="CALLS">Calls</label>
       <label class="active" data-rel="EXTENDS">Extends</label>
       <label class="active" data-rel="IMPLEMENTS">Implements</label>
+      <label data-rel="OVERRIDES">Overrides</label>
       <label data-rel="CONTAINS">Contains</label>
       <label data-rel="REFERENCES">References</label>
       <label data-rel="MACRO_CALLS">Macro Calls</label>
@@ -715,6 +716,13 @@
         CALLS: ['functions', 'other'],
         REFERENCES: ['functions', 'other'],
         CONTAINS: ['functions', 'other'],
+        // OVERRIDES is deliberately absent. Its edges live between methods, but
+        // overview roots are entities without an incoming CONTAINS edge, so methods
+        // are never reachable with OVERRIDES alone (see fetch_nodes in
+        // src/handlers/graph_queries.rs). With the default class/interface kinds,
+        // fetch_edges instead projects method-level OVERRIDES onto the enclosing
+        // classes — auto-enabling 'functions' here would disable that projection
+        // and yield an empty graph.
       };
 
       var relToggles = document.querySelectorAll('#rel-toggles label');
