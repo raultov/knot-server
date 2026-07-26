@@ -139,6 +139,7 @@ pub const VALID_RELATIONSHIPS: &[&str] = &[
     "CONTAINS",
     "GENERIC_BOUND",
     "DEPENDS_ON",
+    "OVERRIDES",
 ];
 
 pub const DEFAULT_RELATIONSHIPS_OVERVIEW: &str = "CALLS,EXTENDS,IMPLEMENTS";
@@ -204,3 +205,22 @@ pub const KIND_CATEGORY_FUNCTIONS: &[&str] = &[
 pub const DEFAULT_VISIBLE_KINDS: &str = "classes,interfaces";
 
 pub const VALID_KIND_CATEGORIES: &[&str] = &["classes", "interfaces", "functions", "other"];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn valid_relationships_has_no_duplicates_and_is_upper_case() {
+        let mut seen = HashSet::new();
+        for rel in VALID_RELATIONSHIPS {
+            assert!(seen.insert(*rel), "duplicate relationship: {rel}");
+            assert_eq!(
+                *rel,
+                rel.to_uppercase(),
+                "{rel} must match knot's wire format"
+            );
+        }
+    }
+}
