@@ -47,9 +47,24 @@ curl -fsS -G \
 - **`direction`** (query, optional, default: "both"): Traversal direction
   (`incoming`, `outgoing`, `both`).
 - **`relationships`** (query, optional): Comma-separated list of edges to include.
-  - Options: `CALLS`, `EXTENDS`, `IMPLEMENTS`, `REFERENCES`, `REFERENCES_DOM`,
+  - Options: `CALLS`, `EXTENDS`, `IMPLEMENTS`, `OVERRIDES`, `REFERENCES`, `REFERENCES_DOM`,
     `USES_CSS_CLASS`, `IMPORTS_SCRIPT`, `IMPORTS_STYLESHEET`, `MACRO_CALLS`,
     `CONTAINS`, `GENERIC_BOUND`, `DEPENDS_ON`.
+  - `OVERRIDES` (JVM only): method-level override/implementation.
+    Direction: subtype method → supertype method.
+    - **When to prefer it over `EXTENDS`/`IMPLEMENTS`:** it links to the type that
+      actually *declares* the method, walking through intermediate types that don't.
+      If `A` declares `run()`, `B implements A` without declaring it, and `C extends B`
+      overrides it, you get `C.run -> A.run` — an edge with no `EXTENDS`/`IMPLEMENTS`
+      equivalent at depth 1. It also separates inheritance that is merely declared from
+      inheritance that is actually exercised: a subclass overriding nothing has
+      `EXTENDS` but no `OVERRIDES`.
+    - **With `entity=...` (focused):** returns the real method-to-method edges. Pair with
+      `kinds=functions` to keep the method nodes visible. This is the useful mode.
+    - **Without `entity` (overview):** edges are projected onto the enclosing classes.
+      Keep the default `kinds`; do **not** pass `kinds=functions` here, or the result is
+      an empty graph — methods are never overview roots, so they cannot be reached by
+      `OVERRIDES` alone.
 - **`kinds`** (query, optional): Comma-separated node kinds to include
   (`classes`, `interfaces`, `functions`, `other`). Default: `classes,interfaces`.
 

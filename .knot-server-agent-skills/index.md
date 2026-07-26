@@ -42,16 +42,15 @@ curl -fsS -X POST "${KNOT_SERVER_URL:-http://localhost:3000}/api/repos" \
   -H "Content-Type: application/json" \
   -d "{
     \"url\": \"$REPO_PATH\",
-    \"auth_type\": { \"type\": \"none\" }
+    \"auth_type\": \"ssh\"
   }" | jq
 ```
 
-The server will detect this is a local path and mirror the working tree
-(no git clone needed). The response should be HTTP 202 Accepted.
+The server will attempt to read this as a local path. **Note:** if running in Docker, the path must be mounted inside the container (e.g., via `KNOT_LOCAL_REPOS_DIR` or inside `/var/lib/knot/repos`). Always provide a valid, non-empty URL or path to avoid creating an undeletable empty repository entry. The response should be HTTP 202 Accepted.
 
 ## Step 4: Wait for Indexing to Complete
 
-Poll `GET /api/repos/{id}` until `status` becomes `indexed`:
+Poll `GET /api/repos/{id}` until `status` becomes `indexed`. *(Note: Initial indexing of large repositories can take 5-10 minutes. Status updates happen roughly every 5 seconds.)*
 
 ```bash
 while true; do

@@ -90,7 +90,7 @@ With `knot-server`, you can register Git repositories via a REST API, trigger au
 
 ### 🧬 Graph Visualization (Web UI)
 - **`GET /graph`**: Interactive 3D codebase graph viewer. Open in your browser to visually explore entity relationships.
-  - **Dynamic Filtering**: Real-time toggles for relationship types (`Calls`, `Extends`, `Implements`, `Contains`, etc.) and entity kinds (`Classes`, `Interfaces`, `Functions`).
+  - **Dynamic Filtering**: Real-time toggles for relationship types (`Calls`, `Extends`, `Implements`, `Overrides`, `Contains`, etc.) and entity kinds (`Classes`, `Interfaces`, `Functions`).
   - **Node Interaction**: 
     - **Click**: Automatically discover and expand neighbors.
     - **Focus on Entity**: Isolate a specific entity and its deep relationship subgraph.
