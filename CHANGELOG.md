@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.18] - 2026-07-26
+
+### Changed
+- **Bump `knot` to v1.5.5:** latest patch release of the indexing engine. Brings the new `OVERRIDES` relationship type for JVM method-level overrides/implementations. Verified against the full unit suite (192 tests) and all E2E suites.
+
+### Added
+- `OVERRIDES` relationship support in the graph API: the `GET /api/repos/:id/graph?relationships=OVERRIDES` endpoint now accepts and traverses method-level override edges (JVM only, opt-in).
+- `Overrides` relationship toggle in the `/graph` viewer, placed next to `Implements`. Works with the default `Classes`/`Interfaces` kinds, where method-level override edges are projected onto their enclosing classes.
+- New test fixture `tests/fixtures/Greeter.java` with Java interface, implementation, and extended class for E2E override coverage.
+- Unit tests in `src/handlers/graph_parse.rs` for OVERRIDES acceptance, rejection of wrong types, and defaults guard.
+- Drift-guard unit test in `src/handlers/models.rs` asserting no duplicates and upper-case wire format in `VALID_RELATIONSHIPS`.
+- E2E tests G14–G18 in `tests/run_e2e.sh`: method-level OVERRIDES via focused mode, class-level projection in overview mode (G14b), edge direction, error advertising, full allow-list round-trip, and default overview opt-in guard.
+- Design spec `docs/specs/0001-overrides-relationship.md` documenting why `OVERRIDES` is only reachable via focused mode or class projection, never via an overview query scoped to `kinds=functions`.
+
+---
+
 ## [0.2.17] - 2026-07-19
 
 ### Changed
