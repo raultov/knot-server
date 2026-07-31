@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.19] - 2026-07-31
+
+### Changed
+- **Bump `knot` to v1.5.6:** latest patch release of the indexing engine. Brings Groovy property accessor synthesis, bare property declarations, parser/Javadoc hardening, and reopens the `OVERRIDES` link between Groovy properties and interface getters (e.g. `nextflow.Session.getBaseDir` → `nextflow.ISession.getBaseDir`). **Existing Groovy repos must be re-indexed** (`POST /api/repos/{id}/sync`) for the new entities and override edges to materialize. Verified against the full unit suite (192 tests) and all E2E suites.
+
+### Added
+- **Graph viewer: synthetic accessor badge.** Nodes whose `signature` contains the `<synthetic Groovy property accessor>` marker (emitted by knot 1.5.6 for compiler-generated `getX`/`setX`/`isX`) now display a purple `synthetic` badge next to the entity kind in the detail panel. The raw marker string is stripped from the displayed signature so it does not masquerade as a parameter list.
+
+### Fixed
+- **`kotlin_enum` categorised as `classes`:** previously absent from `KIND_CATEGORY_CLASSES`, so Kotlin enums were invisible in the default graph overview (only reachable via the `other` category). They now appear alongside `kotlin_class`, `kotlin_object`, and other class-like Kotlin kinds. This affects the default graph contents for every indexed Kotlin repository.
+
+---
+
 ## [0.2.18] - 2026-07-26
 
 ### Changed
@@ -453,7 +466,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/raultov/knot-server/compare/v0.2.9...HEAD
+[Unreleased]: https://github.com/raultov/knot-server/compare/v0.2.19...HEAD
+[0.2.19]: https://github.com/raultov/knot-server/compare/v0.2.18...v0.2.19
 [0.2.9]: https://github.com/raultov/knot-server/compare/v0.2.8...v0.2.9
 [0.2.8]: https://github.com/raultov/knot-server/compare/v0.2.7...v0.2.8
 [0.2.7]: https://github.com/raultov/knot-server/compare/v0.2.6...v0.2.7
