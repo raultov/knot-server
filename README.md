@@ -16,6 +16,12 @@ See [CHANGELOG.md](CHANGELOG.md) for the full version history.
 > as long as the initial index). No manual action is required — knot-server
 > detects the stale state, discards it, and rebuilds the Neo4j/Qdrant entries
 > automatically. See the [CHANGELOG](CHANGELOG.md) for details.
+> 
+> ⚠️ **Upgrading to v0.2.19 (knot 1.5.6) — re-index Groovy repos.** knot 1.5.6
+> adds Groovy property accessor synthesis, bare property declarations, and
+> parser/Javadoc fixes. **Existing Groovy repositories must be re-indexed**
+> (`POST /api/repos/{id}/sync`) for the new entities and `OVERRIDES` edges
+> to materialize. See the [CHANGELOG](CHANGELOG.md) for details.
 
 With `knot-server`, you can register Git repositories via a REST API, trigger automatic codebase indexing through webhooks (GitHub, GitLab, Bitbucket), and query the vector (Qdrant) and graph (Neo4j) databases—all while coordinating work safely across multiple server instances via NFS/EFS workspace locks.
 
@@ -973,7 +979,7 @@ Any Pod can receive webhook events or sync requests; the shared workspace
 
 ## 🗺️ Roadmap
 
-- Language support in the knot library: Java, Kotlin, JavaScript, TypeScript, Rust, and Python have been refined and are polished for production use. The next refinement effort will target Groovy — completing verified coverage of the JVM family (Java, Kotlin, Groovy) — followed by C/C++ as the most widely used languages still pending deep verification.
+    - Language support in the knot library: Java, Kotlin, JavaScript, TypeScript, Rust, and Python have been refined and are polished for production use. Groovy has received significant improvements in v1.5.6 (property accessor synthesis, parser/Javadoc hardening); further refinement is planned to complete verified coverage of the JVM family. C/C++ follows as the most widely used languages still pending deep verification.
 - Implement language-based color coding in the `/graph` view to distinguish nodes by programming language.
 - Resolve cross-file aliases for JavaScript and TypeScript (`require`, `import`): when a local alias shadows an imported entity, graph relationships should resolve to the original definition rather than the alias constant. Python alias resolution to follow. 
   See PR2 plan in the knot repository.
