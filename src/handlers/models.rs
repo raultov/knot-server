@@ -224,4 +224,34 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn every_enum_kind_is_categorised_as_a_class() {
+        for k in ["enum", "groovy_enum", "kotlin_enum"] {
+            assert!(
+                KIND_CATEGORY_CLASSES.contains(&k),
+                "{k} must be in KIND_CATEGORY_CLASSES so it is visible by default"
+            );
+        }
+    }
+
+    #[test]
+    fn kind_categories_are_disjoint_and_have_no_duplicates() {
+        let mut seen = HashSet::new();
+        for k in KIND_CATEGORY_CLASSES {
+            assert!(seen.insert(*k), "duplicate kind in CLASSES: {k}");
+        }
+        for k in KIND_CATEGORY_INTERFACES {
+            assert!(
+                seen.insert(*k),
+                "duplicate kind in INTERFACES (or already in CLASSES): {k}"
+            );
+        }
+        for k in KIND_CATEGORY_FUNCTIONS {
+            assert!(
+                seen.insert(*k),
+                "duplicate kind in FUNCTIONS (or already in another category): {k}"
+            );
+        }
+    }
 }
