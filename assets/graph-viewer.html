@@ -139,6 +139,18 @@
 
     #explore-btn:hover { background: #2a6fd4; }
 
+    .synthetic-badge {
+      display: inline-block;
+      background: #7F52FF;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: 3px;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+
     #back-btn {
       margin-top: 8px;
       padding: 6px 16px;
@@ -618,7 +630,12 @@
         detailFqn.style.display = 'none';
       }
 
-      document.getElementById('detail-kind').textContent = 'Kind: ' + node.kind;
+      var isSynthetic = node.signature && node.signature.indexOf('<synthetic') !== -1;
+      var kindHtml = 'Kind: ' + node.kind;
+      if (isSynthetic) {
+        kindHtml += ' <span class="synthetic-badge">synthetic</span>';
+      }
+      document.getElementById('detail-kind').innerHTML = kindHtml;
       var filePath = node.filePath || '(unknown)';
       var detailFile = document.getElementById('detail-file');
       detailFile.textContent = 'File: ' + filePath;
@@ -627,7 +644,11 @@
 
       var sigPre = document.getElementById('detail-signature');
       if (node.signature) {
-        sigPre.textContent = node.signature;
+        var displaySig = node.signature;
+        if (isSynthetic) {
+          displaySig = displaySig.replace(/<synthetic[^>]*>\s*/g, '');
+        }
+        sigPre.textContent = displaySig;
         sigPre.style.display = '';
       } else {
         sigPre.style.display = 'none';
