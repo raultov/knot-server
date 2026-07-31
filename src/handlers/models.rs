@@ -151,6 +151,7 @@ pub const KIND_CATEGORY_CLASSES: &[&str] = &[
     "kotlin_class",
     "kotlin_object",
     "kotlin_companion_object",
+    "kotlin_enum",
     "rust_struct",
     "rust_enum",
     "rust_union",
