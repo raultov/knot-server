@@ -117,4 +117,20 @@ mod tests {
         assert!(!DEFAULT_RELATIONSHIPS_OVERVIEW.contains("OVERRIDES"));
         assert!(!DEFAULT_RELATIONSHIPS_SUBGRAPH.contains("OVERRIDES"));
     }
+
+    #[test]
+    fn parse_relationships_accepts_varnish_types() {
+        for rel in [
+            "USES_BACKEND",
+            "USES_PROBE",
+            "USES_ACL",
+            "INCLUDES",
+            "IMPORTS_VMOD",
+            "DECLARED_UNUSED",
+        ] {
+            let parsed =
+                parse_relationships(rel).unwrap_or_else(|e| panic!("{rel} must be accepted: {e}"));
+            assert_eq!(parsed, vec![rel]);
+        }
+    }
 }

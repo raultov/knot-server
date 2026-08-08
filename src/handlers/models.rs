@@ -140,6 +140,12 @@ pub const VALID_RELATIONSHIPS: &[&str] = &[
     "GENERIC_BOUND",
     "DEPENDS_ON",
     "OVERRIDES",
+    "USES_BACKEND",
+    "USES_PROBE",
+    "USES_ACL",
+    "INCLUDES",
+    "IMPORTS_VMOD",
+    "DECLARED_UNUSED",
 ];
 
 pub const DEFAULT_RELATIONSHIPS_OVERVIEW: &str = "CALLS,EXTENDS,IMPLEMENTS";
@@ -164,6 +170,15 @@ pub const KIND_CATEGORY_CLASSES: &[&str] = &[
     "groovy_class",
     "groovy_enum",
     "enum",
+    "vcl_backend",
+    "vcl_probe",
+    "vcl_acl",
+    "vcc_module",
+    "vcc_object",
+    "vtc_test_case",
+    "vtc_server",
+    "vtc_client",
+    "vtc_varnish_instance",
 ];
 
 pub const KIND_CATEGORY_INTERFACES: &[&str] = &[
@@ -201,6 +216,10 @@ pub const KIND_CATEGORY_FUNCTIONS: &[&str] = &[
     "groovy_function",
     "groovy_property",
     "constant",
+    "vcl_subroutine",
+    "vcl_builtin_sub",
+    "vcc_function",
+    "vcc_method",
 ];
 
 pub const DEFAULT_VISIBLE_KINDS: &str = "classes,interfaces";
@@ -251,6 +270,72 @@ mod tests {
             assert!(
                 seen.insert(*k),
                 "duplicate kind in FUNCTIONS (or already in another category): {k}"
+            );
+        }
+    }
+
+    #[test]
+    fn varnish_relationships_accepted() {
+        for rel in [
+            "USES_BACKEND",
+            "USES_PROBE",
+            "USES_ACL",
+            "INCLUDES",
+            "IMPORTS_VMOD",
+            "DECLARED_UNUSED",
+        ] {
+            assert!(
+                VALID_RELATIONSHIPS.contains(&rel),
+                "{rel} must be in VALID_RELATIONSHIPS"
+            );
+        }
+    }
+
+    #[test]
+    fn varnish_kinds_are_categorised() {
+        let in_classes: &[&str] = &[
+            "vcl_backend",
+            "vcl_probe",
+            "vcl_acl",
+            "vcc_module",
+            "vcc_object",
+            "vtc_test_case",
+            "vtc_server",
+            "vtc_client",
+            "vtc_varnish_instance",
+        ];
+        let in_functions: &[&str] = &[
+            "vcl_subroutine",
+            "vcl_builtin_sub",
+            "vcc_function",
+            "vcc_method",
+        ];
+        let uncategorised: &[&str] = &[
+            "vcl_version",
+            "vcl_import",
+            "vcl_object_instance",
+            "vtc_logexpect",
+            "vtc_barrier",
+        ];
+
+        for k in in_classes {
+            assert!(
+                KIND_CATEGORY_CLASSES.contains(k),
+                "{k} must be in KIND_CATEGORY_CLASSES"
+            );
+        }
+        for k in in_functions {
+            assert!(
+                KIND_CATEGORY_FUNCTIONS.contains(k),
+                "{k} must be in KIND_CATEGORY_FUNCTIONS"
+            );
+        }
+        for k in uncategorised {
+            assert!(
+                !KIND_CATEGORY_CLASSES.contains(k)
+                    && !KIND_CATEGORY_INTERFACES.contains(k)
+                    && !KIND_CATEGORY_FUNCTIONS.contains(k),
+                "{k} must not be in any category"
             );
         }
     }
