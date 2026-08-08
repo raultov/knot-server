@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.0] - 2026-08-08
+
+### Changed
+- **Bump `knot` to v1.6.0:** Upgraded to the new knot 1.6.0 API.
+- **Lint hardening:** Updated `clippy.toml` measured curves based on `knot-server` data, specifically raising `cognitive-complexity-threshold` to 40. Removed four stale `allow` suppressions across `src/git.rs`, `src/progress_store.rs`, and `src/telemetry.rs`.
+
+### Added
+- **Varnish support:** Added support for six new Varnish relationship types (`USES_BACKEND`, `USES_PROBE`, `USES_ACL`, `INCLUDES`, `IMPORTS_VMOD`, `DECLARED_UNUSED`) and properly categorized 18 Varnish entity kinds so they are visible by default in the graph view.
+
+---
+
 ## [0.2.19] - 2026-07-31
 
 ### Changed
