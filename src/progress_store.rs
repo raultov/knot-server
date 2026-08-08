@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Per-repository progress snapshots persisted to the shared workspace so
 //! that nodes without an in-process `ProgressTracker` (i.e. every node that
 //! is not currently indexing this repo) can still report the real

@@ -1,0 +1,57 @@
+# Clippy thresholds for knot.
+#
+# Counts below were measured on production code (excluding `*/tests.rs`,
+# `tests/` and `benches/`) with `cargo clippy --all-targets --all-features`
+# on clippy 0.1.97.
+#
+# NOTE: a threshold here does NOT enable a lint, it only parametrises it.
+# The lint's default level decides whether it fires:
+#
+#   too_many_arguments    complexity  warn   -> active out of the box
+#   type_complexity       complexity  warn   -> active out of the box
+#   excessive_nesting     complexity  warn   -> active once threshold > 0
+#   too_many_lines        pedantic    allow  -> needs [lints.clippy]
+#   cognitive_complexity  nursery     allow  -> needs [lints.clippy]
+#
+# The last two are enabled in Cargo.toml's [lints.clippy] section.
+
+# --- Active by default (complexity group) ---
+
+# clippy::too_many_arguments (default: 7)
+# Measured curve: 4 -> 45 | 5 -> 19 | 6 -> 6 | 7 -> 0
+# The repo's real maximum is 7, so the distribution is narrow. 4 is
+# disproportionate, 6 barely helps. 5 is the useful point.
+too-many-arguments-threshold = 5
+
+# clippy::type_complexity (default: 250)
+# Measured curve: 150 -> 10 | 200 -> 1 | 250 -> 0
+# 200 costs a single violation and already improves on the default.
+# Later target: 150.
+type-complexity-threshold = 200
+
+# clippy::excessive_nesting (default: 0, which disables the lint)
+# The lint is warn-by-default; the zero threshold is what silences it,
+# so setting a value here activates it without touching Cargo.toml.
+# Measured curve: 3 -> 519 | 4 -> 220 | 5 -> 77 | 6 -> 26
+# 6 is the only manageable entry point. Later target: 5.
+excessive-nesting-threshold = 6
+
+# --- Enabled via [lints.clippy] in Cargo.toml ---
+
+# clippy::too_many_lines (pedantic, default: 100)
+# Measured curve: 50 -> 97 | 60 -> 67 | 80 -> 42 | 100 -> 26 | 150 -> 12
+# Median function length: 71 lines. Worst offender: 448 lines.
+# 50 would mean 97 refactors at once; enter at 80 and tighten in steps.
+too-many-lines-threshold = 80
+
+# clippy::cognitive_complexity (nursery, default: 25)
+# Measured on knot-server: 14 functions over the default-ish range.
+# The lint runs post-macro-expansion and each tracing:: call adds ~6-8 points,
+# so log-dense code scores high with no real branching: setup_qdrant has ZERO
+# branches and scores 17; remove_stale_lock has 2 branches in 11 lines and
+# scores 16. 40 is the gap in the measured distribution (63 -> 35) and isolates
+# the four functions with genuine structural complexity:
+#   process_repository 160 | copy_tree 111 | worker_loop 67 | run_scheduler_iteration 63
+# Do NOT read 40 as permission to write complex functions; read it as the point
+# where the metric starts correlating with reality in this codebase.
+cognitive-complexity-threshold = 40

@@ -275,7 +275,7 @@ mod tests {
     /// subscriber, so tests can assert what `trace_http` produced without an
     /// OTel provider or any network.
     #[derive(Clone, Default)]
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity, reason = "test recorder nested types")]
     struct Recorder(Arc<Mutex<Vec<(String, HashMap<String, String>)>>>);
 
     struct FieldVisitor(HashMap<String, String>);

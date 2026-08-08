@@ -4,7 +4,6 @@ use std::process::Command;
 
 use crate::models::RepoEntry;
 
-#[allow(dead_code)]
 pub async fn run_git_clone(repo: &RepoEntry) -> anyhow::Result<()> {
     let local_path = Path::new(&repo.local_path);
 
@@ -48,7 +47,6 @@ pub async fn run_git_clone(repo: &RepoEntry) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[allow(dead_code)]
 pub async fn run_git_pull(repo: &RepoEntry) -> anyhow::Result<()> {
     let local_path = Path::new(&repo.local_path);
 

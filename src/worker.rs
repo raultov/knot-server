@@ -138,6 +138,8 @@ pub(crate) fn load_index_state_with_recovery(
     }
 }
 
+#[expect(clippy::cognitive_complexity, reason = "deferred refactoring")]
+#[expect(clippy::too_many_lines, reason = "deferred refactoring")]
 pub async fn worker_loop(
     mut rx: tokio::sync::mpsc::Receiver<IndexJob>,
     state: Arc<crate::models::AppState>,
@@ -275,6 +277,8 @@ pub(crate) async fn handle_job_failure(state: &Arc<crate::models::AppState>, rep
     .await;
 }
 
+#[expect(clippy::cognitive_complexity, reason = "deferred refactoring")]
+#[expect(clippy::too_many_lines, reason = "deferred refactoring")]
 async fn process_repository(
     repo: &RepoEntry,
     state: &Arc<crate::models::AppState>,

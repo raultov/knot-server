@@ -131,6 +131,8 @@ pub fn sync_local_working_tree(src: &str, dst: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[expect(clippy::cognitive_complexity, reason = "deferred refactoring")]
+#[expect(clippy::too_many_lines, reason = "deferred refactoring")]
 fn copy_tree(src: &Path, dst: &Path, src_root: &Path, gitignore: &Gitignore) -> anyhow::Result<()> {
     // Reading a subdirectory can fail with EACCES even when the parent
     // directory is fully accessible — e.g. an unrelated user's data/

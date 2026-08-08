@@ -36,6 +36,8 @@ pub async fn scheduler_loop(
         stale_locks_recovered = tracing::field::Empty,
     )
 )]
+#[expect(clippy::cognitive_complexity, reason = "deferred refactoring")]
+#[expect(clippy::too_many_lines, reason = "deferred refactoring")]
 fn run_scheduler_iteration(
     state: &Arc<AppState>,
     stale_lock_timeout_secs: u64,
