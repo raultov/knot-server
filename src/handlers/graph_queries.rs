@@ -5,23 +5,35 @@ use std::collections::HashSet;
 use crate::handlers::models::*;
 use crate::models::AppState;
 
+/// Neo4j query shape shared by the node, edge and overview queries.
+///
+/// `visible_set` is a `HashSet` view over `visible_kinds`, kept alongside it so
+/// the per-row membership checks in `fetch_nodes`/`fetch_edges` stay O(1)
+/// without rebuilding the set per call.
+pub struct GraphQuerySpec<'a> {
+    pub repo_id: &'a str,
+    pub depth: u32,
+    pub rel_filter: &'a str,
+    pub visible_kinds: &'a [&'a str],
+    pub visible_set: &'a HashSet<&'a str>,
+    pub include_other: bool,
+}
+
 /// Fetches graph nodes from Neo4j starting from the root repository node.
 pub async fn fetch_nodes(
     graph: &Graph,
-    repo_id: &str,
-    depth: u32,
-    rel_filter: &str,
-    visible_set: &HashSet<&str>,
-    include_other: bool,
+    spec: &GraphQuerySpec<'_>,
 ) -> anyhow::Result<Vec<GraphNodeResponse>> {
     let node_q_str = format!(
         "MATCH (root:Entity {{repo_name: $repo_name}})
          WHERE NOT ()-[:CONTAINS]->(root)
          MATCH (root)-[:{rel_filter}*0..{depth}]->(e:Entity)
-         RETURN DISTINCT e.uuid, e.name, e.kind, e.fqn, e.signature, e.file_path, e.start_line"
+         RETURN DISTINCT e.uuid, e.name, e.kind, e.fqn, e.signature, e.file_path, e.start_line",
+        rel_filter = spec.rel_filter,
+        depth = spec.depth,
     );
 
-    let node_q = query(&node_q_str).param("repo_name", repo_id);
+    let node_q = query(&node_q_str).param("repo_name", spec.repo_id);
 
     let mut rows = graph
         .execute(node_q)
@@ -37,8 +49,8 @@ pub async fn fetch_nodes(
         }
         let kind: Option<String> = row.get::<String>("e.kind").ok();
         if let Some(ref k) = kind
-            && !include_other
-            && !visible_set.contains(k.as_str())
+            && !spec.include_other
+            && !spec.visible_set.contains(k.as_str())
         {
             continue;
         }
@@ -63,26 +75,24 @@ pub async fn fetch_nodes(
 /// Fetches graph edges from Neo4j between the identified node UUIDs.
 pub async fn fetch_edges(
     graph: &Graph,
-    repo_id: &str,
-    rel_filter: &str,
-    visible_kinds: &[&str],
-    visible_set: &HashSet<&str>,
-    include_other: bool,
+    spec: &GraphQuerySpec<'_>,
     node_uuids: &HashSet<&str>,
 ) -> anyhow::Result<Vec<GraphEdgeResponse>> {
-    let edge_q = if visible_set.is_empty() && !include_other {
+    let edge_q = if spec.visible_set.is_empty() && !spec.include_other {
         String::from("RETURN DISTINCT '' AS source, '' AS target, '' AS rel LIMIT 0")
     } else {
-        let visible_list = visible_kinds
+        let visible_list = spec
+            .visible_kinds
             .iter()
             .map(|k| format!("'{}'", k))
             .collect::<Vec<_>>()
             .join(", ");
 
-        if include_other {
+        if spec.include_other {
             format!(
                 "MATCH (a:Entity {{repo_name: $repo_name}})-[r:{rel_filter}]->(b:Entity {{repo_name: $repo_name}})
-                 RETURN DISTINCT a.uuid AS source, b.uuid AS target, type(r) AS rel"
+                 RETURN DISTINCT a.uuid AS source, b.uuid AS target, type(r) AS rel",
+                rel_filter = spec.rel_filter,
             )
         } else {
             format!(
@@ -102,12 +112,13 @@ pub async fn fetch_edges(
                  WHERE c1.kind IN [{visible_list}]
                    AND c2.kind IN [{visible_list}]
                    AND c1.uuid <> c2.uuid
-                 RETURN DISTINCT c1.uuid AS source, c2.uuid AS target, type(r) AS rel"
+                 RETURN DISTINCT c1.uuid AS source, c2.uuid AS target, type(r) AS rel",
+                rel_filter = spec.rel_filter,
             )
         }
     };
 
-    let edge_q = query(&edge_q).param("repo_name", repo_id);
+    let edge_q = query(&edge_q).param("repo_name", spec.repo_id);
     let mut edge_rows = graph
         .execute(edge_q)
         .await
@@ -142,40 +153,16 @@ pub async fn fetch_edges(
 /// Fetches all nodes and edges for the overview graph.
 pub async fn fetch_all_entities(
     state: &AppState,
-    repo_id: &str,
-    depth: u32,
-    relationships: &[&str],
-    visible_kinds: &[&str],
-    include_other: bool,
+    spec: &GraphQuerySpec<'_>,
 ) -> anyhow::Result<GraphResponse> {
     let graph = Graph::new(&state.neo4j_uri, &state.neo4j_user, &state.neo4j_password)
         .context("Failed to connect to Neo4j")?;
 
-    let rel_filter = relationships.join("|");
-    let visible_set: HashSet<&str> = visible_kinds.iter().copied().collect();
-
-    let nodes = fetch_nodes(
-        &graph,
-        repo_id,
-        depth,
-        &rel_filter,
-        &visible_set,
-        include_other,
-    )
-    .await?;
+    let nodes = fetch_nodes(&graph, spec).await?;
     let node_uuids: HashSet<&str> = nodes.iter().map(|n| n.id.as_str()).collect();
     let total = nodes.len();
 
-    let edges = fetch_edges(
-        &graph,
-        repo_id,
-        &rel_filter,
-        visible_kinds,
-        &visible_set,
-        include_other,
-        &node_uuids,
-    )
-    .await?;
+    let edges = fetch_edges(&graph, spec, &node_uuids).await?;
 
     Ok(GraphResponse {
         root_id: None,

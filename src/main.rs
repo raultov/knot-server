@@ -35,6 +35,7 @@ use utoipa_axum::routes;
 use utoipa_swagger_ui::SwaggerUi;
 
 #[tokio::main]
+#[expect(clippy::too_many_lines, reason = "deferred refactoring")]
 async fn main() -> anyhow::Result<()> {
     // Order matters: parse config first (clap may print help/errors to stderr,
     // which is fine), build the tracer provider if enabled, then install the
@@ -304,6 +305,24 @@ fn setup_fastembed_cache(workspace_dir: &str) -> anyhow::Result<std::path::PathB
         .to_str()
         .expect("workspace_dir contains invalid UTF-8");
     std::fs::create_dir_all(cache_str)?;
+    // The indexing pipeline builds its own embedder inside knot
+    // (`pipeline::runner`, via `pipeline::state::fastembed_cache_dir`), and the
+    // env var is the only channel knot exposes to point it at the shared
+    // workspace cache instead of a per-repo `.knot/fastembed_cache`. Our own
+    // search-side embedder does not need it: `Embedder::init` takes the
+    // returned path directly.
+    //
+    // Caveat, and the reason this is only an audited exception rather than a
+    // clean solution: the call happens from `main` with the Tokio runtime
+    // already started, so worker threads exist and a concurrent `getenv`
+    // elsewhere would be UB. Nothing reads this variable before knot's pipeline
+    // does, but the guarantee rests on that timing, not on the type system.
+    // Proper fix is upstream: a cache-dir field on `knot::config::Config`.
+    #[expect(
+        unsafe_code,
+        reason = "knot only exposes the fastembed cache dir through KNOT_FASTEMBED_CACHE_DIR; \
+                  set once at startup before the indexing pipeline reads it"
+    )]
     unsafe {
         std::env::set_var("KNOT_FASTEMBED_CACHE_DIR", cache_str);
     }

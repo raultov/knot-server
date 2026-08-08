@@ -63,9 +63,11 @@ pub async fn search_handler(
         query,
         max_results,
         Some(&id),
-        &state.vector_db,
-        &state.graph_db,
-        embedder,
+        &knot::cli_tools::SearchContext {
+            vector_db: &state.vector_db,
+            graph_db: &state.graph_db,
+            embedder,
+        },
     )
     .await
     {

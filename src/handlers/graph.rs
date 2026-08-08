@@ -32,6 +32,7 @@ use std::sync::Arc;
     skip_all,
     fields(repo_id = %id, depth = params.depth.unwrap_or(2))
 )]
+#[expect(clippy::too_many_lines, reason = "deferred refactoring")]
 pub async fn graph_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -76,15 +77,17 @@ pub async fn graph_handler(
             };
 
             match knot::cli_tools::run_get_subgraph(
-                &entity_name,
-                &id,
-                depth,
-                &relationships,
-                direction,
-                None,
+                knot::cli_tools::SubgraphQueryParams {
+                    entity_name: &entity_name,
+                    repo_name: &id,
+                    depth,
+                    relationships: &relationships,
+                    direction,
+                    max_nodes: None,
+                    entity_uuid: entity_uuid.as_deref(),
+                    visible_kinds: kind_filter,
+                },
                 &state.graph_db,
-                entity_uuid.as_deref(),
-                kind_filter,
             )
             .await
             {
@@ -117,9 +120,18 @@ pub async fn graph_handler(
             };
             let other = includes_other(kinds_str);
 
-            match fetch_all_entities(&state, &id, depth, &relationships, &visible_kinds, other)
-                .await
-            {
+            let rel_filter = relationships.join("|");
+            let visible_set: std::collections::HashSet<&str> =
+                visible_kinds.iter().copied().collect();
+            let spec = GraphQuerySpec {
+                repo_id: &id,
+                depth,
+                rel_filter: &rel_filter,
+                visible_kinds: &visible_kinds,
+                visible_set: &visible_set,
+                include_other: other,
+            };
+            match fetch_all_entities(&state, &spec).await {
                 Ok(response) => Ok((StatusCode::OK, Json(response)).into_response()),
                 Err(e) => Err(error_response(
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -213,15 +225,17 @@ pub async fn graph_expand_handler(
     };
 
     match knot::cli_tools::run_get_subgraph(
-        &entity_name,
-        &id,
-        depth,
-        &relationships,
-        direction,
-        None,
+        knot::cli_tools::SubgraphQueryParams {
+            entity_name: &entity_name,
+            repo_name: &id,
+            depth,
+            relationships: &relationships,
+            direction,
+            max_nodes: None,
+            entity_uuid: entity_uuid.as_deref(),
+            visible_kinds: kind_filter,
+        },
         &state.graph_db,
-        entity_uuid.as_deref(),
-        kind_filter,
     )
     .await
     {
