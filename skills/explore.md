@@ -125,7 +125,7 @@ implementation, bypassing the 149 lines of imports and unrelated code above it.
 code entities (e.g. a JSON config file).
 **Solutions:**
 - Verify the file path is correct relative to the repository root.
-- Ensure it's a supported source file (Java, TS/JS, Kotlin, Rust, Python, C/C++, etc).
+- Ensure it's a supported source file (Java, TS/JS, Kotlin, Rust, Python, Varnish, C/C++, etc).
 - Double check capitalization.
 
 ## Connection-Error Footnote

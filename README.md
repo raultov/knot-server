@@ -979,7 +979,7 @@ Any Pod can receive webhook events or sync requests; the shared workspace
 
 ## 🗺️ Roadmap
 
-    - Language support in the knot library: Java, Kotlin, JavaScript, TypeScript, Rust, and Python have been refined and are polished for production use. Groovy has received significant improvements in v1.5.6 (property accessor synthesis, parser/Javadoc hardening); further refinement is planned to complete verified coverage of the JVM family. C/C++ follows as the most widely used languages still pending deep verification.
+    - Language support in the knot library: Java, Kotlin, JavaScript, TypeScript, Rust, Python, and Varnish have been refined and are polished for production use. Groovy has received significant improvements in v1.5.6 (property accessor synthesis, parser/Javadoc hardening); further refinement is planned to complete verified coverage of the JVM family. C/C++ follows as the most widely used languages still pending deep verification.
 - Implement language-based color coding in the `/graph` view to distinguish nodes by programming language.
 - Resolve cross-file aliases for JavaScript and TypeScript (`require`, `import`): when a local alias shadows an imported entity, graph relationships should resolve to the original definition rather than the alias constant. Python alias resolution to follow. 
   See PR2 plan in the knot repository.
