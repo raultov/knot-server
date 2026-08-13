@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.1] - 2026-08-13
+
+### Changed
+- **Bump `knot` to v1.6.1:** Upgraded the core library dependency to include the latest fixes from knot.
+
+---
+
 ## [0.3.0] - 2026-08-08
 
 ### Changed
