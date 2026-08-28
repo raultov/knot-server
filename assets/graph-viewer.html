@@ -102,6 +102,7 @@
     }
 
     #node-details.hidden { display: none; }
+    .hidden { display: none !important; }
 
     #node-details h3 {
       color: #fff;
@@ -278,6 +279,15 @@
       <label data-kind="functions">Functions</label>
       <label data-kind="other">Other</label>
     </div>
+    <div id="repo-deps-group" class="filter-group">
+      <span class="filter-label">Cross-Repo:</span>
+      <button id="repo-deps-toggle" style="font-size: 11px; padding: 2px 6px; background: #1a1a1a; border: 1px solid #444; border-radius: 3px; color: #aaa; cursor: pointer;">Repo Deps</button>
+      <select id="repo-deps-direction" style="font-size: 11px; padding: 2px 4px; background: #1a1a1a; border: 1px solid #444; border-radius: 3px; color: #aaa; cursor: pointer;" disabled>
+        <option value="both">Both Directions</option>
+        <option value="outgoing">Depends on</option>
+        <option value="incoming">Used by</option>
+      </select>
+    </div>
     <div style="position: relative; display: flex; gap: 8px; align-items: center;">
       <input id="search-input" type="text" placeholder="Search entity..." disabled />
       <button id="search-btn" disabled>Search</button>
@@ -297,6 +307,7 @@
     <div id="detail-line"></div>
     <pre id="detail-signature"></pre>
     <button id="explore-btn" class="hidden">Focus on Entity</button>
+    <button id="open-repo-btn" class="hidden" style="margin-top: 12px; padding: 6px 16px; background: #50C878; color: #fff; border: none; border-radius: 4px; cursor: pointer; display: block;">Open Repository</button>
     <button id="back-btn" class="hidden">Back to Overview</button>
   </div>
 
@@ -327,6 +338,8 @@
       lastProgressFetch: 0,
       // In-flight request so concurrent openers reuse the same fetch.
       progressFetchInFlight: null,
+      repoDepsMode: false,
+      savedDepth: null,
     };
 
     // Minimum interval between /api/progress requests triggered by the
@@ -354,6 +367,9 @@
       kotlin_enum:    '#7B2D8E',
       python_function:'#306998',
       python_class:   '#FFD43B',
+      repository_root: '#ffffff',
+      repository_dependency: '#2EC4B6',
+      repository_dependent: '#F39C12',
       default:        '#666666',
     };
 
@@ -476,6 +492,13 @@
       return apiGet('/api/repos/' + repoId + '/graph?' + params);
     }
 
+    async function fetchRepoGraph(repoId, depth, direction) {
+      depth = depth || parseInt(document.getElementById('depth-select')?.value) || 3;
+      direction = direction || 'both';
+      var params = new URLSearchParams({ depth: depth, direction: direction });
+      return apiGet('/api/repos/' + repoId + '/graph/repos?' + params);
+    }
+
     async function fetchExpandNode(repoId, entity, entityId, excludeUuids, depth, relationships, direction) {
       depth = depth || 2;
       relationships = relationships || getActiveRelationships();
@@ -544,6 +567,54 @@
       }
     }
 
+    function mergeRepoGraph(subgraph) {
+      for (var i = 0; i < subgraph.nodes.length; i++) {
+        var node = subgraph.nodes[i];
+        if (!state.nodeMap.has(node.id)) {
+          var repoColor = kindColor('repository_' + node.relation);
+          var graphNode = {
+            id: node.id,
+            name: node.name,
+            kind: 'repository',
+            buildSystem: node.build_system,
+            groupId: node.group_id,
+            artifactId: node.artifact_id,
+            version: node.version,
+            isRoot: node.is_root,
+            registered: node.registered,
+            relation: node.relation,
+            color: repoColor,
+          };
+          state.nodeMap.set(node.id, graphNode);
+          state.graphData.nodes.push(graphNode);
+        }
+      }
+
+      var existingEdges = new Map();
+      for (var j = 0; j < state.graphData.links.length; j++) {
+        var l = state.graphData.links[j];
+        var s = l.source.id || l.source;
+        var t = l.target.id || l.target;
+        existingEdges.set(s + '->' + t, l);
+      }
+
+      for (var k = 0; k < subgraph.edges.length; k++) {
+        var edge = subgraph.edges[k];
+        var key = edge.source + '->' + edge.target;
+        var link = existingEdges.get(key);
+        if (!link) {
+          var newLink = {
+            source: edge.source,
+            target: edge.target,
+            type: edge.type,
+            isNewDiscovery: false,
+          };
+          state.graphData.links.push(newLink);
+          existingEdges.set(key, newLink);
+        }
+      }
+    }
+
     function resetGraph() {
       state.graphData = { nodes: [], links: [] };
       state.nodeMap.clear();
@@ -563,17 +634,27 @@
           label += '<div style="font-size: 11px; color: #aaa;">' + n.kind + '</div>';
           if (n.filePath) {
              label += '<div style="font-size: 10px; color: #888;">' + n.filePath + ':' + (n.startLine || '?') + '</div>';
+          } else if (n.buildSystem) {
+             label += '<div style="font-size: 10px; color: #888;">' + n.buildSystem + (n.version ? ' v' + n.version : '') + '</div>';
           }
           label += '</div>';
           return label;
         })
         .nodeColor(function(n) { return n.id === state.focusedEntity ? '#ffffff' : n.color; })
-        .nodeVal(function(n) { return n.id === state.focusedEntity ? 5 : (state.expandedNodes.has(n.id) ? 3 : 1); })
+        .nodeVal(function(n) {
+          if (n.kind === 'repository') {
+            return n.isRoot ? 6 : 4;
+          }
+          return n.id === state.focusedEntity ? 5 : (state.expandedNodes.has(n.id) ? 3 : 1);
+        })
         .nodeOpacity(0.9)
         .linkDirectionalArrowLength(6)
         .linkDirectionalArrowRelPos(1)
         .linkCurvature(0.1)
-        .linkColor(function(l) { return l.isNewDiscovery ? 'rgba(80,200,120,0.9)' : 'rgba(100,160,255,0.8)'; })
+        .linkColor(function(l) {
+          if (l.type === 'DEPENDS_ON') return 'rgba(243,156,18,0.8)';
+          return l.isNewDiscovery ? 'rgba(80,200,120,0.9)' : 'rgba(100,160,255,0.8)';
+        })
         .linkWidth(1.5)
         .backgroundColor('#0a0a0a')
         .warmupTicks(100)
@@ -623,6 +704,35 @@
       document.getElementById('detail-name').textContent = node.name;
       
       var detailFqn = document.getElementById('detail-fqn');
+      var detailFile = document.getElementById('detail-file');
+      var detailLine = document.getElementById('detail-line');
+      var sigPre = document.getElementById('detail-signature');
+      var exploreBtn = document.getElementById('explore-btn');
+      var openRepoBtn = document.getElementById('open-repo-btn');
+
+      if (node.kind === 'repository') {
+        detailFqn.style.display = 'none';
+        document.getElementById('detail-kind').textContent = 'Kind: repository (' + node.relation + ')';
+        
+        var buildInfo = 'Build System: ' + (node.buildSystem || 'unknown');
+        if (node.artifactId) {
+          buildInfo += ' (' + (node.groupId ? node.groupId + ':' : '') + node.artifactId + ')';
+        }
+        detailFile.textContent = buildInfo;
+        detailFile.title = buildInfo;
+        detailLine.textContent = 'Version: ' + (node.version || 'unknown');
+        sigPre.style.display = 'none';
+        exploreBtn.classList.add('hidden');
+        if (node.registered && !node.isRoot) {
+          openRepoBtn.classList.remove('hidden');
+        } else {
+          openRepoBtn.classList.add('hidden');
+        }
+        return;
+      }
+
+      openRepoBtn.classList.add('hidden');
+
       if (node.fqn && node.fqn !== node.name) {
         detailFqn.textContent = node.fqn;
         detailFqn.style.display = 'block';
@@ -637,12 +747,10 @@
       }
       document.getElementById('detail-kind').innerHTML = kindHtml;
       var filePath = node.filePath || '(unknown)';
-      var detailFile = document.getElementById('detail-file');
       detailFile.textContent = 'File: ' + filePath;
       detailFile.title = filePath;
-      document.getElementById('detail-line').textContent = 'Line: ' + (node.startLine || '?');
+      detailLine.textContent = 'Line: ' + (node.startLine || '?');
 
-      var sigPre = document.getElementById('detail-signature');
       if (node.signature) {
         var displaySig = node.signature;
         if (isSynthetic) {
@@ -654,7 +762,6 @@
         sigPre.style.display = 'none';
       }
 
-      var exploreBtn = document.getElementById('explore-btn');
       exploreBtn.classList.remove('hidden');
     }
 
@@ -669,6 +776,13 @@
 
     function refreshGraphWithFilters() {
       if (!state.selectedRepo) return;
+
+      if (state.repoDepsMode) {
+        resetGraph();
+        refreshGraph();
+        loadRepoGraph(state.selectedRepo);
+        return;
+      }
 
       var kinds = getActiveKinds();
       if (!kinds) {
@@ -749,6 +863,7 @@
       var relToggles = document.querySelectorAll('#rel-toggles label');
       for (var i = 0; i < relToggles.length; i++) {
         relToggles[i].addEventListener('click', function() {
+          if (state.repoDepsMode) return; // ignore in Repo Deps mode
           this.classList.toggle('active');
           var rel = this.getAttribute('data-rel');
           var kindLabels = document.querySelectorAll('#kind-toggles label');
@@ -819,6 +934,7 @@
       var kindToggles = document.querySelectorAll('#kind-toggles label');
       for (var i = 0; i < kindToggles.length; i++) {
         kindToggles[i].addEventListener('click', function() {
+          if (state.repoDepsMode) return; // ignore in Repo Deps mode
           this.classList.toggle('active');
           var kindVal = this.getAttribute('data-kind');
           // Unpin from any rel's auto-tracking so this manual decision sticks.
@@ -829,6 +945,56 @@
           refreshGraphWithFilters();
         });
       }
+
+      // Repo Deps toggle and direction handlers
+      var repoDepsToggle = document.getElementById('repo-deps-toggle');
+      var repoDepsDirection = document.getElementById('repo-deps-direction');
+
+      repoDepsToggle.addEventListener('click', function() {
+        if (!state.selectedRepo) return;
+        state.repoDepsMode = !state.repoDepsMode;
+        
+        if (state.repoDepsMode) {
+          this.style.background = '#1a2a3a';
+          this.style.borderColor = '#4A90D9';
+          this.style.color = '#fff';
+          repoDepsDirection.disabled = false;
+
+          // Save current depth and adjust to 3 for repo deps view
+          var depthSelect = document.getElementById('depth-select');
+          state.savedDepth = parseInt(depthSelect.value) || 2;
+          depthSelect.value = 3;
+
+          resetGraph();
+          refreshGraph();
+          hideNodeDetails();
+          loadRepoGraph(state.selectedRepo);
+        } else {
+          this.style.background = '#1a1a1a';
+          this.style.borderColor = '#444';
+          this.style.color = '#aaa';
+          repoDepsDirection.disabled = true;
+
+          // Restore saved depth
+          if (state.savedDepth !== null) {
+            document.getElementById('depth-select').value = state.savedDepth;
+            state.savedDepth = null;
+          }
+
+          resetGraph();
+          refreshGraph();
+          hideNodeDetails();
+          loadOverview(state.selectedRepo);
+        }
+      });
+
+      repoDepsDirection.addEventListener('change', function() {
+        if (!state.selectedRepo || !state.repoDepsMode) return;
+        resetGraph();
+        refreshGraph();
+        hideNodeDetails();
+        loadRepoGraph(state.selectedRepo);
+      });
 
       // Refresh the dropdown labels whenever the user opens it. Both
       // mousedown (mouse) and keydown (keyboard: Alt+↓, Enter, Space)
@@ -846,8 +1012,19 @@
         state.selectedRepo = e.target.value || null;
         state.focusedEntity = null;
 
-        // Reset to default overview filters and depth when switching repos
-        document.getElementById('depth-select').value = 2;
+        // Exit Repo Deps mode if we switch repos
+        if (state.repoDepsMode) {
+          state.repoDepsMode = false;
+          var btn = document.getElementById('repo-deps-toggle');
+          btn.style.background = '#1a1a1a';
+          btn.style.borderColor = '#444';
+          btn.style.color = '#aaa';
+          document.getElementById('repo-deps-direction').disabled = true;
+          document.getElementById('depth-select').value = 2;
+        } else {
+          document.getElementById('depth-select').value = 2;
+        }
+
         document.getElementById('clear-btn').classList.add('hidden');
         document.getElementById('back-btn').classList.add('hidden');
         document.getElementById('search-input').value = '';
@@ -936,6 +1113,27 @@
         await selectEntity(node);
       });
 
+      document.getElementById('open-repo-btn').addEventListener('click', function() {
+        var node = state.selectedNode;
+        if (!node || node.kind !== 'repository' || !node.registered) return;
+
+        // Exit Repo Deps mode
+        state.repoDepsMode = false;
+        var toggleBtn = document.getElementById('repo-deps-toggle');
+        toggleBtn.style.background = '#1a1a1a';
+        toggleBtn.style.borderColor = '#444';
+        toggleBtn.style.color = '#aaa';
+        document.getElementById('repo-deps-direction').disabled = true;
+
+        // Select the new repo
+        var select = document.getElementById('repo-select');
+        select.value = node.id;
+        
+        // Trigger select change handler manually
+        var event = new Event('change');
+        select.dispatchEvent(event);
+      });
+
       document.getElementById('back-btn').addEventListener('click', function() {
         clearFocusedEntity();
       });
@@ -978,6 +1176,30 @@
         setStatus('Loaded ' + overview.nodes.length + ' entities, ' + overview.edges.length + ' edges');
       } catch (err) {
         setStatus('Error loading overview: ' + err.message);
+      }
+    }
+
+    async function loadRepoGraph(repoId) {
+      var depth = parseInt(document.getElementById('depth-select').value) || 3;
+      var direction = document.getElementById('repo-deps-direction').value || 'both';
+      try {
+        setStatus('Loading repository dependencies for ' + repoId + '...');
+        var subgraph = await fetchRepoGraph(repoId, depth, direction);
+        if (!subgraph.nodes || subgraph.nodes.length === 0) {
+          setStatus('No cross-repo dependencies found for ' + repoId + ' — only indexed repos with a build manifest are linked.');
+          return;
+        }
+
+        mergeRepoGraph(subgraph);
+        refreshGraph();
+
+        setTimeout(function() {
+          state.graph.zoomToFit(400);
+        }, 500);
+
+        setStatus('Loaded ' + subgraph.nodes.length + ' repositories, ' + subgraph.edges.length + ' DEPENDS_ON edges');
+      } catch (err) {
+        setStatus('Error loading repository graph: ' + err.message);
       }
     }
 
