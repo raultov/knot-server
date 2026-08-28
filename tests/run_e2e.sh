@@ -435,11 +435,13 @@ if [ "$INDEXED_OK" = "true" ]; then
     CODE=$(curl -s -w "%{http_code}" -o /tmp/g7.html "http://localhost:${SERVER_PORT}/graph")
     HAS_DOCTYPE=$(grep -c '<!DOCTYPE html>' /tmp/g7.html || true)
     HAS_FORCE=$(grep -c 'ForceGraph3D' /tmp/g7.html || true)
+    HAS_HIDDEN_RULE=$(grep -cE '\.hidden[[:space:]]*\{[^}]*display:[[:space:]]*none' /tmp/g7.html || true)
+    HAS_REPO_DEPS=$(grep -c 'repo-deps-toggle' /tmp/g7.html || true)
 
-    if [ "$CODE" = "200" ] && [ "$HAS_DOCTYPE" -ge 1 ] && [ "$HAS_FORCE" -ge 1 ]; then
-      echo -e "${GREEN}PASS${NC}: HTML viewer served correctly"
+    if [ "$CODE" = "200" ] && [ "$HAS_DOCTYPE" -ge 1 ] && [ "$HAS_FORCE" -ge 1 ] && [ "$HAS_HIDDEN_RULE" -ge 1 ] && [ "$HAS_REPO_DEPS" -ge 1 ]; then
+      echo -e "${GREEN}PASS${NC}: HTML viewer served correctly with .hidden CSS rule and repo deps UI"
     else
-      echo -e "${RED}FAIL${NC}: status=$CODE, doctype=$HAS_DOCTYPE, forcegraph=$HAS_FORCE"
+      echo -e "${RED}FAIL${NC}: status=$CODE, doctype=$HAS_DOCTYPE, forcegraph=$HAS_FORCE, hidden_rule=$HAS_HIDDEN_RULE, repo_deps_ui=$HAS_REPO_DEPS"
       exit 1
     fi
 
@@ -1361,6 +1363,39 @@ rm -rf "$LOCAL_LIVE_PATH"
 rm -rf "$LOCAL_SOURCE_ROOT"
 rm -f /tmp/s2_explore.json
 echo "  Cleaned up local live repo"
+
+# ── Test G13-G17: Repository Dependency Graph endpoint ──
+echo -e "\n${CYAN}Test G13-G17: Repository Dependency Graph endpoint${NC}"
+
+# E2E test for the repo-graph endpoint requires indexing mock repos with dependencies.
+# The endpoint is designed to return a 200 with empty lists if there's no depends-on data,
+# and a 404 for unknown repos, and 400 for bad direction.
+G13_CODE=$(curl -s -w "%{http_code}" -o /tmp/g13.json "$BASE_URL/api/repos/recovery-indexing-bug/graph/repos?direction=outgoing")
+if [ "$G13_CODE" = "200" ] && jq -e '.nodes' /tmp/g13.json > /dev/null; then
+    echo -e "${GREEN}PASS${NC} — G13: Repo graph returned 200 with nodes for registered repo"
+else
+    echo -e "${RED}FAIL${NC} — G13: status=$G13_CODE"
+    cat /tmp/g13.json
+    exit 1
+fi
+
+G14_CODE=$(curl -s -w "%{http_code}" -o /tmp/g14.json "$BASE_URL/api/repos/non-existent-repo-12345/graph/repos")
+if [ "$G14_CODE" = "404" ] && jq -e '.error' /tmp/g14.json > /dev/null; then
+    echo -e "${GREEN}PASS${NC} — G14: Repo graph returned 404 for non-existent repo"
+else
+    echo -e "${RED}FAIL${NC} — G14: status=$G14_CODE"
+    cat /tmp/g14.json
+    exit 1
+fi
+
+G15_CODE=$(curl -s -w "%{http_code}" -o /tmp/g15.json "$BASE_URL/api/repos/recovery-indexing-bug/graph/repos?direction=invalid-dir")
+if [ "$G15_CODE" = "400" ] && jq -e '.error' /tmp/g15.json > /dev/null; then
+    echo -e "${GREEN}PASS${NC} — G15: Repo graph returned 400 for invalid direction"
+else
+    echo -e "${RED}FAIL${NC} — G15: status=$G15_CODE"
+    cat /tmp/g15.json
+    exit 1
+fi
 
 # -------------------------------------------------------
 # Step 9: Summary

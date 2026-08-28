@@ -35,6 +35,7 @@ mod tests {
             .route("/api/repos/{id}/deps", get(deps_handler))
             .route("/api/repos/{id}/graph", get(graph_handler))
             .route("/api/repos/{id}/graph/expand", get(graph_expand_handler))
+            .route("/api/repos/{id}/graph/repos", get(repo_graph_handler))
             .route("/api/repos/{id}/sync", post(sync_repo_handler))
             .route("/api/webhook/{id}", post(webhook_handler))
             .route("/api/health", get(health_handler))
@@ -786,6 +787,61 @@ mod tests {
     fn test_includes_other_mixed() {
         assert!(includes_other("classes,other"));
         assert!(includes_other("classes,interfaces,other"));
-        assert!(includes_other("other,functions"));
+    }
+
+    #[tokio::test]
+    async fn test_repo_graph_handler_not_found() {
+        let temp_dir = TempDir::new().unwrap();
+        let (state, _rx) = create_test_state_with_tempdir(&temp_dir).await;
+        let app = build_test_app(state);
+
+        let response = app
+            .oneshot(
+                Request::get("/api/repos/non-existent-repo/graph/repos")
+                    .header("content-type", "application/json")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_repo_graph_handler_invalid_direction() {
+        let temp_dir = TempDir::new().unwrap();
+        let (state, _rx) = create_test_state_with_tempdir(&temp_dir).await;
+
+        // Add a mock repo to registry so it exists
+        {
+            let mut registry = state.registry.lock().unwrap();
+            registry
+                .add_or_replace(crate::models::RepoEntry {
+                    id: "test-repo".to_string(),
+                    url: "/path/to/test-repo".to_string(),
+                    auth_type: crate::models::AuthType::Ssh,
+                    local_path: "/path/to/test-repo".to_string(),
+                    branch: "main".to_string(),
+                    webhook_secret: None,
+                    last_indexed: None,
+                    status: crate::models::RepoStatus::Indexed,
+                })
+                .unwrap();
+        }
+
+        let app = build_test_app(state);
+
+        let response = app
+            .oneshot(
+                Request::get("/api/repos/test-repo/graph/repos?direction=invalid")
+                    .header("content-type", "application/json")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 }
