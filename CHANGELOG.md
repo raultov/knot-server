@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.4] - 2026-08-28
+
+### Added
+- **Repository Dependency Graph endpoint**: Added `GET /api/repos/{id}/graph/repos` to query repository-level dependency graphs (`DEPENDS_ON` relations).
+- **Graph Viewer Cross-Repo mode**: Added "Repo Deps" toggle and direction selector to the 3D graph viewer to visually explore codebase dependencies/dependents across the indexed ecosystem.
+- **Details Panel Open Repository button**: Added an option to transition/explore another repository directly from the details panel when selecting dependency nodes.
+- **Postman collection**: Added the new endpoint request to `knot-server.postman_collection.json`.
+- **Spec**: Added the TDD/BDD implementation plan at `docs/specs/cross_repo_dependencies_graph_plan.md`.
+
+### Fixed
+- **Viewer `.hidden` CSS Rule**: Added `.hidden { display: none !important; }` to `assets/graph-viewer.html` stylesheet to fix existing buttons (`#clear-btn`, `#back-btn`, `#explore-btn`) not visually hiding on state changes.
+
+---
+
 ## [0.3.3] - 2026-08-28
 
 ### Fixed
