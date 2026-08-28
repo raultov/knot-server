@@ -1,6 +1,6 @@
-# Knot-Server Graph: Entity Relationship Subgraphs
+# Knot-Server Graph: Entity and Repository Relationship Subgraphs
 
-**Endpoints:** `GET /api/repos/{id}/graph` and `GET /api/repos/{id}/graph/expand`
+**Endpoints:** `GET /api/repos/{id}/graph`, `GET /api/repos/{id}/graph/expand` and `GET /api/repos/{id}/graph/repos`
 
 ## Step 0: Preflight
 
@@ -10,9 +10,9 @@ is not indexed, stop and inform the user.
 
 ## Purpose
 
-Query the raw entity relationship graph. The graph endpoints allow you to
-extract a subgraph centered on a specific entity, or get an overview of the
-entire repository architecture. This provides raw nodes and edges that you can
+Query the raw entity relationship graph or repository-level dependency graphs. The graph endpoints allow you to
+extract a subgraph centered on a specific entity, get an overview of the
+entire repository architecture, or inspect the cross-repository dependency layout. This provides raw nodes and edges that you can
 analyze or render.
 
 Users can also explore these graphs visually by opening the interactive viewer
@@ -88,7 +88,25 @@ curl -fsS -G \
   | jq
 ```
 
-## Output Format
+## Request 3: Get Repository Dependency Graph (Cross-Repo)
+
+Query the cross-repository dependency layout showing how repositories depend on one another.
+
+```bash
+curl -fsS -G \
+  --data-urlencode "depth=3" \
+  --data-urlencode "direction=both" \
+  "${KNOT_SERVER_URL:-http://localhost:3000}/api/repos/${REPO_ID}/graph/repos" \
+  | jq
+```
+
+### Parameters
+
+- **`id`** (path): The repository ID.
+- **`depth`** (query, optional, default: 3): Traversal depth (1-5).
+- **`direction`** (query, optional, default: "both"): Traversal direction (`incoming`, `outgoing`, `both`).
+
+## Output Format (Entity Graph)
 
 Both endpoints return a `GraphResponse` object:
 

@@ -115,6 +115,29 @@ With `knot-server`, you can register Git repositories via a REST API, trigger au
   | `direction` | String | `both` | `outgoing`, `incoming`, or `both` |
   | `kinds` | CSV | `classes,interfaces` | Entity types to include. |
 
+- **`GET /api/repos/:id/graph/repos`**: Query repository-level dependency graph (DEPENDS_ON relations). Returns nodes and edges in JSON format for repository-level cross-dependency tracking.
+
+  | Parameter | Type | Default | Description |
+  |-----------|------|---------|-------------|
+  | `depth` | u32 | `3` | Traversal depth (1–5) |
+  | `direction` | String | `both` | `outgoing`, `incoming`, or `both` |
+
+  **Note on Repo-Deps View:** Enables 3D codebase visual tracking of dependencies/dependents across the indexed ecosystem in the web UI. Requires repositories with build manifests (such as Cargo.toml or package.json) to be indexed.
+
+  **Response** (`200 OK`):
+  ```json
+  {
+    "root_id": "app",
+    "nodes": [
+      { "id": "app", "name": "app", "build_system": "cargo", "group_id": "", "artifact_id": "app", "version": "1.0.0", "is_root": true, "registered": true, "relation": "root" }
+    ],
+    "edges": [
+      { "source": "app", "target": "lib", "type": "DEPENDS_ON" }
+    ],
+    "total_nodes_found": 2
+  }
+  ```
+
   **Note on Overview Mode:** When no `entity` is provided, the server identifies "entry points" (entities not contained by others) and traverses from them using the selected relationship types. Disconnected nodes are automatically pruned in focused views.
 
   **Response** (`200 OK`):
