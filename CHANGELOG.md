@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.3] - 2026-08-28
+
+### Fixed
+- **Fixed the `/index` skill:** the registration payload sent `"auth_type": {"type": "none"}`, an object form that the API never accepted (`AuthType` only deserializes the plain strings `"ssh"` and `"https"`), so every registration attempt failed with `422 Unprocessable Entity`. The skill now omits `auth_type` (optional, defaults to `"ssh"`) and documents the accepted values. Also corrected the same broken payload in the `repos` skill.
+
+---
+
 ## [0.3.2] - 2026-08-15
 
 ### Changed
