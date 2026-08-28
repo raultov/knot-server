@@ -40,11 +40,10 @@ curl -fsS "${KNOT_SERVER_URL:-http://localhost:3000}/api/repos" \
 ```bash
 curl -fsS -X POST "${KNOT_SERVER_URL:-http://localhost:3000}/api/repos" \
   -H "Content-Type: application/json" \
-  -d "{
-    \"url\": \"$REPO_PATH\",
-    \"auth_type\": \"ssh\"
-  }" | jq
+  -d "{\"url\": \"$REPO_PATH\"}" | jq
 ```
+
+`auth_type` is optional and only accepts `"ssh"` (default) or `"https"`; it is irrelevant for local paths, so omit it.
 
 The server will attempt to read this as a local path. **Note:** if running in Docker, the path must be mounted inside the container (e.g., via `KNOT_LOCAL_REPOS_DIR` or inside `/var/lib/knot/repos`). Always provide a valid, non-empty URL or path to avoid creating an undeletable empty repository entry. The response should be HTTP 202 Accepted.
 

@@ -36,10 +36,12 @@ Run:
 ```
 curl -fsS -X POST "${KNOT_SERVER_URL:-http://localhost:3000}/api/repos" \
   -H "Content-Type: application/json" \
-  -d "{\"url\": \"$(pwd)\", \"auth_type\": {\"type\": \"none\"}}"
+  -d "{\"url\": \"$(pwd)\"}"
 ```
 
 The server detects a local path and mirrors the working tree. Expect HTTP 202.
+
+`auth_type` is optional and only accepts `"ssh"` (default) or `"https"`; it is irrelevant for local paths, so omit it.
 
 ## Step 4: Wait for indexing to complete
 

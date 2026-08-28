@@ -58,7 +58,7 @@ curl -fsS -X POST "${KNOT_SERVER_URL:-http://localhost:3000}/api/repos" \
   -d '{
     "url": "https://github.com/user/my-app.git",
     "branch": "main",
-    "auth_type": { "type": "none" }
+    "auth_type": "ssh"
   }' | jq
 ```
 
@@ -71,7 +71,7 @@ scratch).
   Local paths are mirrored without git, picking up uncommitted changes.
 - `name` (optional): Display name. Derived from URL if omitted.
 - `branch` (optional, default "main"): Branch to clone.
-- `auth_type` (optional, default `{"type": "ssh"}`): `{"type": "none"}`, `{"type": "ssh"}`, or `{"type": "https", "token": "..."}`.
+- `auth_type` (optional, default `"ssh"`): accepts only `"ssh"` or `"https"` (plain strings — no nested object).
 - `webhook_secret` (optional): Secret for the webhook endpoint.
 
 ## 4. Trigger Manual Sync
