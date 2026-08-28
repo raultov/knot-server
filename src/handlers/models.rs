@@ -87,6 +87,45 @@ pub struct GraphExpandParams {
     pub kinds: Option<String>,
 }
 
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct RepoGraphParams {
+    /// Traversal depth (1-5)
+    #[param(example = 3)]
+    pub depth: Option<u32>,
+    /// Traversal direction: incoming, outgoing, or both
+    #[param(example = "both")]
+    pub direction: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum RepoRelation {
+    Root,
+    Dependency,
+    Dependent,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct RepoGraphNode {
+    pub id: String,
+    pub name: String,
+    pub build_system: Option<String>,
+    pub group_id: Option<String>,
+    pub artifact_id: Option<String>,
+    pub version: Option<String>,
+    pub is_root: bool,
+    pub registered: bool,
+    pub relation: RepoRelation,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct RepoGraphResponse {
+    pub root_id: Option<String>,
+    pub nodes: Vec<RepoGraphNode>,
+    pub edges: Vec<GraphEdgeResponse>,
+    pub total_nodes_found: usize,
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct GraphNodeResponse {
     pub id: String,
@@ -99,7 +138,7 @@ pub struct GraphNodeResponse {
     pub start_line: Option<i64>,
 }
 
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct GraphEdgeResponse {
     pub source: String,
     pub target: String,

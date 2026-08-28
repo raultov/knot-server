@@ -167,6 +167,7 @@ async fn main() -> anyhow::Result<()> {
         .routes(routes!(handlers::deps_handler))
         .routes(routes!(handlers::graph_handler))
         .routes(routes!(handlers::graph_expand_handler))
+        .routes(routes!(handlers::repo_graph_handler))
         .routes(routes!(handlers::webhook_handler))
         .routes(routes!(handlers::health_handler))
         .split_for_parts();
