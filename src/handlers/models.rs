@@ -208,6 +208,11 @@ pub const KIND_CATEGORY_CLASSES: &[&str] = &[
     "cpp_namespace",
     "groovy_class",
     "groovy_enum",
+    "csharp_class",
+    "csharp_struct",
+    "csharp_record",
+    "csharp_enum",
+    "csharp_delegate",
     "enum",
     "vcl_backend",
     "vcl_probe",
@@ -226,6 +231,7 @@ pub const KIND_CATEGORY_INTERFACES: &[&str] = &[
     "rust_trait",
     "groovy_interface",
     "groovy_trait",
+    "csharp_interface",
 ];
 
 pub const KIND_CATEGORY_FUNCTIONS: &[&str] = &[
@@ -254,6 +260,15 @@ pub const KIND_CATEGORY_FUNCTIONS: &[&str] = &[
     "groovy_method",
     "groovy_function",
     "groovy_property",
+    "csharp_method",
+    "csharp_constructor",
+    "csharp_local_function",
+    "csharp_operator",
+    "csharp_indexer",
+    "csharp_property",
+    "csharp_field",
+    "csharp_event",
+    "csharp_constant",
     "constant",
     "vcl_subroutine",
     "vcl_builtin_sub",
@@ -375,6 +390,91 @@ mod tests {
                     && !KIND_CATEGORY_INTERFACES.contains(k)
                     && !KIND_CATEGORY_FUNCTIONS.contains(k),
                 "{k} must not be in any category"
+            );
+        }
+    }
+
+    /// Every declaration kind knot's C# extractor emits must land in a
+    /// category, otherwise the graph overview renders empty for C# repos under
+    /// the default `classes,interfaces` filter. `csharp_namespace` is the sole
+    /// exception: it is a container, not a declaration, and every namespace node
+    /// is isolated under CALLS/EXTENDS/IMPLEMENTS, so it stays in `other`.
+    #[test]
+    fn every_csharp_kind_is_categorised() {
+        const CSHARP_KINDS: &[&str] = &[
+            "csharp_class",
+            "csharp_constant",
+            "csharp_constructor",
+            "csharp_delegate",
+            "csharp_enum",
+            "csharp_event",
+            "csharp_field",
+            "csharp_indexer",
+            "csharp_interface",
+            "csharp_local_function",
+            "csharp_method",
+            "csharp_operator",
+            "csharp_property",
+            "csharp_record",
+            "csharp_struct",
+        ];
+
+        for k in CSHARP_KINDS {
+            assert!(
+                KIND_CATEGORY_CLASSES.contains(k)
+                    || KIND_CATEGORY_INTERFACES.contains(k)
+                    || KIND_CATEGORY_FUNCTIONS.contains(k),
+                "{k} must belong to a kind category"
+            );
+        }
+    }
+
+    #[test]
+    fn csharp_namespace_is_only_reachable_via_other() {
+        assert!(
+            !KIND_CATEGORY_CLASSES.contains(&"csharp_namespace")
+                && !KIND_CATEGORY_INTERFACES.contains(&"csharp_namespace")
+                && !KIND_CATEGORY_FUNCTIONS.contains(&"csharp_namespace"),
+            "csharp_namespace must stay uncategorised so the default overview \
+             is not flooded with isolated container nodes"
+        );
+    }
+
+    #[test]
+    fn csharp_type_kinds_are_visible_by_default() {
+        for k in [
+            "csharp_class",
+            "csharp_struct",
+            "csharp_record",
+            "csharp_enum",
+        ] {
+            assert!(
+                KIND_CATEGORY_CLASSES.contains(&k),
+                "{k} must be in KIND_CATEGORY_CLASSES so it is visible by default"
+            );
+        }
+        assert!(
+            KIND_CATEGORY_INTERFACES.contains(&"csharp_interface"),
+            "csharp_interface must be in KIND_CATEGORY_INTERFACES"
+        );
+    }
+
+    #[test]
+    fn csharp_member_kinds_are_functions() {
+        for k in [
+            "csharp_method",
+            "csharp_constructor",
+            "csharp_local_function",
+            "csharp_operator",
+            "csharp_indexer",
+            "csharp_property",
+            "csharp_field",
+            "csharp_event",
+            "csharp_constant",
+        ] {
+            assert!(
+                KIND_CATEGORY_FUNCTIONS.contains(&k),
+                "{k} must be in KIND_CATEGORY_FUNCTIONS"
             );
         }
     }
