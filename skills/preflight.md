@@ -56,7 +56,7 @@ curl -fsS "${KNOT_SERVER_URL:-http://localhost:3000}/api/health" | jq
 
 | Symptom | Likely cause | Action |
 |---|---|---|
-| `curl: (7) Failed to connect` | Server not running, or wrong port | Ask: "knot-server no responde en `${KNOT_SERVER_URL:-http://localhost:3000}`. ¿En qué puerto está corriendo? (default 3000, env `KNOT_SERVER_PORT`)". Re-export `KNOT_SERVER_URL` and retry. |
+| `curl: (7) Failed to connect` | Server not running, or wrong port | Ask: "knot-server is not responding at `${KNOT_SERVER_URL:-http://localhost:3000}`. What port is it running on? (default 3000, env `KNOT_SERVER_PORT`)". Re-export `KNOT_SERVER_URL` and retry. |
 | `curl: (28) Connection timed out` | Wrong host / firewall | Ask the user the correct host and port. |
 | HTTP 5xx | Server is up but in a bad state | Report the error verbatim to the user and stop. |
 | `repositories_indexing > 0` | An index is in flight | Either wait and retry, or warn that results for that repo may be partial. |
@@ -92,8 +92,8 @@ curl -fsS "${KNOT_SERVER_URL:-http://localhost:3000}/api/repos" \
 
 ```
 └── Is there a repo whose id matches the project I'm in?
-    ├── No  → Ask the user: "El repo no está registrado. ¿Quieres registrarlo
-    │         con POST /api/repos? (ver skill knot-server-repos)". Then STOP.
+    ├── No  → Ask the user: "The repo is not registered. Do you want to register it
+    │         with POST /api/repos? (see skill knot-server-list-repos)". Then STOP.
     └── Yes → Is its status == "indexed"?
               ├── No  → Stop. Tell the user the current status and
               │         (if "error") fetch GET /api/repos/{id} for details.
@@ -145,8 +145,8 @@ curl -fsS "${KNOT_SERVER_URL:-http://localhost:3000}/api/repos" \
 ⚠️ **If any call here returns connection refused / timeout / network
 error, stop and ask the user:**
 
-> *"knot-server no responde en `${KNOT_SERVER_URL:-http://localhost:3000}`.
-> ¿En qué puerto está corriendo? (default 3000, env `KNOT_SERVER_PORT`,
+> *"knot-server is not responding at `${KNOT_SERVER_URL:-http://localhost:3000}`.
+> What port is it running on? (default 3000, env `KNOT_SERVER_PORT`,
 > CLI flag `--port`)."*
 
 Then re-export `KNOT_SERVER_URL` and retry. Never silently fall back to

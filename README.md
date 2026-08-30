@@ -32,6 +32,50 @@ With `knot-server`, you can register Git repositories via a REST API, trigger au
 
 ---
 
+## 🧮 Token Efficiency — Measured, Not Claimed
+
+An LLM agent exploring an unfamiliar codebase pays for every byte it reads. Without an index it greps and then reads whole files; with `knot-server`'s REST APIs, it receives targeted answers, bringing the exact same token-saving performance of the core `knot` engine to multi-node enterprise environments. The difference was measured on **three real indexed repositories** across nine realistic exploration tasks:
+
+| Repo | Lang | Task | knot-server/knot tokens | Read-the-code tokens | Reduction |
+|------|------|------|------------:|---------------------:|----------:|
+| spring-ai | Java | discovery — *how does the chat client run the advisor chain?* | 1 092 | 10 168 | **89.3%** |
+| spring-ai | Java | callers — *who uses `ToolCallingManager`?* | 8 808 | 15 554 | **43.4%** |
+| spring-ai | Java | explore — *structure of `DefaultChatClient.java`* | 4 865 | 7 838 | **37.9%** |
+| puppeteer | TypeScript | discovery — *how is a CDP session created?* | 609 | 4 149 | **85.3%** |
+| puppeteer | TypeScript | callers — *who calls `createCDPSession`?* | 1 004 | 39 878 | **97.5%** |
+| puppeteer | TypeScript | explore — *structure of the `Page` API* | 7 287 | 25 300 | **71.2%** |
+| knot | Rust | discovery — *how are call intents resolved?* | 594 | 14 824 | **96.0%** |
+| knot | Rust | callers — *who calls `format_references_result`?* | 461 | 10 949 | **95.8%** |
+| knot | Rust | explore — *structure of the graph query module* | 978 | 12 103 | **91.9%** |
+| **TOTAL** | — | **9 tasks** | **25 698** | **140 763** | **81.7%** |
+
+**≈ 5.5× fewer tokens** for the same nine questions — 115 000 tokens saved, enough to keep a long refactoring session inside a single context window.
+
+<details>
+<summary><b>Methodology (and how to reproduce it)</b></summary>
+
+Both sides are measured on the **exact bytes an LLM would receive as tool output**, counted with OpenAI's `cl100k_base` tokenizer (tiktoken):
+
+| Task | knot-server/knot side | Read-the-code side |
+|------|-----------|--------------------|
+| `discovery` | `GET /api/repos/{id}/search?q=<question>` | `rg -l <keyword>` (candidate list) **+ full read of the files that actually answer the question** |
+| `callers` | `GET /api/repos/{id}/callers?entity=<symbol>` | `rg -n "\b<symbol>\b"` **+ full read of the first 5 distinct files with hits** |
+| `explore` | `GET /api/repos/{id}/explore?path=<file>` | full read of the file |
+
+The baseline is deliberately **generous**, so the measured saving is a lower bound:
+
+- greps are restricted to the source files of the language (`-t java`, `-t ts`, `-t rust`) — no changelogs, no generated docs, no `node_modules`;
+- for `discovery` the baseline is given *oracle file selection*: it reads only the files that answer the question, with zero wasted reads;
+- for `callers` it reads at most 5 files, while a rigorous impact analysis would need every file with a textual hit.
+
+Honest caveats: knot-server's cost scales with the **number of results**, not with repo size. The weakest row (`spring-ai` / `ToolCallingManager`, 43%) is a symbol with 156 references — knot-server/knot enumerates all of them with exact call sites, while the capped baseline reads only 5 files and still cannot tell a call from a comment. The `explore` rows for large classes are also the least favourable, because signatures plus docstrings are a large fraction of a well-documented file.
+
+Repositories measured (as indexed): `spring-ai` 2 406 files / 25 733 entities, `puppeteer` 1 832 files / 19 310 entities, `knot` 222 files / 4 000 entities.
+
+</details>
+
+---
+
 ## ✨ Key Features & API Endpoints
 
 **knot-server** provides a comprehensive REST API to manage the lifecycle of your codebases.
@@ -102,14 +146,14 @@ With `knot-server`, you can register Git repositories via a REST API, trigger au
     - **Focus on Entity**: Isolate a specific entity and its deep relationship subgraph.
     - **Back to Overview**: Return to the global entry-points view.
   - **High-Contrast Selection**: The currently selected node is highlighted in white for maximum visibility.
-  - **Performance Optimized**: Default overview mode excludes noisy child relationships (`CONTAINS`), while focused mode uses physical hierarchy edges to maintain connectivity.
+  - **Performance Optimized**: Default overview mode excludes noisy child relationships (`CONTAINS`), while focused mode uses physical hierarchy edges to maintain connectivity. Nested declarations (inner classes, C# nested records/enums) are included in the default overview.
   - **Smart Tooltips**: Hover over nodes to see Fully Qualified Names (FQN), kind, file path, and line numbers.
   - **Contextual Search**: Find entities by FQN or name; results include package/module context.
 - **`GET /api/repos/:id/graph?entity=...`**: Query the entity subgraph for a given repository root entity. Returns nodes and edges in JSON format for programmatic consumption.
 
   | Parameter | Type | Default | Description |
   |-----------|------|---------|-------------|
-  | `entity` | String | *optional* | Name or FQN of the root entity. If omitted, returns a repository overview. |
+  | `entity` | String | *optional* | Name or FQN of the root entity. If omitted, returns a repository overview (including nested declarations like inner classes, C# nested records/enums). |
   | `depth` | u32 | `2` | Traversal depth (1–5) |
   | `relationships` | CSV | `CALLS,EXTENDS,IMPLEMENTS` | Edge types to follow. |
   | `direction` | String | `both` | `outgoing`, `incoming`, or `both` |
@@ -553,7 +597,7 @@ mkdir -p .github && echo "Read the agent skills in .knot-server-agent-skills/ an
     "knot-server-explore": { "description": "Use knot-server to get a structural overview of a source file", "location": "file:///path/to/.knot-server-agent-skills/explore.md" },
     "knot-server-deps": { "description": "Use knot-server to traverse the repository dependency graph", "location": "file:///path/to/.knot-server-agent-skills/deps.md" },
     "knot-server-graph": { "description": "Use knot-server to query raw entity relationship subgraphs", "location": "file:///path/to/.knot-server-agent-skills/graph.md" },
-    "knot-server-repos": { "description": "Use knot-server to list, register, sync, and delete repositories", "location": "file:///path/to/.knot-server-agent-skills/repos.md" },
+    "knot-server-list-repos": { "description": "Use knot-server to list, register, sync, and delete repositories", "location": "file:///path/to/.knot-server-agent-skills/repos.md" },
     "knot-server-workflows": { "description": "Multi-step knot-server workflows: impact analysis, cross-repo exploration, refactoring patterns", "location": "file:///path/to/.knot-server-agent-skills/workflows.md" },
     "knot-server-index": { "description": "Register and index the current repository in knot-server", "location": "file:///path/to/.knot-server-agent-skills/index.md" }
   }
@@ -1002,7 +1046,7 @@ Any Pod can receive webhook events or sync requests; the shared workspace
 
 ## 🗺️ Roadmap
 
-    - Language support in the knot library: Java, Kotlin, JavaScript, TypeScript, Rust, Python, and Varnish have been refined and are polished for production use. Groovy has received significant improvements in v1.5.6 (property accessor synthesis, parser/Javadoc hardening); further refinement is planned to complete verified coverage of the JVM family. C/C++ follows as the most widely used languages still pending deep verification.
+    - Language support in the knot library: Java, Kotlin, JavaScript, TypeScript, Rust, Python, and Varnish have been refined and are polished for production use. Groovy has received significant improvements in v1.5.6 (property accessor synthesis, parser/Javadoc hardening); further refinement is planned to complete verified coverage of the JVM family. C# has been recently added: knot-server categorises every C# declaration kind so C# repositories render correctly in the graph overview. C/C++ follows as the most widely used languages still pending deep verification.
 - Implement language-based color coding in the `/graph` view to distinguish nodes by programming language.
 - Resolve cross-file aliases for JavaScript and TypeScript (`require`, `import`): when a local alias shadows an imported entity, graph relationships should resolve to the original definition rather than the alias constant. Python alias resolution to follow. 
   See PR2 plan in the knot repository.

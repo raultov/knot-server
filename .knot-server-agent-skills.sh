@@ -211,7 +211,7 @@ mapping = [
     ("explore.md",   "knot-server-explore",   "Use knot-server to get a structural overview of a source file"),
     ("deps.md",      "knot-server-deps",      "Use knot-server to traverse the repository dependency graph"),
     ("graph.md",     "knot-server-graph",     "Use knot-server to query raw entity relationship subgraphs"),
-    ("repos.md",     "knot-server-repos",     "Use knot-server to list, register, sync, and delete repositories"),
+    ("repos.md",     "knot-server-list-repos",     "Use knot-server to list, register, sync, and delete repositories"),
     ("workflows.md", "knot-server-workflows", "Multi-step knot-server workflows: impact analysis, cross-repo exploration, refactoring patterns"),
 ]
 
@@ -275,7 +275,7 @@ register_with_jq() {
   "knot-server-explore": { "description": "Use knot-server to get a structural overview of a source file", "location": "file://${ABS_SKILL_DIR}/explore.md" },
   "knot-server-deps": { "description": "Use knot-server to traverse the repository dependency graph", "location": "file://${ABS_SKILL_DIR}/deps.md" },
   "knot-server-graph": { "description": "Use knot-server to query raw entity relationship subgraphs", "location": "file://${ABS_SKILL_DIR}/graph.md" },
-  "knot-server-repos": { "description": "Use knot-server to list, register, sync, and delete repositories", "location": "file://${ABS_SKILL_DIR}/repos.md" },
+  "knot-server-list-repos": { "description": "Use knot-server to list, register, sync, and delete repositories", "location": "file://${ABS_SKILL_DIR}/repos.md" },
   "knot-server-workflows": { "description": "Multi-step knot-server workflows: impact analysis, cross-repo exploration, refactoring patterns", "location": "file://${ABS_SKILL_DIR}/workflows.md" }
 }
 EOFJSON
@@ -324,7 +324,7 @@ register_to() {
     "knot-server-explore": { "description": "Use knot-server to get a structural overview of a source file", "location": "file://${ABS_SKILL_DIR}/explore.md" },
     "knot-server-deps": { "description": "Use knot-server to traverse the repository dependency graph", "location": "file://${ABS_SKILL_DIR}/deps.md" },
     "knot-server-graph": { "description": "Use knot-server to query raw entity relationship subgraphs", "location": "file://${ABS_SKILL_DIR}/graph.md" },
-    "knot-server-repos": { "description": "Use knot-server to list, register, sync, and delete repositories", "location": "file://${ABS_SKILL_DIR}/repos.md" },
+"knot-server-list-repos": { "description": "Use knot-server to list, register, sync, and delete repositories", "location": "file://${ABS_SKILL_DIR}/repos.md" },
     "knot-server-workflows": { "description": "Multi-step knot-server workflows: impact analysis, cross-repo exploration, refactoring patterns", "location": "file://${ABS_SKILL_DIR}/workflows.md" }
   }
 MANUAL
@@ -341,7 +341,7 @@ install_opencode_skills() {
     "knot-server-explore"
     "knot-server-deps"
     "knot-server-graph"
-    "knot-server-repos"
+    "knot-server-list-repos"
     "knot-server-workflows"
   )
   local skill_files=(

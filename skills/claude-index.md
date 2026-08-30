@@ -13,7 +13,7 @@ Register or re-index the current repository in knot-server.
 !`curl -fsS "${KNOT_SERVER_URL:-http://localhost:3000}/api/health" 2>&1 | head -5`
 
 If the health check fails with connection refused or timeout, stop and ask the user:
-"knot-server no responde. ¿En qué puerto está corriendo? (default 3000)"
+"knot-server is not responding. What port is it running on? (default 3000)"
 
 ## Step 1: Identify the current repository
 

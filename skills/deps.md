@@ -101,8 +101,8 @@ picked up the build-system declarations.
 
 ⚠️ **If the call returns connection refused / timeout / network error, stop
 and ask the user:**
-> *"knot-server no responde en `${KNOT_SERVER_URL:-http://localhost:3000}`.
-> ¿En qué puerto está corriendo? (default 3000, env `KNOT_SERVER_PORT`,
+> *"knot-server is not responding at `${KNOT_SERVER_URL:-http://localhost:3000}`.
+> What port is it running on? (default 3000, env `KNOT_SERVER_PORT`,
 > CLI flag `--port`)."*
 
 Then re-export `KNOT_SERVER_URL` and retry.
