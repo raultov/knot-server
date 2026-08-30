@@ -46,10 +46,33 @@ impl Registry {
         })
     }
 
-    fn save(&self) -> anyhow::Result<()> {
+    fn mutate<F, R>(&mut self, f: F) -> anyhow::Result<R>
+    where
+        F: FnOnce(&mut RegistryData) -> anyhow::Result<R>,
+    {
         use std::io::Write;
 
+        // The in-memory Mutex<Registry> in AppState still serializes same-instance access;
+        // the file lock serializes cross-instance access. This is required for a
+        // multi-instance shared workspace to ensure NFS-safe atomic RMW.
         let _lock = acquire_file_lock(&self.lock_path)?;
+
+        if self.json_path.exists() {
+            let content = fs::read_to_string(&self.json_path)?;
+            if content.trim().is_empty() {
+                self.data = RegistryData {
+                    repositories: Vec::new(),
+                };
+            } else {
+                self.data = serde_json::from_str(&content).unwrap_or(RegistryData {
+                    repositories: Vec::new(),
+                });
+            }
+            self.last_load = SystemTime::now();
+        }
+
+        let res = f(&mut self.data)?;
+
         let json = serde_json::to_string_pretty(&self.data)?;
         let temp_path = self.json_path.with_extension("json.tmp");
         {
@@ -65,7 +88,7 @@ impl Registry {
             let _ = fs::remove_file(&self.json_path);
         }
         fs::rename(&temp_path, &self.json_path)?;
-        Ok(())
+        Ok(res)
     }
 
     fn reload_if_stale(&mut self) -> anyhow::Result<()> {
@@ -99,26 +122,27 @@ impl Registry {
     /// a crash between the two mutations (the on-disk `repos.json` is only
     /// written once, atomically with respect to the lock).
     pub fn add_or_replace(&mut self, entry: RepoEntry) -> anyhow::Result<bool> {
-        let replaced = self.data.repositories.iter().position(|r| r.id == entry.id);
-        let was_replaced = replaced.is_some();
-        if let Some(idx) = replaced {
-            self.data.repositories.remove(idx);
-        }
-        self.data.repositories.push(entry);
-        self.save()?;
-        Ok(was_replaced)
+        self.mutate(|data| {
+            let replaced = data.repositories.iter().position(|r| r.id == entry.id);
+            let was_replaced = replaced.is_some();
+            if let Some(idx) = replaced {
+                data.repositories.remove(idx);
+            }
+            data.repositories.push(entry);
+            Ok(was_replaced)
+        })
     }
 
     pub fn remove(&mut self, id: &str) -> anyhow::Result<()> {
-        let index = self
-            .data
-            .repositories
-            .iter()
-            .position(|r| r.id == id)
-            .ok_or_else(|| anyhow::anyhow!("Repository '{}' not found", id))?;
-        self.data.repositories.remove(index);
-        self.save()?;
-        Ok(())
+        self.mutate(|data| {
+            let index = data
+                .repositories
+                .iter()
+                .position(|r| r.id == id)
+                .ok_or_else(|| anyhow::anyhow!("Repository '{}' not found", id))?;
+            data.repositories.remove(index);
+            Ok(())
+        })
     }
 
     pub fn get(&mut self, id: &str) -> Option<&RepoEntry> {
@@ -132,15 +156,15 @@ impl Registry {
     }
 
     pub fn update_status(&mut self, id: &str, status: RepoStatus) -> anyhow::Result<()> {
-        let entry = self
-            .data
-            .repositories
-            .iter_mut()
-            .find(|r| r.id == id)
-            .ok_or_else(|| anyhow::anyhow!("Repository '{}' not found", id))?;
-        entry.status = status;
-        self.save()?;
-        Ok(())
+        self.mutate(|data| {
+            let entry = data
+                .repositories
+                .iter_mut()
+                .find(|r| r.id == id)
+                .ok_or_else(|| anyhow::anyhow!("Repository '{}' not found", id))?;
+            entry.status = status;
+            Ok(())
+        })
     }
 
     pub fn transition_status(
@@ -149,30 +173,30 @@ impl Registry {
         from: &[RepoStatus],
         to: RepoStatus,
     ) -> anyhow::Result<bool> {
-        let entry = self
-            .data
-            .repositories
-            .iter_mut()
-            .find(|r| r.id == id)
-            .ok_or_else(|| anyhow::anyhow!("Repository '{}' not found", id))?;
-        if !from.contains(&entry.status) {
-            return Ok(false);
-        }
-        entry.status = to;
-        self.save()?;
-        Ok(true)
+        self.mutate(|data| {
+            let entry = data
+                .repositories
+                .iter_mut()
+                .find(|r| r.id == id)
+                .ok_or_else(|| anyhow::anyhow!("Repository '{}' not found", id))?;
+            if !from.contains(&entry.status) {
+                return Ok(false);
+            }
+            entry.status = to;
+            Ok(true)
+        })
     }
 
     pub fn update_last_indexed(&mut self, id: &str) -> anyhow::Result<()> {
-        let entry = self
-            .data
-            .repositories
-            .iter_mut()
-            .find(|r| r.id == id)
-            .ok_or_else(|| anyhow::anyhow!("Repository '{}' not found", id))?;
-        entry.last_indexed = Some(crate::time_utils::chrono_now());
-        self.save()?;
-        Ok(())
+        self.mutate(|data| {
+            let entry = data
+                .repositories
+                .iter_mut()
+                .find(|r| r.id == id)
+                .ok_or_else(|| anyhow::anyhow!("Repository '{}' not found", id))?;
+            entry.last_indexed = Some(crate::time_utils::chrono_now());
+            Ok(())
+        })
     }
 }
 
@@ -371,5 +395,61 @@ mod tests {
         let result =
             registry.transition_status("ghost", &[RepoStatus::Pending], RepoStatus::Queued);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_stale_instance_sees_fresh_entry_on_mutation() {
+        let dir = TempDir::new().unwrap();
+        let mut r1 = Registry::load_or_create(dir.path()).unwrap();
+        let mut r2 = Registry::load_or_create(dir.path()).unwrap();
+
+        let repo = make_entry("alpha", "git@github.com:org/alpha.git", "/tmp/alpha");
+        r1.add_or_replace(repo).unwrap();
+
+        r2.update_status("alpha", RepoStatus::Queued).unwrap();
+
+        let mut reloaded = Registry::load_or_create(dir.path()).unwrap();
+        assert_eq!(reloaded.get("alpha").unwrap().status, RepoStatus::Queued);
+    }
+
+    #[test]
+    fn test_stale_instance_does_not_clobber_holder_status() {
+        let dir = TempDir::new().unwrap();
+        let mut r1 = Registry::load_or_create(dir.path()).unwrap();
+
+        let repo = make_entry("alpha", "git@github.com:org/alpha.git", "/tmp/alpha");
+        r1.add_or_replace(repo).unwrap();
+        r1.update_status("alpha", RepoStatus::Queued).unwrap();
+
+        let mut r2 = Registry::load_or_create(dir.path()).unwrap();
+
+        r1.transition_status("alpha", &[RepoStatus::Queued], RepoStatus::Indexing)
+            .unwrap();
+
+        let ok = r2
+            .transition_status("alpha", &[RepoStatus::Queued], RepoStatus::Pulling)
+            .unwrap();
+        assert!(!ok);
+
+        let mut reloaded = Registry::load_or_create(dir.path()).unwrap();
+        assert_eq!(reloaded.get("alpha").unwrap().status, RepoStatus::Indexing);
+    }
+
+    #[test]
+    fn test_mutation_preserves_last_indexed_from_other_instance() {
+        let dir = TempDir::new().unwrap();
+        let mut r1 = Registry::load_or_create(dir.path()).unwrap();
+        let repo = make_entry("alpha", "git@github.com:org/alpha.git", "/tmp/alpha");
+        r1.add_or_replace(repo).unwrap();
+
+        let mut r2 = Registry::load_or_create(dir.path()).unwrap();
+
+        r1.update_last_indexed("alpha").unwrap();
+
+        r2.update_status("alpha", RepoStatus::Queued).unwrap();
+
+        let mut reloaded = Registry::load_or_create(dir.path()).unwrap();
+        assert_eq!(reloaded.get("alpha").unwrap().status, RepoStatus::Queued);
+        assert!(reloaded.get("alpha").unwrap().last_indexed.is_some());
     }
 }

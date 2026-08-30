@@ -293,6 +293,20 @@ async fn process_repository(
         }
         Err(_) => {
             tracing::info!("Worker: '{}' locked by another node, skipping", repo.id);
+            if let Ok(mut registry) = state.registry.lock() {
+                let _ = registry.transition_status(
+                    &repo.id,
+                    &[
+                        crate::models::RepoStatus::Cloning,
+                        crate::models::RepoStatus::Pulling,
+                    ],
+                    crate::models::RepoStatus::Queued,
+                );
+            }
+            tracing::warn!(
+                "Lock for repo '{}' is held by another node; status claim was reverted to Queued",
+                repo.id
+            );
             return Ok(());
         }
     };
@@ -1333,5 +1347,95 @@ mod tests {
             Path::new(&repo.local_path).exists(),
             "a previously-indexed repo must keep its local dir on failure"
         );
+    }
+
+    #[tokio::test]
+    async fn test_lock_contention_reverts_claimed_status() {
+        let dir = TempDir::new().unwrap();
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let state = create_test_state(&workspace).await;
+
+        let local_path = workspace.join("alpha");
+        std::fs::create_dir_all(&local_path).unwrap();
+
+        let repo = RepoEntry {
+            id: "alpha".into(),
+            url: "https://invalid.example/alpha.git".into(),
+            local_path: local_path.to_string_lossy().into(),
+            auth_type: AuthType::Ssh,
+            branch: "main".into(),
+            webhook_secret: None,
+            last_indexed: None,
+            status: RepoStatus::Pulling,
+        };
+        state
+            .registry
+            .lock()
+            .unwrap()
+            .add_or_replace(repo.clone())
+            .unwrap();
+
+        let lock_path = local_path.join(".knot.lock");
+        let _holder = acquire_file_lock(&lock_path).unwrap();
+
+        let result = process_repository(
+            &repo,
+            &state,
+            &IndexJob::Pull {
+                repo_id: "alpha".into(),
+            },
+        )
+        .await;
+        assert!(result.is_ok());
+
+        let mut registry = state.registry.lock().unwrap();
+        let updated = registry.get("alpha").unwrap();
+        assert_eq!(updated.status, RepoStatus::Queued);
+    }
+
+    #[tokio::test]
+    async fn test_lock_contention_preserves_holder_status() {
+        let dir = TempDir::new().unwrap();
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let state = create_test_state(&workspace).await;
+
+        let local_path = workspace.join("alpha");
+        std::fs::create_dir_all(&local_path).unwrap();
+
+        let repo = RepoEntry {
+            id: "alpha".into(),
+            url: "https://invalid.example/alpha.git".into(),
+            local_path: local_path.to_string_lossy().into(),
+            auth_type: AuthType::Ssh,
+            branch: "main".into(),
+            webhook_secret: None,
+            last_indexed: None,
+            status: RepoStatus::Indexing,
+        };
+        state
+            .registry
+            .lock()
+            .unwrap()
+            .add_or_replace(repo.clone())
+            .unwrap();
+
+        let lock_path = local_path.join(".knot.lock");
+        let _holder = acquire_file_lock(&lock_path).unwrap();
+
+        let result = process_repository(
+            &repo,
+            &state,
+            &IndexJob::Pull {
+                repo_id: "alpha".into(),
+            },
+        )
+        .await;
+        assert!(result.is_ok());
+
+        let mut registry = state.registry.lock().unwrap();
+        let updated = registry.get("alpha").unwrap();
+        assert_eq!(updated.status, RepoStatus::Indexing);
     }
 }
