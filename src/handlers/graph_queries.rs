@@ -19,20 +19,33 @@ pub struct GraphQuerySpec<'a> {
     pub include_other: bool,
 }
 
+/// Builds the overview node query: roots (no incoming CONTAINS) expanded by the
+/// user-selected relationship filter up to `depth`. `$repo_name` stays a bound
+/// parameter — never interpolated.
+fn build_overview_node_query(rel_filter: &str, depth: u32) -> String {
+    format!(
+        "MATCH (root:Entity {{repo_name: $repo_name}})
+         WHERE NOT ()-[:CONTAINS]->(root)
+         MATCH (root)-[:{rel_filter}*0..{depth}]->(e:Entity)
+         RETURN DISTINCT e.uuid, e.name, e.kind, e.fqn, e.signature, e.file_path, e.start_line",
+        rel_filter = rel_filter,
+        depth = depth,
+    )
+}
+
+/// One-hop query for entities that are contained by any other entity — the
+/// nested declarations the root closure cannot reach.
+fn build_nested_node_query() -> &'static str {
+    "MATCH ()-[:CONTAINS]->(e:Entity {repo_name: $repo_name})
+     RETURN DISTINCT e.uuid, e.name, e.kind, e.fqn, e.signature, e.file_path, e.start_line"
+}
+
 /// Fetches graph nodes from Neo4j starting from the root repository node.
 pub async fn fetch_nodes(
     graph: &Graph,
     spec: &GraphQuerySpec<'_>,
 ) -> anyhow::Result<Vec<GraphNodeResponse>> {
-    let node_q_str = format!(
-        "MATCH (root:Entity {{repo_name: $repo_name}})
-         WHERE NOT ()-[:CONTAINS]->(root)
-         MATCH (root)-[:{rel_filter}*0..{depth}]->(e:Entity)
-         RETURN DISTINCT e.uuid, e.name, e.kind, e.fqn, e.signature, e.file_path, e.start_line",
-        rel_filter = spec.rel_filter,
-        depth = spec.depth,
-    );
-
+    let node_q_str = build_overview_node_query(spec.rel_filter, spec.depth);
     let node_q = query(&node_q_str).param("repo_name", spec.repo_id);
 
     let mut rows = graph
@@ -40,19 +53,32 @@ pub async fn fetch_nodes(
         .await
         .context("Neo4j node query failed")?;
 
+    let nested_q_str = build_nested_node_query();
+    let nested_q = query(nested_q_str).param("repo_name", spec.repo_id);
+
+    let mut nested_rows = graph
+        .execute(nested_q)
+        .await
+        .context("Neo4j nested-node query failed")?;
+
     let mut nodes = Vec::new();
-    while let Ok(Some(row)) = rows.next().await {
+    let mut seen_uuids = HashSet::new();
+
+    let mut process_row = |row: neo4rs::Row| {
         let uuid = row.get::<String>("e.uuid").unwrap_or_default();
         let name = row.get::<String>("e.name").unwrap_or_default();
         if uuid.is_empty() || name.is_empty() {
-            continue;
+            return;
+        }
+        if !seen_uuids.insert(uuid.clone()) {
+            return;
         }
         let kind: Option<String> = row.get::<String>("e.kind").ok();
         if let Some(ref k) = kind
             && !spec.include_other
             && !spec.visible_set.contains(k.as_str())
         {
-            continue;
+            return;
         }
         let language = kind
             .as_ref()
@@ -67,6 +93,13 @@ pub async fn fetch_nodes(
             file_path: row.get::<String>("e.file_path").ok(),
             start_line: row.get::<i64>("e.start_line").ok(),
         });
+    };
+
+    while let Ok(Some(row)) = rows.next().await {
+        process_row(row);
+    }
+    while let Ok(Some(row)) = nested_rows.next().await {
+        process_row(row);
     }
 
     Ok(nodes)
@@ -171,4 +204,42 @@ pub async fn fetch_all_entities(
         truncated: false,
         total_nodes_found: total,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_overview_node_query_contains_root_predicate() {
+        let q = build_overview_node_query("CALLS", 2);
+        assert!(q.contains("WHERE NOT ()-[:CONTAINS]->(root)"));
+    }
+
+    #[test]
+    fn test_build_overview_node_query_interpolates_rel_filter_and_depth() {
+        let q = build_overview_node_query("CALLS|EXTENDS", 3);
+        assert!(q.contains("-[:CALLS|EXTENDS*0..3]->"));
+        // Assert $repo_name is not interpolated (stays a parameter)
+        assert!(q.contains("{repo_name: $repo_name}"));
+        assert!(!q.contains("{repo_name: \""));
+    }
+
+    #[test]
+    fn test_build_overview_node_query_no_limit() {
+        let q = build_overview_node_query("CALLS", 2);
+        assert!(!q.to_uppercase().contains("LIMIT"));
+    }
+
+    #[test]
+    fn test_build_nested_node_query_is_one_hop() {
+        let q = build_nested_node_query();
+        assert!(q.contains("MATCH ()-[:CONTAINS]->(e:Entity {repo_name: $repo_name})"));
+        assert!(!q.contains("*0.."));
+        assert!(!q.contains("*1.."));
+        // Projection columns check
+        assert!(q.contains(
+            "RETURN DISTINCT e.uuid, e.name, e.kind, e.fqn, e.signature, e.file_path, e.start_line"
+        ));
+    }
 }
