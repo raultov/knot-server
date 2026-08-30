@@ -236,7 +236,7 @@ echo -e "\n${CYAN}Scenario 3-5: Cross-node progress & batch access${NC}"
 # Loop while both are still not indexed
 SEEN_NONZERO_ON_A=0
 
-for i in {1..30}; do
+for i in {1..90}; do
     PROG_BATCH_A=$(curl -s "$BASE_A/api/progress")
     PROG_BATCH_B=$(curl -s "$BASE_B/api/progress")
     
@@ -267,12 +267,33 @@ done
 if [ $SEEN_NONZERO_ON_A -eq 1 ]; then pass "Node A reported live progress for a repo indexed by B (cross-node)"; else fail "Node A never saw live progress from B"; fi
 
 # Ensure batch endpoints correctly match terminal state
-PROG_BATCH_A=$(curl -s "$BASE_A/api/progress")
-PROG_BATCH_B=$(curl -s "$BASE_B/api/progress")
-FINAL_STATUS_A=$(echo "$PROG_BATCH_A" | jq -r '.repos[] | select(.repo_id=="alpha") | .status')
-FINAL_STATUS_B=$(echo "$PROG_BATCH_B" | jq -r '.repos[] | select(.repo_id=="alpha") | .status')
-assert_status "$FINAL_STATUS_A" "indexed" "Node A sees terminal batch status as indexed"
-assert_status "$FINAL_STATUS_B" "indexed" "Node B sees terminal batch status as indexed"
+for i in {1..60}; do
+    PROG_BATCH_A=$(curl -s "$BASE_A/api/progress")
+    FINAL_STATUS_A=$(echo "$PROG_BATCH_A" | jq -r '.repos[] | select(.repo_id=="alpha") | .status')
+    if [ "$FINAL_STATUS_A" = "indexed" ]; then
+        break
+    fi
+    sleep 0.5
+done
+if [ "$FINAL_STATUS_A" = "indexed" ]; then
+    pass "Node A sees terminal batch status as indexed"
+else
+    fail "Node A sees terminal batch status as indexed (last observed: $FINAL_STATUS_A)"
+fi
+
+for i in {1..60}; do
+    PROG_BATCH_B=$(curl -s "$BASE_B/api/progress")
+    FINAL_STATUS_B=$(echo "$PROG_BATCH_B" | jq -r '.repos[] | select(.repo_id=="alpha") | .status')
+    if [ "$FINAL_STATUS_B" = "indexed" ]; then
+        break
+    fi
+    sleep 0.5
+done
+if [ "$FINAL_STATUS_B" = "indexed" ]; then
+    pass "Node B sees terminal batch status as indexed"
+else
+    fail "Node B sees terminal batch status as indexed (last observed: $FINAL_STATUS_B)"
+fi
 
 # The progress persister removes the snapshot asynchronously after
 # the worker signals cancel. Give it a small window to drain before

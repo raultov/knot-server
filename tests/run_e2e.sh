@@ -637,6 +637,41 @@ if [ "$INDEXED_OK" = "true" ]; then
       exit 1
     fi
 
+    # ── Test G19: Graph overview includes nested declarations ──
+    echo -e "\n${CYAN}Test G19: Graph overview includes nested declarations${NC}"
+    CODE=$(curl -s -w "%{http_code}" -o /tmp/g19.json \
+      "http://localhost:${SERVER_PORT}/api/repos/${REPO_ID}/graph")
+
+    INNER_NODE=$(jq '.nodes[] | select(.name == "Inner")' /tmp/g19.json)
+    INNER_ID=$(echo "$INNER_NODE" | jq -r '.id // empty')
+    GREETER_NODE=$(jq '.nodes[] | select(.name == "Greeter")' /tmp/g19.json)
+    GREETER_ID=$(echo "$GREETER_NODE" | jq -r '.id // empty')
+
+    # EXTENDS edge Inner -> Greeter; GraphEdgeResponse serializes the edge
+    # kind as "type" (same key G14/G18 assert on).
+    EDGE_EXISTS=$(jq --arg src "$INNER_ID" --arg tgt "$GREETER_ID" \
+      '[.edges[] | select(.source == $src and .target == $tgt and .type == "EXTENDS")] | length' /tmp/g19.json)
+
+    if [ "$CODE" = "200" ] && [ -n "$INNER_ID" ] && [ -n "$GREETER_ID" ] && [ "$EDGE_EXISTS" -ge 1 ]; then
+      echo -e "${GREEN}PASS${NC}: Inner class ($INNER_ID) and Greeter ($GREETER_ID) connected by EXTENDS"
+    else
+      echo -e "${RED}FAIL${NC}: status=$CODE, Inner_id=\"$INNER_ID\", Greeter_id=\"$GREETER_ID\", EXTENDS_edge_count=$EDGE_EXISTS"
+      cat /tmp/g19.json
+      exit 1
+    fi
+
+    # ── Test G19b: Nested node carries full field set ──
+    echo -e "\n${CYAN}Test G19b: Nested node carries full field set${NC}"
+    # Check that the Inner node has all expected fields.
+    INNER_HAS_FIELDS=$(echo "$INNER_NODE" | jq 'select(has("id") and has("name") and has("kind") and has("language") and has("file_path") and has("start_line") and has("signature")) | length')
+    if [ -n "$INNER_HAS_FIELDS" ] && [ "$INNER_HAS_FIELDS" -ge 1 ]; then
+      echo -e "${GREEN}PASS${NC}: Inner node has all required fields"
+    else
+      echo -e "${RED}FAIL${NC}: Inner node missing fields"
+      echo "$INNER_NODE"
+      exit 1
+    fi
+
     # Test F: List repos shows status indexed
     echo -e "\n${CYAN}Test F: List contains indexed repo${NC}"
     LIST=$(curl -sf "$BASE_URL/api/repos")
