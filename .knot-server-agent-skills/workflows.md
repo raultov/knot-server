@@ -68,6 +68,23 @@ stop and inform the user.
    Check if the `frontend` repo depends on the API schema. Query callers in the
    frontend repo to see where the API endpoints are consumed.
 
+## Pattern 5: Cross-Repo Discovery
+
+**Goal:** Locate a concept anywhere in the indexed ecosystem, then assess its
+impact across repositories.
+
+1. **Locate across repos ([[search]]):**
+   `GET /api/search?q=user+authentication&max_results=10` — every hit carries
+   `repo_name`, so you learn *which* repositories own the concept.
+2. **Assess cross-repo impact ([[callers]]):**
+   `GET /api/callers?entity=AuthService&repo=all` — read `repo_name` vs
+   `target_repo_name` per row to spot genuine cross-repo references, and check
+   `resolution.truncated` before trusting the answer.
+3. **Narrow down ([[search]] per-repo):** Once the owning repos are known,
+   re-run per-repo queries for token-efficient detail.
+4. **Check repo links ([[deps]]):** Confirm whether the callers' repos depend
+   on the callee's repo or resolve against homonyms.
+
 ## Workflow Rules for LLM Agents
 
 1. **Never guess file structures.** If you need to know what's in a file, use `[[explore]]`.

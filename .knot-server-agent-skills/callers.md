@@ -1,6 +1,7 @@
 # Knot-Server Callers: Reverse Dependency Lookup
 
 **Endpoint:** `GET /api/repos/{id}/callers?entity=...`
+**Cross-repo endpoint:** `GET /api/callers?entity=...&repo=...`
 
 ## Step 0: Preflight
 
@@ -146,6 +147,40 @@ If you query `callers` on a shared library entity (e.g. `TokenVerifier`) inside
 a repository that depends on it (e.g. `my-app` depends on `auth-lib`), the
 graph will correctly return calls made from `my-app` into `auth-lib`. Use the
 [[deps]] skill to discover cross-repo links.
+
+## Cross-repo callers
+
+Use `GET /api/callers` for impact analysis that **spans repositories** — e.g.
+"who calls `SharedUtil.work` anywhere in the indexed ecosystem?". Same scope
+syntax as cross-repo search: omit `repo` (or `all` / `*`) for every indexed
+repository, one id, or a comma-separated list.
+
+```bash
+curl -fsS -G \
+  --data-urlencode "entity=SharedUtil.work" \
+  --data-urlencode "repo=all" \
+  "${KNOT_SERVER_URL:-http://localhost:3000}/api/callers" \
+  | jq '.calls[] | {name, repo_name, target_repo_name, file_path}'
+```
+
+### Reading repo attribution
+
+- Every row carries `repo_name` (the **referencing** entity's repository) and
+  `target_repo_name` (the **referenced** entity's repository). A genuine
+  cross-repo reference is exactly the row where the two differ.
+- `resolution.targets[]` carries `repo_name` too, so you can see which
+  repositories the query name resolved against.
+
+### Caveats
+
+- **Read `resolution.truncated`.** Under `repo=all` a common name resolves
+  against every indexed repository, so knot's 25-target resolution cap fills
+  faster and the answer becomes a *sample*, not the full set. Pass a qualified
+  name (`Namespace.Type.Member`) or narrow the scope to avoid it.
+- There is no `max_results` on this route.
+- The match ladder is unchanged by scope (exact FQN → FQN suffix → exact name →
+  signature prefix → fuzzy): a wide scope does not loosen matching, it only
+  widens the candidate set.
 
 ## Interpreting Results
 

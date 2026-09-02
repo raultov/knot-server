@@ -1,6 +1,7 @@
 # Knot-Server Search: Semantic Code Discovery
 
 **Endpoint:** `GET /api/repos/{id}/search?q=...&max_results=...`
+**Cross-repo endpoint:** `GET /api/search?q=...&repo=...&max_results=...`
 
 ## Step 0: Preflight
 
@@ -122,6 +123,43 @@ Once you find promising results, explore their structure using the [[explore]] s
 ### Step 4: Find Related Code (Optional)
 If you identified a key entity, find who uses it using the [[callers]] skill:
 `GET /api/repos/{id}/callers?entity=loginUser`
+
+## Cross-repo search
+
+Use `GET /api/search` when the answer may live in **more than one indexed
+repository** — multi-repo feature discovery, "where does this pattern exist in
+the ecosystem", or when you do not know which repo owns the code. The per-repo
+route stays the right choice once you know the repo.
+
+```bash
+curl -fsS -G \
+  --data-urlencode "q=user authentication" \
+  --data-urlencode "max_results=10" \
+  "${KNOT_SERVER_URL:-http://localhost:3000}/api/search" \
+  | jq '.[]? | {name, kind, repo_name, file_path, start_line}'
+```
+
+### Scope parameter (`repo`)
+
+| `repo` value | Meaning |
+|--------------|---------|
+| *(omitted)* | All indexed repositories |
+| `all` / `*` (case-insensitive) | All indexed repositories (sentinel) |
+| `repo-a` | Exactly one repository |
+| `repo-a,repo-b` | Union of the listed repositories |
+
+Whitespace and duplicate names are normalised. Unknown ids are rejected with
+`400 {"error":"Unknown repository ids: ..."}`.
+
+### Caveats
+
+- **`max_results` is a global cap across the whole scope** (default 5, clamped
+  to 1..=100): with `repo=all` one dominant repository can crowd out the
+  others. Prefer a comma-list of the repos you actually care about.
+- Every result entity carries `repo_name` — always surface it, it is the only
+  way to attribute a hit to its repository.
+- A repository literally named `all` (or `*`) is not addressable through this
+  route (the token is the sentinel); use the per-repo route for it.
 
 ## Troubleshooting
 
