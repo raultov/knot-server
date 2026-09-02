@@ -31,6 +31,8 @@ mod tests {
             )
             .route("/api/repos/{id}/search", get(search_handler))
             .route("/api/repos/{id}/callers", get(callers_handler))
+            .route("/api/search", get(search_all_handler))
+            .route("/api/callers", get(callers_all_handler))
             .route("/api/repos/{id}/explore", get(explore_handler))
             .route("/api/repos/{id}/deps", get(deps_handler))
             .route("/api/repos/{id}/graph", get(graph_handler))
@@ -843,5 +845,254 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    // ── Cross-repo handlers: /api/search + /api/callers ─────────────
+    // The test state has `embedder: None` and unreachable DBs, so a *valid*
+    // request deterministically reaches the 500 branch — which pins the
+    // validation order (400s must fire before the embedder / DB steps).
+
+    async fn get_error(app: Router, uri: &str) -> (StatusCode, String) {
+        let response = app
+            .oneshot(Request::get(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let status = response.status();
+        let body_bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        (status, String::from_utf8(body_bytes.to_vec()).unwrap())
+    }
+
+    async fn add_registry_entry(state: &Arc<AppState>, id: &str) {
+        let mut registry = state.registry.lock().unwrap();
+        registry
+            .add_or_replace(crate::models::RepoEntry {
+                id: id.to_string(),
+                url: format!("/path/to/{id}"),
+                auth_type: crate::models::AuthType::Ssh,
+                local_path: format!("/path/to/{id}"),
+                branch: "main".to_string(),
+                webhook_secret: None,
+                last_indexed: None,
+                status: crate::models::RepoStatus::Indexed,
+            })
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn search_all_missing_q_returns_400() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        let (status, body) = get_error(app, "/api/search").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body.contains("'q'"), "body must mention 'q': {body}");
+    }
+
+    #[tokio::test]
+    async fn search_all_blank_q_returns_400() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        let (status, body) = get_error(app, "/api/search?q=%20%20").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body.contains("'q'"), "body must mention 'q': {body}");
+    }
+
+    #[tokio::test]
+    async fn search_all_unknown_repo_returns_400() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        let (status, body) = get_error(app, "/api/search?q=x&repo=ghost").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body.contains("ghost"), "body must list the id: {body}");
+    }
+
+    #[tokio::test]
+    async fn search_all_unknown_repo_checked_before_embedder() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        // embedder is None: a valid scope would yield 500. An unknown repo
+        // must still yield 400, proving scope validation runs first.
+        let (status, _body) = get_error(app, "/api/search?q=x&repo=ghost").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn search_all_valid_scope_without_embedder_returns_500() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        let (status, body) = get_error(app, "/api/search?q=x").await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(
+            body.contains("Embedding model not initialized"),
+            "body must mention the embedder: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn search_all_sentinel_with_empty_registry_reaches_embedder_check() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        // `all` skips the membership check, so the request proceeds to the
+        // embedder step: 500, not 400.
+        let (status, body) = get_error(app, "/api/search?q=x&repo=all").await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(body.contains("Embedding model not initialized"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn search_all_known_repo_passes_validation() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        add_registry_entry(&state, "real-repo").await;
+        let app = build_test_app(state);
+
+        let (status, body) = get_error(app, "/api/search?q=x&repo=real-repo").await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(
+            body.contains("Embedding model not initialized"),
+            "known repo must pass scope validation: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn per_repo_search_route_unchanged() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        // The per-repo route has no registry validation: unknown id still
+        // reaches the embedder step (500), never a new 404.
+        let (status, _body) = get_error(app, "/api/repos/ghost/search?q=x").await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[tokio::test]
+    async fn callers_all_missing_entity_returns_400() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        let (status, body) = get_error(app, "/api/callers").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(
+            body.contains("'entity'"),
+            "body must mention 'entity': {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn callers_all_blank_entity_returns_400() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        let (status, body) = get_error(app, "/api/callers?entity=%20%20").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body.contains("'entity'"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn callers_all_unknown_repo_returns_400() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        let (status, body) = get_error(app, "/api/callers?entity=x&repo=ghost").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body.contains("ghost"), "body must list the id: {body}");
+    }
+
+    #[tokio::test]
+    async fn callers_all_unknown_repo_checked_before_db_call() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        let (status, _body) = get_error(app, "/api/callers?entity=x&repo=ghost").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn callers_all_valid_scope_reaches_graph_db() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        // Valid scope → the request goes to the (unreachable) graph DB. The
+        // 500 body must NOT mention the embedder — pinning the deliberate
+        // asymmetry that callers has no embedder step.
+        let (status, body) = get_error(app, "/api/callers?entity=x").await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(
+            !body.contains("Embedding model not initialized"),
+            "callers must not run an embedder check: {body}"
+        );
+        assert!(
+            body.contains("Find callers failed"),
+            "body must surface the knot/DB failure: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn callers_all_sentinel_with_empty_registry_is_accepted() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        let (status, body) = get_error(app, "/api/callers?entity=x&repo=all").await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(
+            body.contains("Find callers failed"),
+            "sentinel must skip membership validation: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn callers_all_known_repo_passes_validation() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        add_registry_entry(&state, "real-repo").await;
+        let app = build_test_app(state);
+
+        let (status, body) = get_error(app, "/api/callers?entity=x&repo=real-repo").await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(body.contains("Find callers failed"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn callers_all_and_search_all_share_scope_errors() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        let (_, search_body) = get_error(app.clone(), "/api/search?q=x&repo=z,ghost,ghost").await;
+        let (_, callers_body) = get_error(app, "/api/callers?entity=x&repo=z,ghost,ghost").await;
+        assert_eq!(
+            search_body, callers_body,
+            "both routes must emit a byte-identical 400 for the same bad repo value"
+        );
+    }
+
+    #[tokio::test]
+    async fn per_repo_callers_route_unchanged() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        let (status, _body) = get_error(app, "/api/repos/ghost/callers?entity=x").await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
     }
 }
