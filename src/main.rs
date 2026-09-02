@@ -163,6 +163,8 @@ async fn main() -> anyhow::Result<()> {
         .routes(routes!(handlers::batch_progress_handler))
         .routes(routes!(handlers::search_handler))
         .routes(routes!(handlers::callers_handler))
+        .routes(routes!(handlers::search_all_handler))
+        .routes(routes!(handlers::callers_all_handler))
         .routes(routes!(handlers::explore_handler))
         .routes(routes!(handlers::deps_handler))
         .routes(routes!(handlers::graph_handler))

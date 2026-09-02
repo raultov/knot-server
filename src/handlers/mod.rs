@@ -6,6 +6,7 @@ pub mod indexing;
 pub mod models;
 pub mod progress;
 pub mod repo;
+pub mod scope;
 pub mod search;
 pub mod system;
 pub mod tests_common;

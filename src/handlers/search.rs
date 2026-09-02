@@ -5,6 +5,9 @@ use axum::response::{IntoResponse, Response};
 use std::sync::Arc;
 
 use crate::handlers::models::*;
+use crate::handlers::scope::{
+    clamp_max_results, scope_fields, scope_or_error, unknown_repos_error,
+};
 use crate::models::AppState;
 
 #[utoipa::path(
@@ -62,7 +65,7 @@ pub async fn search_handler(
     match knot::cli_tools::run_search_hybrid_context(
         query,
         max_results,
-        Some(&id),
+        &knot::models::RepoScope::One(id.clone()),
         &knot::cli_tools::SearchContext {
             vector_db: &state.vector_db,
             graph_db: &state.graph_db,
@@ -115,7 +118,153 @@ pub async fn callers_handler(
     };
     tracing::Span::current().record("entity", entity_name);
 
-    match knot::cli_tools::run_find_callers(entity_name, Some(&id), &state.graph_db).await {
+    match knot::cli_tools::run_find_callers(
+        entity_name,
+        &knot::models::RepoScope::One(id.clone()),
+        &state.graph_db,
+    )
+    .await
+    {
+        Ok(value) => (StatusCode::OK, Json(value)).into_response(),
+        Err(e) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Find callers failed: {e}"),
+        ),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/search",
+    tag = "Search",
+    params(GlobalSearchParams),
+    responses(
+        (status = 200, description = "Search results across the requested repositories (null when there are no hits)", body = serde_json::Value),
+        (status = 400, description = "Missing query or unknown repository ids", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse),
+    ),
+    description = "Semantic + structural search across one, several, or all indexed repositories. \
+                   `repo` accepts a single id, a comma-separated list, or the sentinel `all` / `*`; \
+                   omit it to search every indexed repository. Each entity carries `repo_name`. \
+                   `max_results` is a global cap across the scope, clamped to 1..=100.",
+)]
+#[tracing::instrument(
+    name = "search_all",
+    skip_all,
+    fields(
+        query_len = tracing::field::Empty,
+        max_results = tracing::field::Empty,
+        repo_scope = tracing::field::Empty,
+        repo_count = tracing::field::Empty,
+    )
+)]
+pub async fn search_all_handler(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<GlobalSearchParams>,
+) -> Response {
+    let query = match &params.q {
+        Some(q) if !q.trim().is_empty() => q.as_str(),
+        _ => return error_response(StatusCode::BAD_REQUEST, "Missing required parameter 'q'"),
+    };
+
+    let max_results = clamp_max_results(params.max_results);
+
+    // Record only the query *length* — never the query text itself, which for a
+    // code search may contain proprietary source.
+    let span = tracing::Span::current();
+    span.record("query_len", query.len());
+    span.record("max_results", max_results);
+
+    let scope = match scope_or_error(&state, params.repo.as_deref()) {
+        Ok(scope) => scope,
+        Err(unknown) => return unknown_repos_error(&unknown),
+    };
+    let (scope_kind, repo_count) = scope_fields(&scope);
+    span.record("repo_scope", scope_kind);
+    span.record("repo_count", repo_count);
+
+    let embedder = match &state.embedder {
+        Some(e) => e,
+        None => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Embedding model not initialized",
+            );
+        }
+    };
+
+    match knot::cli_tools::run_search_hybrid_context(
+        query,
+        max_results,
+        &scope,
+        &knot::cli_tools::SearchContext {
+            vector_db: &state.vector_db,
+            graph_db: &state.graph_db,
+            embedder,
+        },
+    )
+    .await
+    {
+        Ok(value) => (StatusCode::OK, Json(value)).into_response(),
+        Err(e) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Search failed: {e}"),
+        ),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/callers",
+    tag = "Search",
+    params(GlobalCallersParams),
+    responses(
+        (status = 200, description = "Caller analysis results across the requested repositories", body = serde_json::Value),
+        (status = 400, description = "Missing entity or unknown repository ids", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse),
+    ),
+    description = "Find all callers referencing an entity across one, several, or all indexed repositories. \
+                   Every row identifies the repository of the caller (`repo_name`) and of the referenced \
+                   entity (`target_repo_name`); `resolution.targets[]` is labeled too. There is no \
+                   `max_results`: the response is bounded by knot's 25-target resolution cap, surfaced as \
+                   `resolution.truncated`.",
+)]
+#[tracing::instrument(
+    name = "callers_all",
+    skip_all,
+    fields(
+        entity = tracing::field::Empty,
+        repo_scope = tracing::field::Empty,
+        repo_count = tracing::field::Empty,
+    )
+)]
+pub async fn callers_all_handler(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<GlobalCallersParams>,
+) -> Response {
+    let entity_name = match &params.entity {
+        Some(e) if !e.trim().is_empty() => e.as_str(),
+        _ => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                "Missing required parameter 'entity'",
+            );
+        }
+    };
+    // An entity name is a public identifier, not user prose, so it is
+    // recorded (unlike the search query, whose text stays out of spans).
+    tracing::Span::current().record("entity", entity_name);
+
+    let scope = match scope_or_error(&state, params.repo.as_deref()) {
+        Ok(scope) => scope,
+        Err(unknown) => return unknown_repos_error(&unknown),
+    };
+    let (scope_kind, repo_count) = scope_fields(&scope);
+    let span = tracing::Span::current();
+    span.record("repo_scope", scope_kind);
+    span.record("repo_count", repo_count);
+
+    match knot::cli_tools::run_find_callers(entity_name, &scope, &state.graph_db).await {
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),
         Err(e) => error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -172,7 +321,13 @@ pub async fn explore_handler(
         relative.trim_start_matches('/').to_string()
     };
 
-    match knot::cli_tools::run_explore_file(&relative_path, Some(&id), &state.graph_db).await {
+    match knot::cli_tools::run_explore_file(
+        &relative_path,
+        &knot::models::RepoScope::One(id.clone()),
+        &state.graph_db,
+    )
+    .await
+    {
         Ok((_display_path, entities_json)) => (StatusCode::OK, Json(entities_json)).into_response(),
         Err(e) => error_response(
             StatusCode::INTERNAL_SERVER_ERROR,

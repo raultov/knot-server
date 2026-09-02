@@ -27,6 +27,31 @@ pub struct CallersParams {
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
+pub struct GlobalSearchParams {
+    /// The search query string
+    #[param(example = "authentication logic")]
+    pub q: Option<String>,
+    /// Repository scope: one name, a comma-separated list, or `all` / `*`.
+    /// Omit to search every indexed repository.
+    #[param(example = "repo-a,repo-b")]
+    pub repo: Option<String>,
+    /// Maximum number of results (global across the scope), clamped to 1..=100
+    #[param(example = 5)]
+    pub max_results: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct GlobalCallersParams {
+    /// Name of the entity to find callers for
+    #[param(example = "handleRequest")]
+    pub entity: Option<String>,
+    /// Repository scope: one name, a comma-separated list, or `all` / `*`.
+    /// Omit to analyze every indexed repository.
+    #[param(example = "repo-a,repo-b")]
+    pub repo: Option<String>,
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
 pub struct ExploreParams {
     /// Relative file path within the repository
     #[param(example = "src/main.rs")]
