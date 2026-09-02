@@ -134,9 +134,45 @@ Repositories measured (as indexed): `spring-ai` 2 406 files / 25 733 entities, `
 
 ### 🔍 Code Intelligence Search
 - **`GET /api/repos/:id/search?q=...`**: Semantic + structural search. Find code by meaning, class name, method signature, or docstrings.
-- **`GET /api/repos/:id/callers?entity=...`**: Reverse dependency lookup. Identify callers, dead code, and perform impact analysis.
+- **`GET /api/repos/:id/callers?entity=...`**: Reverse dependency lookup. Identify callers, dead code, and perform impact analysis. Rows carry `repo_name` / `target_repo_name` (knot 1.8.1), so callers are self-labeling.
 - **`GET /api/repos/:id/explore?path=...`**: File anatomy inspection. Quickly see all classes, interfaces, methods, and functions in a specific file.
 - **`GET /api/repos/:id/deps`**: View repository dependencies (transitive and reverse) across the indexed ecosystem.
+
+The per-repo routes above remain **single-repo by design**. For queries spanning several
+(or all) indexed repositories, use the cross-repo routes below.
+
+#### Cross-repo search & callers
+
+- **`GET /api/search?q=...&repo=...&max_results=...`**: Semantic + structural search across
+  one, several, or all indexed repositories. Every result entity carries `repo_name`, so
+  multi-repo results are self-labeling.
+- **`GET /api/callers?entity=...&repo=...`**: Reverse dependency lookup across repositories.
+  Every row identifies the repository of the caller (`repo_name`) and of the referenced
+  entity (`target_repo_name`) — a genuine cross-repo reference is the row where the two
+  differ. `resolution.targets[]` is labeled too.
+
+Both routes share the same `repo` scope syntax:
+
+| `repo` value | Meaning |
+|--------------|---------|
+| *(omitted)* | All indexed repositories |
+| `all` or `*` (case-insensitive) | All indexed repositories (sentinel) |
+| `repo-a` | Exactly one repository |
+| `repo-a,repo-b` | Union of the listed repositories |
+
+Caveats:
+
+- `max_results` (search only, default 5, clamped to 1..=100) is a **global** cap across the
+  whole scope: with `repo=all` one dominant repository can crowd out the others.
+- `/api/callers` has no `max_results`: the response is bounded by knot's 25-target
+  resolution cap, surfaced as `resolution.truncated`. Under `repo=all` a common name
+  resolves against every indexed repository, so the cap fills faster — pass a qualified
+  name (`Namespace.Type.Member`) or narrow the scope to avoid it.
+- A repository literally named `all` (or `*`) is not addressable through these routes (the
+  token is the sentinel); use `/api/repos/all/search` and `/api/repos/all/callers`, which
+  build a single-repo scope directly.
+- Unknown repository ids are rejected with `400 Unknown repository ids: ...`. A registered
+  but not-yet-indexed repo is a valid scope member that simply contributes no rows.
 
 ### 🧬 Graph Visualization (Web UI)
 - **`GET /graph`**: Interactive 3D codebase graph viewer. Open in your browser to visually explore entity relationships.
