@@ -19,10 +19,13 @@ pub(crate) const KNOWN_ROUTES: &[&str] = &[
     "/api/progress",
     "/api/repos/{id}/search",
     "/api/repos/{id}/callers",
+    "/api/search",
+    "/api/callers",
     "/api/repos/{id}/explore",
     "/api/repos/{id}/deps",
     "/api/repos/{id}/graph",
     "/api/repos/{id}/graph/expand",
+    "/api/repos/{id}/graph/repos",
     "/api/webhook/{id}",
     "/api/health",
 ];
@@ -315,6 +318,71 @@ mod tests {
         assert_eq!(intern_route("/metrics"), "unmatched");
         assert_eq!(intern_route("/docs/swagger-ui.css"), "unmatched");
         assert_eq!(intern_route("/favicon.ico"), "unmatched");
+    }
+
+    #[test]
+    fn intern_route_maps_global_search() {
+        assert_eq!(intern_route("/api/search"), "/api/search");
+    }
+
+    #[test]
+    fn intern_route_maps_global_callers() {
+        assert_eq!(intern_route("/api/callers"), "/api/callers");
+    }
+
+    #[test]
+    fn known_routes_has_no_duplicates() {
+        let mut seen = std::collections::HashSet::new();
+        for route in KNOWN_ROUTES {
+            assert!(seen.insert(*route), "duplicate KNOWN_ROUTES entry: {route}");
+        }
+    }
+
+    /// Compile-time-extracted handler sources. A **new handler file** must be
+    /// added to this list; the guard catches new routes declared in existing
+    /// files, which is the common case.
+    const HANDLER_SOURCES: &[&str] = &[
+        include_str!("handlers/repo.rs"),
+        include_str!("handlers/indexing.rs"),
+        include_str!("handlers/progress.rs"),
+        include_str!("handlers/search.rs"),
+        include_str!("handlers/graph.rs"),
+        include_str!("handlers/repo_graph.rs"),
+        include_str!("handlers/webhooks.rs"),
+        include_str!("handlers/health.rs"),
+    ];
+
+    /// Drift guard: every `/api/...` path literal declared in a
+    /// `#[utoipa::path(... path = "…")]` attribute must appear in
+    /// KNOWN_ROUTES. Extraction is plain string splitting on `path = "` up
+    /// to the next `"` — no regex dependency.
+    #[test]
+    fn known_routes_covers_every_declared_api_path() {
+        let mut declared: Vec<String> = Vec::new();
+        for source in HANDLER_SOURCES {
+            let mut rest: &str = source;
+            while let Some(pos) = rest.find("path = \"") {
+                rest = &rest[pos + "path = \"".len()..];
+                let end = rest
+                    .find('"')
+                    .expect("utoipa path attribute must close its path string");
+                let path = &rest[..end];
+                if path.starts_with("/api/") {
+                    declared.push(path.to_string());
+                }
+            }
+        }
+        assert!(
+            !declared.is_empty(),
+            "extraction found no declared /api paths — the parse pattern drifted"
+        );
+        for path in &declared {
+            assert!(
+                KNOWN_ROUTES.contains(&path.as_str()),
+                "route '{path}' is declared by a handler but missing from KNOWN_ROUTES; \
+                 its metrics would be counted under 'unmatched'"
+            );
+        }
     }
 
     #[test]
