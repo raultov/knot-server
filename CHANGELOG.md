@@ -7,7 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  
 ---
  
-## [Unreleased]
+## [0.4.0] - 2026-09-02
+
+### Added
+- **Cross-repository search (`GET /api/search`):** new top-level endpoint exposing knot's
+  repository scope selection. `repo` accepts a single id, a comma-separated list,
+  or the sentinel `all` / `*`; omitting it searches every indexed repository. Each result
+  entity carries `repo_name`, so multi-repo results are self-labeling. `max_results` is a
+  global cap across the scope and is clamped to 1..=100. Unknown repository ids are
+  rejected with 400 (the per-repo routes keep their existing silent-empty behavior).
+- **Cross-repository caller analysis (`GET /api/callers`):** same scope syntax over
+  `entity`, for impact analysis spanning several repositories. Every row identifies the
+  repository of the caller (`repo_name`) and of the referenced entity (`target_repo_name`),
+  so a genuine cross-repo reference is the row where the two differ; `resolution.targets[]`
+  is labeled too. There is no `max_results`: the response is bounded by knot's 25-target
+  resolution cap, surfaced as `resolution.truncated`.
+
+### Changed
+- **knot 1.8.1:** bumped from 1.8.0 (which itself replaced 1.7.2 in this cycle). Required by
+  the new `/api/callers` endpoint — before it, multi-repo caller rows carried no repository
+  and were unattributable, since file paths are repo-relative and collide across
+  repositories. Additive only: no re-index, no signature change. It also makes the existing
+  `GET /api/repos/{id}/callers` rows self-labeling (`repo_name` / `target_repo_name` on
+  every reference row and `repo_name` on `resolution.targets[]`).
+- **knot 1.8.0 (mid-cycle bump):** the search/callers/explore handlers now build a
+  `knot::models::RepoScope::One` from the registry id instead of passing `Option<&str>`,
+  preserving the single-repo-per-request contract; `run_deps` and `run_get_subgraph`
+  signatures are unchanged. No re-index or user action required — knot 1.8.0 keeps the
+  on-disk index-state format and Neo4j/Qdrant schemas untouched. As an additive,
+  non-breaking response shape enhancement, `GET /api/repos/{id}/search` entity results
+  include a `repo_name` field per entity.
+
+### Fixed
+- **HTTP metrics attributed to `unmatched`:** `/api/repos/{id}/graph/repos` (live since
+  0.3.4) was missing from `KNOWN_ROUTES`, so every request to it was counted under the
+  `unmatched` route label. Added, together with `/api/search` and `/api/callers`, plus a
+  drift-guard test that fails when a handler declares a route that the allowlist does not
+  know.
 
 ---
 
