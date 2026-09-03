@@ -32,7 +32,8 @@ pub struct GlobalSearchParams {
     #[param(example = "authentication logic")]
     pub q: Option<String>,
     /// Repository scope: one name, a comma-separated list, or `all` / `*`.
-    /// Omit to search every indexed repository.
+    /// Omit to search every registered repository (an empty registry returns
+    /// an empty result without querying).
     #[param(example = "repo-a,repo-b")]
     pub repo: Option<String>,
     /// Maximum number of results (global across the scope), clamped to 1..=100
@@ -46,7 +47,8 @@ pub struct GlobalCallersParams {
     #[param(example = "handleRequest")]
     pub entity: Option<String>,
     /// Repository scope: one name, a comma-separated list, or `all` / `*`.
-    /// Omit to analyze every indexed repository.
+    /// Omit to analyze every registered repository (an empty registry returns
+    /// empty buckets without querying).
     #[param(example = "repo-a,repo-b")]
     pub repo: Option<String>,
 }

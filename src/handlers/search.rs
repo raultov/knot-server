@@ -2,13 +2,46 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use serde_json::json;
 use std::sync::Arc;
 
 use crate::handlers::models::*;
 use crate::handlers::scope::{
-    clamp_max_results, scope_fields, scope_or_error, unknown_repos_error,
+    ResolvedScope, clamp_max_results, scope_fields, scope_or_error, unknown_repos_error,
 };
 use crate::models::AppState;
+
+/// Empty-registry body for `GET /api/search` (CROSS_REPO_SEARCH_PLAN §3):
+/// status 200 with a bare JSON array — the caller asked for "all registered
+/// repositories" and there are none.
+fn empty_search_response() -> Response {
+    (StatusCode::OK, Json(json!([]))).into_response()
+}
+
+/// Empty-registry body for `GET /api/callers` (CROSS_REPO_SEARCH_PLAN §3):
+/// six empty buckets plus a neutral `resolution` block, shaped byte-for-byte
+/// like knot's natural empty response (pinned by E2E scenario G6).
+fn empty_callers_response(entity_name: &str) -> Response {
+    (
+        StatusCode::OK,
+        Json(json!({
+            "calls": [],
+            "extends": [],
+            "implements": [],
+            "overridden_by": [],
+            "overrides": [],
+            "references": [],
+            "resolution": {
+                "fuzzy": false,
+                "query": entity_name,
+                "targets": [],
+                "tier": "none",
+                "truncated": false,
+            }
+        })),
+    )
+        .into_response()
+}
 
 #[utoipa::path(
     get,
@@ -143,10 +176,12 @@ pub async fn callers_handler(
         (status = 400, description = "Missing query or unknown repository ids", body = ErrorResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse),
     ),
-    description = "Semantic + structural search across one, several, or all indexed repositories. \
+    description = "Semantic + structural search across one, several, or all registered repositories. \
                    `repo` accepts a single id, a comma-separated list, or the sentinel `all` / `*`; \
-                   omit it to search every indexed repository. Each entity carries `repo_name`. \
-                   `max_results` is a global cap across the scope, clamped to 1..=100.",
+                   omit it (or use the sentinel) to search every registered repository — the scope \
+                   expands to the registry id list, so unregistered repositories are never queried \
+                   and an empty registry returns an empty result with 200. Each entity carries \
+                   `repo_name`. `max_results` is a global cap across the scope, clamped to 1..=100.",
 )]
 #[tracing::instrument(
     name = "search_all",
@@ -175,13 +210,17 @@ pub async fn search_all_handler(
     span.record("query_len", query.len());
     span.record("max_results", max_results);
 
-    let scope = match scope_or_error(&state, params.repo.as_deref()) {
-        Ok(scope) => scope,
+    let resolved = match scope_or_error(&state, params.repo.as_deref()) {
+        Ok(resolved) => resolved,
         Err(unknown) => return unknown_repos_error(&unknown),
     };
-    let (scope_kind, repo_count) = scope_fields(&scope);
+    let (scope_kind, repo_count) = scope_fields(&resolved);
     span.record("repo_scope", scope_kind);
     span.record("repo_count", repo_count);
+    let scope = match resolved {
+        ResolvedScope::Scope(scope) => scope,
+        ResolvedScope::NoRepositories => return empty_search_response(),
+    };
 
     let embedder = match &state.embedder {
         Some(e) => e,
@@ -223,11 +262,13 @@ pub async fn search_all_handler(
         (status = 400, description = "Missing entity or unknown repository ids", body = ErrorResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse),
     ),
-    description = "Find all callers referencing an entity across one, several, or all indexed repositories. \
-                   Every row identifies the repository of the caller (`repo_name`) and of the referenced \
-                   entity (`target_repo_name`); `resolution.targets[]` is labeled too. There is no \
-                   `max_results`: the response is bounded by knot's 25-target resolution cap, surfaced as \
-                   `resolution.truncated`.",
+    description = "Find all callers referencing an entity across one, several, or all registered \
+                   repositories (`repo=all` / omitted `repo` expand to the registry id list, so \
+                   unregistered repositories are never queried; an empty registry returns empty \
+                   buckets with 200 without querying). Every row identifies the repository of the \
+                   caller (`repo_name`) and of the referenced entity (`target_repo_name`); \
+                   `resolution.targets[]` is labeled too. There is no `max_results`: the response \
+                   is bounded by knot's 25-target resolution cap, surfaced as `resolution.truncated`.",
 )]
 #[tracing::instrument(
     name = "callers_all",
@@ -255,14 +296,18 @@ pub async fn callers_all_handler(
     // recorded (unlike the search query, whose text stays out of spans).
     tracing::Span::current().record("entity", entity_name);
 
-    let scope = match scope_or_error(&state, params.repo.as_deref()) {
-        Ok(scope) => scope,
+    let resolved = match scope_or_error(&state, params.repo.as_deref()) {
+        Ok(resolved) => resolved,
         Err(unknown) => return unknown_repos_error(&unknown),
     };
-    let (scope_kind, repo_count) = scope_fields(&scope);
+    let (scope_kind, repo_count) = scope_fields(&resolved);
     let span = tracing::Span::current();
     span.record("repo_scope", scope_kind);
     span.record("repo_count", repo_count);
+    let scope = match resolved {
+        ResolvedScope::Scope(scope) => scope,
+        ResolvedScope::NoRepositories => return empty_callers_response(entity_name),
+    };
 
     match knot::cli_tools::run_find_callers(entity_name, &scope, &state.graph_db).await {
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),

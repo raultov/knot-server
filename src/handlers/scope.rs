@@ -6,6 +6,10 @@
 //! (CROSS_REPO_SEARCH_PLAN §4.2). Parsing of the `repo` parameter is
 //! delegated verbatim to `knot::models::RepoScope::parse` — knot-server
 //! must not reimplement trimming, deduping or sentinel precedence.
+//!
+//! `RepoScope::All` no longer bypasses the registry: it expands to the
+//! registry id list, so `repo=all` — and an omitted `repo` — mean "all
+//! *registered* repositories" (CROSS_REPO_SEARCH_PLAN D1/D2).
 
 use axum::http::StatusCode;
 use axum::response::Response;
@@ -19,16 +23,39 @@ pub(crate) const DEFAULT_MAX_RESULTS: usize = 5;
 pub(crate) const MIN_MAX_RESULTS: usize = 1;
 pub(crate) const MAX_MAX_RESULTS: usize = 100;
 
+/// The outcome of resolving the `repo` parameter against the registry.
+///
+/// `NoRepositories` exists because `RepoScope::Many(vec![])` is **not** a
+/// representable "nothing": `filter_names()` returns an empty vec for it, and
+/// knot's DB layer treats an empty filter list as *unfiltered*
+/// (`knot::models::RepoScope::filter_names`). Expanding `All` over an empty
+/// registry therefore cannot be expressed as a `RepoScope` at all — the caller
+/// must skip the query entirely.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ResolvedScope {
+    Scope(RepoScope),
+    NoRepositories,
+}
+
 /// Resolve the `repo` query parameter against the set of known repository ids.
 ///
-/// `Ok(scope)` when every named repository exists (or the scope is `All`);
-/// `Err(unknown)` with the unknown names **sorted and deduped** otherwise.
-/// `RepoScope::All` short-circuits to `Ok` — the membership check only
-/// applies to explicitly named repositories.
-pub fn resolve_scope(raw: Option<&str>, known: &[String]) -> Result<RepoScope, Vec<String>> {
+/// `RepoScope::All` — also produced by an omitted, empty or sentinel `repo`
+/// value — expands to the registry id list (sorted and deduped): an empty
+/// registry yields [`ResolvedScope::NoRepositories`], a single id
+/// `Scope(One)`, two or more `Scope(Many)`. Every other scope is
+/// membership-checked against `known`; unknown names are returned **sorted
+/// and deduped** in `Err`.
+pub fn resolve_scope(raw: Option<&str>, known: &[String]) -> Result<ResolvedScope, Vec<String>> {
     let scope = RepoScope::parse_optional(raw);
     if matches!(scope, RepoScope::All) {
-        return Ok(scope);
+        let mut ids: Vec<String> = known.to_vec();
+        ids.sort();
+        ids.dedup();
+        return Ok(match ids.len() {
+            0 => ResolvedScope::NoRepositories,
+            1 => ResolvedScope::Scope(RepoScope::One(ids.remove(0))),
+            _ => ResolvedScope::Scope(RepoScope::Many(ids)),
+        });
     }
 
     let mut unknown: Vec<String> = scope
@@ -39,7 +66,7 @@ pub fn resolve_scope(raw: Option<&str>, known: &[String]) -> Result<RepoScope, V
     unknown.sort();
     unknown.dedup();
     if unknown.is_empty() {
-        Ok(scope)
+        Ok(ResolvedScope::Scope(scope))
     } else {
         Err(unknown)
     }
@@ -66,7 +93,7 @@ pub fn clamp_max_results(requested: Option<usize>) -> usize {
 pub(crate) fn scope_or_error(
     state: &AppState,
     raw: Option<&str>,
-) -> Result<RepoScope, Vec<String>> {
+) -> Result<ResolvedScope, Vec<String>> {
     let known: Vec<String> = {
         let mut registry = state.registry.lock().unwrap();
         registry.list().iter().map(|r| r.id.clone()).collect()
@@ -84,14 +111,16 @@ pub(crate) fn unknown_repos_error(unknown: &[String]) -> Response {
 }
 
 /// Span-friendly description of a resolved scope: its kind
-/// (`"all" | "one" | "many"`) and the number of named repositories
-/// (`0` for `All`). Names are deliberately not recorded — the kind +
-/// count keeps the span payload bounded for `all` over a large cluster.
-pub(crate) fn scope_fields(scope: &RepoScope) -> (&'static str, usize) {
+/// (`"all" | "one" | "many" | "none"`) and the number of named repositories
+/// (`0` for `All` and for `NoRepositories`). Names are deliberately not
+/// recorded — the kind + count keeps the span payload bounded for `all` over
+/// a large cluster.
+pub(crate) fn scope_fields(scope: &ResolvedScope) -> (&'static str, usize) {
     match scope {
-        RepoScope::All => ("all", 0),
-        RepoScope::One(_) => ("one", 1),
-        RepoScope::Many(names) => ("many", names.len()),
+        ResolvedScope::NoRepositories => ("none", 0),
+        ResolvedScope::Scope(RepoScope::All) => ("all", 0),
+        ResolvedScope::Scope(RepoScope::One(_)) => ("one", 1),
+        ResolvedScope::Scope(RepoScope::Many(names)) => ("many", names.len()),
     }
 }
 
@@ -103,56 +132,123 @@ mod tests {
         vec!["repo-a".to_string(), "repo-b".to_string()]
     }
 
+    // D2: `All` expands to the registry id list, sorted.
     #[test]
-    fn absent_repo_param_is_all() {
-        assert_eq!(resolve_scope(None, &known()), Ok(RepoScope::All));
+    fn all_expands_to_registered_repos() {
+        let unsorted = vec!["repo-b".to_string(), "repo-a".to_string()];
+        assert_eq!(
+            resolve_scope(None, &unsorted),
+            Ok(ResolvedScope::Scope(RepoScope::Many(vec![
+                "repo-a".to_string(),
+                "repo-b".to_string()
+            ])))
+        );
+        // Empty and whitespace-only values parse to `All` too.
+        assert_eq!(
+            resolve_scope(Some(""), &known()),
+            resolve_scope(None, &known())
+        );
+        assert_eq!(
+            resolve_scope(Some("  "), &known()),
+            resolve_scope(None, &known())
+        );
     }
 
     #[test]
-    fn empty_repo_param_is_all() {
-        assert_eq!(resolve_scope(Some(""), &known()), Ok(RepoScope::All));
-        assert_eq!(resolve_scope(Some("  "), &known()), Ok(RepoScope::All));
-    }
-
-    #[test]
-    fn sentinel_all_is_case_insensitive() {
+    fn sentinel_expands_to_registered_repos() {
         for raw in ["all", "ALL", "All", "*"] {
             assert_eq!(
                 resolve_scope(Some(raw), &known()),
-                Ok(RepoScope::All),
-                "sentinel '{raw}' must resolve to All"
+                Ok(ResolvedScope::Scope(RepoScope::Many(vec![
+                    "repo-a".to_string(),
+                    "repo-b".to_string()
+                ]))),
+                "sentinel '{raw}' must expand to the registry"
             );
         }
     }
 
     #[test]
-    fn single_known_repo_is_one() {
+    fn all_with_single_registered_repo_is_one() {
+        let single = vec!["repo-a".to_string()];
+        assert_eq!(
+            resolve_scope(None, &single),
+            Ok(ResolvedScope::Scope(RepoScope::One("repo-a".to_string())))
+        );
+    }
+
+    // D3: an empty registry must never become `Many([])`, which knot's DB
+    // layer reads as *unfiltered* — the exact inverse of the intent.
+    #[test]
+    fn all_with_empty_registry_is_no_repositories() {
+        assert_eq!(resolve_scope(None, &[]), Ok(ResolvedScope::NoRepositories));
+    }
+
+    #[test]
+    fn sentinel_with_empty_registry_is_no_repositories() {
+        for raw in ["all", "ALL", "*"] {
+            assert_eq!(
+                resolve_scope(Some(raw), &[]),
+                Ok(ResolvedScope::NoRepositories),
+                "sentinel '{raw}' over an empty registry"
+            );
+        }
+    }
+
+    #[test]
+    fn expansion_never_yields_an_empty_filter_list() {
+        // For every expansion outcome the resulting scope (when present)
+        // carries a non-empty filter list — the invariant that makes the
+        // `NoRepositories` variant necessary (D3).
+        for known in [
+            vec![],
+            vec!["repo-a".to_string()],
+            vec!["repo-b".to_string(), "repo-a".to_string()],
+        ] {
+            match resolve_scope(None, &known).unwrap() {
+                ResolvedScope::NoRepositories => assert!(known.is_empty()),
+                ResolvedScope::Scope(scope) => {
+                    assert!(!scope.filter_names().is_empty());
+                }
+            }
+        }
+    }
+
+    // The sentinel wins over a named list in knot's parse rules
+    // ("all,ghost" parses to `All`), so the input now expands to the
+    // registry instead of skipping the membership check: `ghost` is not
+    // reachable through it.
+    #[test]
+    fn sentinel_no_longer_skips_membership_check() {
+        let resolved = resolve_scope(Some("all,ghost"), &known()).unwrap();
+        let ResolvedScope::Scope(scope) = resolved else {
+            panic!("a non-empty registry must resolve to a scope");
+        };
+        let names = scope.filter_names();
+        assert_eq!(names, vec!["repo-a".to_string(), "repo-b".to_string()]);
+        assert!(!names.contains(&"ghost".to_string()));
+    }
+
+    #[test]
+    fn named_scopes_are_unchanged() {
         assert_eq!(
             resolve_scope(Some("repo-a"), &known()),
-            Ok(RepoScope::One("repo-a".to_string()))
+            Ok(ResolvedScope::Scope(RepoScope::One("repo-a".to_string())))
         );
-    }
-
-    #[test]
-    fn list_of_known_repos_is_many() {
         assert_eq!(
             resolve_scope(Some("repo-a,repo-b"), &known()),
-            Ok(RepoScope::Many(vec![
+            Ok(ResolvedScope::Scope(RepoScope::Many(vec![
                 "repo-a".to_string(),
                 "repo-b".to_string()
-            ]))
+            ])))
         );
-    }
-
-    #[test]
-    fn whitespace_and_duplicates_are_normalised() {
         // Trimming/deduping is knot's authority; order is first-occurrence.
         assert_eq!(
             resolve_scope(Some(" repo-a , repo-a , repo-b "), &known()),
-            Ok(RepoScope::Many(vec![
+            Ok(ResolvedScope::Scope(RepoScope::Many(vec![
                 "repo-a".to_string(),
                 "repo-b".to_string()
-            ]))
+            ])))
         );
     }
 
@@ -181,16 +277,10 @@ mod tests {
     }
 
     #[test]
-    fn sentinel_skips_membership_check() {
-        assert_eq!(resolve_scope(Some("all"), &[]), Ok(RepoScope::All));
-        assert_eq!(resolve_scope(Some("*"), &[]), Ok(RepoScope::All));
-    }
-
-    #[test]
-    fn sentinel_wins_over_unknown_name_in_list() {
+    fn empty_registry_still_rejects_named_unknowns() {
         assert_eq!(
-            resolve_scope(Some("all,ghost"), &known()),
-            Ok(RepoScope::All)
+            resolve_scope(Some("ghost"), &[]),
+            Err(vec!["ghost".to_string()])
         );
     }
 
