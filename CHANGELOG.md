@@ -28,11 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Graph viewer: cross-repository search.** An "All repos" checkbox next to the search box
-  switches it from `GET /api/repos/{id}/search` to the cross-repo `GET /api/search`. Results
-  are grouped and badged by repository, and selecting a result from another repository
-  switches the active repository before focusing the entity. The 3D graph itself remains
-  single-repo: knot-server's subgraph queries match `repo_name` on both ends of every edge,
-  so cross-repo edges are not representable today.
+  switches it from `GET /api/repos/{id}/search` to the cross-repo `GET /api/search`. Checking
+  "All repos" enables global searching even when no repository is selected. Results are grouped
+  and badged by repository, and selecting a result from another repository automatically switches
+  the active repository before focusing the entity. The 3D graph itself remains single-repo.
 
 ---
 
