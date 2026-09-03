@@ -16,7 +16,12 @@ entire repository architecture, or inspect the cross-repository dependency layou
 analyze or render.
 
 Users can also explore these graphs visually by opening the interactive viewer
-at `http://localhost:3000/graph` in their browser.
+at `http://localhost:3000/graph` in their browser. Its search box has an
+"All repos" checkbox that switches the search from the selected repository to
+every registered repository at once (the cross-repo `GET /api/search`); results
+are grouped and badged by repository, and selecting a result from another
+repository switches the active repository before focusing the entity. The 3D
+graph itself remains single-repo.
 
 ## Request 1: Get Subgraph
 

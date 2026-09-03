@@ -75,11 +75,14 @@ impact across repositories.
 
 1. **Locate across repos ([[search]]):**
    `GET /api/search?q=user+authentication&max_results=10` — every hit carries
-   `repo_name`, so you learn *which* repositories own the concept.
+   `repo_name`, so you learn *which* repositories own the concept. Omitting
+   `repo` (or `all` / `*`) means every **registered** repository: deleted repos
+   no longer leak rows, and an empty registry returns an empty result.
 2. **Assess cross-repo impact ([[callers]]):**
    `GET /api/callers?entity=AuthService&repo=all` — read `repo_name` vs
    `target_repo_name` per row to spot genuine cross-repo references, and check
-   `resolution.truncated` before trusting the answer.
+   `resolution.truncated` before trusting the answer. The scope is confined to
+   registered repositories, so rows from deleted repos cannot appear.
 3. **Narrow down ([[search]] per-repo):** Once the owning repos are known,
    re-run per-repo queries for token-efficient detail.
 4. **Check repo links ([[deps]]):** Confirm whether the callers' repos depend

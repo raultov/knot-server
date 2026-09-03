@@ -126,7 +126,7 @@ If you identified a key entity, find who uses it using the [[callers]] skill:
 
 ## Cross-repo search
 
-Use `GET /api/search` when the answer may live in **more than one indexed
+Use `GET /api/search` when the answer may live in **more than one registered
 repository** — multi-repo feature discovery, "where does this pattern exist in
 the ecosystem", or when you do not know which repo owns the code. The per-repo
 route stays the right choice once you know the repo.
@@ -143,13 +143,17 @@ curl -fsS -G \
 
 | `repo` value | Meaning |
 |--------------|---------|
-| *(omitted)* | All indexed repositories |
-| `all` / `*` (case-insensitive) | All indexed repositories (sentinel) |
+| *(omitted)* | All **registered** repositories |
+| `all` / `*` (case-insensitive) | All registered repositories (sentinel) |
 | `repo-a` | Exactly one repository |
 | `repo-a,repo-b` | Union of the listed repositories |
+| *(any, empty registry)* | Empty result, `200` |
 
 Whitespace and duplicate names are normalised. Unknown ids are rejected with
-`400 {"error":"Unknown repository ids: ..."}`.
+`400 {"error":"Unknown repository ids: ..."}`. The `all` sentinel — and an
+omitted `repo` — expand to the registered repository ids, so rows from
+unregistered (deleted) repositories are never returned; with an empty registry
+both spellings return an empty result with `200` without querying.
 
 ### Caveats
 

@@ -139,12 +139,12 @@ Repositories measured (as indexed): `spring-ai` 2 406 files / 25 733 entities, `
 - **`GET /api/repos/:id/deps`**: View repository dependencies (transitive and reverse) across the indexed ecosystem.
 
 The per-repo routes above remain **single-repo by design**. For queries spanning several
-(or all) indexed repositories, use the cross-repo routes below.
+(or all) registered repositories, use the cross-repo routes below.
 
 #### Cross-repo search & callers
 
 - **`GET /api/search?q=...&repo=...&max_results=...`**: Semantic + structural search across
-  one, several, or all indexed repositories. Every result entity carries `repo_name`, so
+  one, several, or all registered repositories. Every result entity carries `repo_name`, so
   multi-repo results are self-labeling.
 - **`GET /api/callers?entity=...&repo=...`**: Reverse dependency lookup across repositories.
   Every row identifies the repository of the caller (`repo_name`) and of the referenced
@@ -155,10 +155,11 @@ Both routes share the same `repo` scope syntax:
 
 | `repo` value | Meaning |
 |--------------|---------|
-| *(omitted)* | All indexed repositories |
-| `all` or `*` (case-insensitive) | All indexed repositories (sentinel) |
+| *(omitted)* | All **registered** repositories |
+| `all` or `*` (case-insensitive) | All registered repositories (sentinel) |
 | `repo-a` | Exactly one repository |
 | `repo-a,repo-b` | Union of the listed repositories |
+| *(any, empty registry)* | Empty result, `200` — the databases are not queried |
 
 Caveats:
 
@@ -166,13 +167,17 @@ Caveats:
   whole scope: with `repo=all` one dominant repository can crowd out the others.
 - `/api/callers` has no `max_results`: the response is bounded by knot's 25-target
   resolution cap, surfaced as `resolution.truncated`. Under `repo=all` a common name
-  resolves against every indexed repository, so the cap fills faster — pass a qualified
+  resolves against every registered repository, so the cap fills faster — pass a qualified
   name (`Namespace.Type.Member`) or narrow the scope to avoid it.
 - A repository literally named `all` (or `*`) is not addressable through these routes (the
   token is the sentinel); use `/api/repos/all/search` and `/api/repos/all/callers`, which
   build a single-repo scope directly.
 - Unknown repository ids are rejected with `400 Unknown repository ids: ...`. A registered
   but not-yet-indexed repo is a valid scope member that simply contributes no rows.
+- `repo=all` — and an omitted `repo` — are confined to the registry: the sentinel expands
+  to the registered repository ids, so rows from repositories that were deleted from the
+  registry are never returned (previously the query ran unfiltered against the databases).
+  With an empty registry both spellings return an empty result with `200` without querying.
 
 ### 🧬 Graph Visualization (Web UI)
 - **`GET /graph`**: Interactive 3D codebase graph viewer. Open in your browser to visually explore entity relationships.
@@ -185,6 +190,10 @@ Caveats:
   - **Performance Optimized**: Default overview mode excludes noisy child relationships (`CONTAINS`), while focused mode uses physical hierarchy edges to maintain connectivity. Nested declarations (inner classes, C# nested records/enums) are included in the default overview.
   - **Smart Tooltips**: Hover over nodes to see Fully Qualified Names (FQN), kind, file path, and line numbers.
   - **Contextual Search**: Find entities by FQN or name; results include package/module context.
+  - **Cross-Repository Search**: An "All repos" checkbox next to the search box switches it
+    from the selected repository to every registered repository at once. Results are grouped
+    and badged by repository, and clicking a result from another repository switches the
+    active repository before focusing the entity. The 3D graph itself remains single-repo.
 - **`GET /api/repos/:id/graph?entity=...`**: Query the entity subgraph for a given repository root entity. Returns nodes and edges in JSON format for programmatic consumption.
 
   | Parameter | Type | Default | Description |

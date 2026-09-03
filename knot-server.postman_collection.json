@@ -86,7 +86,7 @@
             {
               "key": "repo",
               "value": "",
-              "description": "Repository scope: one id, comma-separated list, or `all` / `*`. Disabled = omitted = search every indexed repository.",
+              "description": "Repository scope: one id, comma-separated list, or `all` / `*`. Disabled = omitted = search every registered repository (empty registry => empty result).",
               "disabled": true
             },
             {
@@ -124,7 +124,7 @@
             {
               "key": "repo",
               "value": "",
-              "description": "Repository scope: one id, comma-separated list, or `all` / `*`. Disabled = omitted = analyze every indexed repository.",
+              "description": "Repository scope: one id, comma-separated list, or `all` / `*`. Disabled = omitted = analyze every registered repository (empty registry => empty buckets).",
               "disabled": true
             }
           ]

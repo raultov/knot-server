@@ -152,7 +152,7 @@ graph will correctly return calls made from `my-app` into `auth-lib`. Use the
 
 Use `GET /api/callers` for impact analysis that **spans repositories** — e.g.
 "who calls `SharedUtil.work` anywhere in the indexed ecosystem?". Same scope
-syntax as cross-repo search: omit `repo` (or `all` / `*`) for every indexed
+syntax as cross-repo search: omit `repo` (or `all` / `*`) for every registered
 repository, one id, or a comma-separated list.
 
 ```bash
@@ -174,9 +174,12 @@ curl -fsS -G \
 ### Caveats
 
 - **Read `resolution.truncated`.** Under `repo=all` a common name resolves
-  against every indexed repository, so knot's 25-target resolution cap fills
+  against every registered repository, so knot's 25-target resolution cap fills
   faster and the answer becomes a *sample*, not the full set. Pass a qualified
   name (`Namespace.Type.Member`) or narrow the scope to avoid it.
+- `repo=all` — and an omitted `repo` — are confined to the registry: rows from
+  unregistered (deleted) repositories are never returned, and an empty registry
+  yields empty buckets with `200` without querying.
 - There is no `max_results` on this route.
 - The match ladder is unchanged by scope (exact FQN → FQN suffix → exact name →
   signature prefix → fuzzy): a wide scope does not loosen matching, it only
