@@ -926,30 +926,129 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn search_all_valid_scope_without_embedder_returns_500() {
+    async fn populated_registry_reaches_the_db_layer() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        add_registry_entry(&state, "real-repo").await;
+        let app = build_test_app(state);
+
+        // D1 must not short-circuit too eagerly: with a populated registry
+        // the default (`All`) scope is a valid scope and the request must
+        // still reach the embedder / DB steps — the deterministic 500s here.
+        let (search_status, search_body) = get_error(app.clone(), "/api/search?q=x").await;
+        assert_eq!(search_status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(
+            search_body.contains("Embedding model not initialized"),
+            "populated registry must reach the embedder step: {search_body}"
+        );
+
+        let (callers_status, callers_body) = get_error(app, "/api/callers?entity=x").await;
+        assert_eq!(callers_status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(
+            callers_body.contains("Find callers failed"),
+            "populated registry must reach the graph DB: {callers_body}"
+        );
+    }
+
+    // ── Empty-registry semantics (D1/D3): `repo=all` — and an omitted
+    // `repo` — expand to the registry id list. With no repositories
+    // registered the handlers must return a 200 empty body *without*
+    // calling knot. The embedder is missing and the DBs unreachable, so any
+    // attempt to query would deterministically yield a 500 instead — a 200
+    // proves the handler returned before touching knot.
+
+    #[tokio::test]
+    async fn search_all_with_empty_registry_returns_empty_array() {
         let dir = TempDir::new().unwrap();
         let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
         let app = build_test_app(state);
 
-        let (status, body) = get_error(app, "/api/search?q=x").await;
-        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
-        assert!(
-            body.contains("Embedding model not initialized"),
-            "body must mention the embedder: {body}"
+        let (status, body) = get_error(app, "/api/search?q=x&max_results=100").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            body.trim(),
+            "[]",
+            "empty registry must yield a bare empty array: {body}"
         );
     }
 
     #[tokio::test]
-    async fn search_all_sentinel_with_empty_registry_reaches_embedder_check() {
+    async fn callers_all_with_empty_registry_returns_empty_buckets() {
         let dir = TempDir::new().unwrap();
         let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
         let app = build_test_app(state);
 
-        // `all` skips the membership check, so the request proceeds to the
-        // embedder step: 500, not 400.
-        let (status, body) = get_error(app, "/api/search?q=x&repo=all").await;
-        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
-        assert!(body.contains("Embedding model not initialized"), "{body}");
+        let (status, body) = get_error(app, "/api/callers?entity=GhostUtil.work").await;
+        assert_eq!(status, StatusCode::OK);
+        let json: serde_json::Value = serde_json::from_str(&body)
+            .unwrap_or_else(|e| panic!("empty-registry body must be JSON: {e}\n{body}"));
+        for bucket in [
+            "calls",
+            "extends",
+            "implements",
+            "overridden_by",
+            "overrides",
+            "references",
+        ] {
+            assert_eq!(
+                json[bucket],
+                serde_json::json!([]),
+                "bucket '{bucket}' must be an empty array"
+            );
+        }
+        assert_eq!(json["resolution"]["fuzzy"], false);
+        assert_eq!(json["resolution"]["query"], "GhostUtil.work");
+        assert_eq!(json["resolution"]["targets"], serde_json::json!([]));
+        assert_eq!(json["resolution"]["tier"], "none");
+        assert_eq!(json["resolution"]["truncated"], false);
+    }
+
+    #[tokio::test]
+    async fn empty_registry_response_preserves_validation_order() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        // The NoRepositories short-circuit sits after the parameter checks:
+        // a missing `q` / `entity` is still a 400 on an empty registry.
+        let (search_status, search_body) = get_error(app.clone(), "/api/search").await;
+        assert_eq!(search_status, StatusCode::BAD_REQUEST);
+        assert!(
+            search_body.contains("'q'"),
+            "body must mention 'q': {search_body}"
+        );
+
+        let (callers_status, callers_body) = get_error(app, "/api/callers").await;
+        assert_eq!(callers_status, StatusCode::BAD_REQUEST);
+        assert!(
+            callers_body.contains("'entity'"),
+            "body must mention 'entity': {callers_body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn unknown_repo_still_400_on_empty_registry() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        // A named unknown repo is an Err even when the registry is empty
+        // (D3 only rewrites the `All` expansion), and the error shape is
+        // byte-identical across both cross-repo routes.
+        let (search_status, search_body) =
+            get_error(app.clone(), "/api/search?q=x&repo=ghost").await;
+        let (callers_status, callers_body) =
+            get_error(app, "/api/callers?entity=x&repo=ghost").await;
+        assert_eq!(search_status, StatusCode::BAD_REQUEST);
+        assert_eq!(callers_status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            search_body, callers_body,
+            "both routes must emit a byte-identical 400 for repo=ghost"
+        );
+        assert!(
+            search_body.contains("ghost"),
+            "body must list the id: {search_body}"
+        );
     }
 
     #[tokio::test]
@@ -1029,6 +1128,7 @@ mod tests {
     async fn callers_all_valid_scope_reaches_graph_db() {
         let dir = TempDir::new().unwrap();
         let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        add_registry_entry(&state, "real-repo").await;
         let app = build_test_app(state);
 
         // Valid scope → the request goes to the (unreachable) graph DB. The
@@ -1043,20 +1143,6 @@ mod tests {
         assert!(
             body.contains("Find callers failed"),
             "body must surface the knot/DB failure: {body}"
-        );
-    }
-
-    #[tokio::test]
-    async fn callers_all_sentinel_with_empty_registry_is_accepted() {
-        let dir = TempDir::new().unwrap();
-        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
-        let app = build_test_app(state);
-
-        let (status, body) = get_error(app, "/api/callers?entity=x&repo=all").await;
-        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
-        assert!(
-            body.contains("Find callers failed"),
-            "sentinel must skip membership validation: {body}"
         );
     }
 

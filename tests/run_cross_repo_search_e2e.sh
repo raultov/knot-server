@@ -7,6 +7,7 @@
 #
 # Group S — cross-repo search scenarios
 # Group C — cross-repo callers scenarios
+# Group G — repo=all registry-confinement scenarios (ghost repository)
 # Regression guards pin the per-repo routes as unchanged.
 
 set -e
@@ -160,30 +161,42 @@ echo "  Fixture repo B: $FIXTURE_B"
 
 cargo build 2>&1 | grep -E "(Compiling|Finished|error)" || true
 
-KNOT_SERVER_QDRANT_URL="$QDRANT_URL" \
-KNOT_SERVER_NEO4J_URI="$NEO4J_URI" \
-KNOT_SERVER_NEO4J_USER="$NEO4J_USER" \
-KNOT_NEO4J_PASSWORD="$NEO4J_PASSWORD" \
-KNOT_SERVER_PORT="$SERVER_PORT" \
-KNOT_WORKSPACE_DIR="$WORKSPACE_DIR" \
-KNOT_SERVER_QUEUE_CAPACITY=4 \
-RUST_LOG="${RUST_LOG:-info}" \
-    "$PROJECT_ROOT/target/debug/knot-server" > "$SERVER_LOG" 2>&1 &
-SERVER_PID=$!
+# Start knot-server with the canonical environment. Used for the initial
+# start and for the Group G restart so both runs share identical settings.
+start_knot_server() {
+    KNOT_SERVER_QDRANT_URL="$QDRANT_URL" \
+    KNOT_SERVER_NEO4J_URI="$NEO4J_URI" \
+    KNOT_SERVER_NEO4J_USER="$NEO4J_USER" \
+    KNOT_NEO4J_PASSWORD="$NEO4J_PASSWORD" \
+    KNOT_SERVER_PORT="$SERVER_PORT" \
+    KNOT_WORKSPACE_DIR="$WORKSPACE_DIR" \
+    KNOT_SERVER_QUEUE_CAPACITY=4 \
+    RUST_LOG="${RUST_LOG:-info}" \
+        "$PROJECT_ROOT/target/debug/knot-server" >> "$SERVER_LOG" 2>&1 &
+    SERVER_PID=$!
+}
+
+wait_server_up() {
+    local max_wait="${1:-90}"
+    for i in $(seq 1 "$max_wait"); do
+        if curl -sf "$BASE_URL/api/health" >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+start_knot_server
 
 echo -n "  Waiting for knot-server on port $SERVER_PORT..."
-for i in $(seq 1 90); do
-    if curl -sf "$BASE_URL/api/health" >/dev/null 2>&1; then
-        echo -e " ${GREEN}ready${NC}"
-        break
-    fi
-    if [ "$i" -eq 90 ]; then
-        echo -e " ${RED}did not start${NC}"
-        cat "$SERVER_LOG"
-        exit 1
-    fi
-    sleep 1
-done
+if wait_server_up 90; then
+    echo -e " ${GREEN}ready${NC}"
+else
+    echo -e " ${RED}did not start${NC}"
+    cat "$SERVER_LOG"
+    exit 1
+fi
 
 # ── Step 4: Register both repos + wait for indexing ──────────
 echo -e "${YELLOW}[4/5] Registering fixture repos + waiting for indexing...${NC}"
@@ -496,6 +509,180 @@ if [ "$C9_CODE" = "200" ] \
     pass "C9 — alphaCaller (repo_name=$REPO_A_ID) present, betaCaller absent"
 else
     fail "C9 — status=$C9_CODE, names: $C9_NAMES, alphaCaller repo: '$C9_ALPHA_REPO'"
+fi
+
+# ═════════════════════════════════════════════════════════════
+echo -e "\n${CYAN}═══ Group G — repo=all registry confinement ═══${NC}"
+
+# Setup: index a third fixture repo ("ghost"), then deregister it behind
+# the server's back — stop knot-server, drop its entry from the on-disk
+# registry, restart with the same environment. The Neo4j/Qdrant rows
+# survive, simulating a repo deleted from the registry with orphaned rows.
+echo -e "\n${CYAN}G-setup: ghost repository lifecycle${NC}"
+
+FIXTURE_C=$(create_fixture_bare_repo "$CROSS_FIXTURE_DIR/repo_c" "cross-repo-ghost")
+echo "  Fixture repo C: $FIXTURE_C"
+
+REG_C_BODY=$(mktemp)
+REG_C_CODE=$(curl -sf -w "%{http_code}" -o "$REG_C_BODY" \
+    -X POST "$BASE_URL/api/repos" \
+    -H "Content-Type: application/json" \
+    -d "{\"url\": \"$FIXTURE_C\", \"auth_type\": \"ssh\"}")
+if [ "$REG_C_CODE" = "202" ]; then
+    pass "Register repo C (202)"
+else
+    echo -e "${RED}SETUP FAILED${NC} — register repo C returned $REG_C_CODE"
+    cat "$REG_C_BODY"; exit 1
+fi
+REPO_C_ID=$(jq -r '.id' "$REG_C_BODY")
+rm -f "$REG_C_BODY"
+echo "  Repo C ID: $REPO_C_ID"
+
+if wait_indexed "$REPO_C_ID"; then
+    pass "Repo C (ghost) indexed"
+else
+    echo -e "${RED}SETUP FAILED${NC}"; exit 1
+fi
+
+# Precondition: the ghost rows must be retrievable while the repo is
+# still registered, so a G1-G3 red state is attributable to the scope
+# leak and not to a broken fixture.
+GHOST_SANITY_CODE=$(curl -s -w "%{http_code}" -o /tmp/ghost_sanity.json \
+    "$BASE_URL/api/search?q=GhostEntity&repo=$REPO_C_ID")
+GHOST_SANITY_HITS=$(jq 'if . == null then 0 else length end' /tmp/ghost_sanity.json 2>/dev/null || echo "0")
+if [ "$GHOST_SANITY_CODE" = "200" ] && [ "$GHOST_SANITY_HITS" -ge 1 ]; then
+    pass "Ghost rows retrievable while registered ($GHOST_SANITY_HITS entities)"
+else
+    echo -e "${RED}SETUP FAILED${NC} — GhostEntity not retrievable from registered repo C (status=$GHOST_SANITY_CODE, hits=$GHOST_SANITY_HITS)"
+    cat /tmp/ghost_sanity.json 2>/dev/null; exit 1
+fi
+
+echo -n "  Stopping knot-server..."
+kill "$SERVER_PID" 2>/dev/null || true
+wait "$SERVER_PID" 2>/dev/null || true
+echo -e " ${GREEN}stopped${NC}"
+
+if [ ! -f "$WORKSPACE_DIR/repos.json" ]; then
+    echo -e "${RED}SETUP FAILED${NC} — $WORKSPACE_DIR/repos.json not found"
+    exit 1
+fi
+jq --arg id "$REPO_C_ID" '.repositories |= map(select(.id != $id))' \
+    "$WORKSPACE_DIR/repos.json" > "$WORKSPACE_DIR/repos.json.g.tmp"
+mv "$WORKSPACE_DIR/repos.json.g.tmp" "$WORKSPACE_DIR/repos.json"
+GHOST_LEFT=$(jq --arg id "$REPO_C_ID" '[.repositories[]? | select(.id == $id)] | length' \
+    "$WORKSPACE_DIR/repos.json" 2>/dev/null || echo "999")
+if [ "$GHOST_LEFT" = "0" ]; then
+    pass "Removed '$REPO_C_ID' from repos.json (DB rows left behind)"
+else
+    echo -e "${RED}SETUP FAILED${NC} — '$REPO_C_ID' still present in repos.json"
+    exit 1
+fi
+
+echo -n "  Restarting knot-server..."
+start_knot_server
+if wait_server_up 90; then
+    echo -e " ${GREEN}ready${NC}"
+else
+    echo -e " ${RED}did not restart${NC}"
+    tail -50 "$SERVER_LOG"
+    exit 1
+fi
+
+# ── G1: repo=all is confined to registered repositories ──
+echo -e "\n${CYAN}G1: repo=all (and the omitted default) finds no ghost rows${NC}"
+G1_CODE=$(curl -s -w "%{http_code}" -o /tmp/g1.json "$BASE_URL/api/search?q=GhostEntity&max_results=100")
+G1_GHOST=$(jq --arg id "$REPO_C_ID" '[.[]? | select(.repo_name == $id)] | length' /tmp/g1.json 2>/dev/null || echo "999")
+if [ "$G1_CODE" = "200" ] && [ "$G1_GHOST" = "0" ]; then
+    pass "G1 — status=200, no entity from '$REPO_C_ID'"
+else
+    fail "G1 — status=$G1_CODE, ghost entities=$G1_GHOST (scope leaked unregistered '$REPO_C_ID')"
+    cat /tmp/g1.json
+fi
+
+# ── G2: omitting repo behaves identically to repo=all ──
+echo -e "\n${CYAN}G2: omitted repo and repo=all yield the same confined set${NC}"
+G2A_CODE=$(curl -s -w "%{http_code}" -o /tmp/g2a.json "$BASE_URL/api/search?q=GhostEntity&max_results=100")
+G2B_CODE=$(curl -s -w "%{http_code}" -o /tmp/g2b.json "$BASE_URL/api/search?q=GhostEntity&repo=all&max_results=100")
+G2A_SET=$(jq -r "$SEARCH_REPO_NAMES | join(\",\")" /tmp/g2a.json 2>/dev/null || echo "")
+G2B_SET=$(jq -r "$SEARCH_REPO_NAMES | join(\",\")" /tmp/g2b.json 2>/dev/null || echo "")
+if [ "$G2A_CODE" = "200" ] && [ "$G2B_CODE" = "200" ] \
+   && [ "$G2A_SET" = "$G2B_SET" ] \
+   && ! echo "$G2A_SET" | grep -q "$REPO_C_ID" \
+   && ! echo "$G2B_SET" | grep -q "$REPO_C_ID"; then
+    pass "G2 — identical repo_name sets, no ghost rows: '$G2A_SET'"
+else
+    fail "G2 — omitted: status=$G2A_CODE set='$G2A_SET', repo=all: status=$G2B_CODE set='$G2B_SET'"
+fi
+
+# ── G3: callers under repo=all is confined too ──
+echo -e "\n${CYAN}G3: callers buckets/targets carry no ghost rows${NC}"
+G3_CODE=$(curl -s -w "%{http_code}" -o /tmp/g3.json "$BASE_URL/api/callers?entity=GhostEntity")
+G3_ROW_GHOSTS=$(jq --arg id "$REPO_C_ID" \
+    '[.calls[]?, .extends[]?, .implements[]?, .references[]?, .overridden_by[]?, .overrides[]?
+      | select((.repo_name? // "") == $id or (.target_repo_name? // "") == $id)] | length' \
+    /tmp/g3.json 2>/dev/null || echo "999")
+G3_TARGET_GHOSTS=$(jq --arg id "$REPO_C_ID" \
+    '[.resolution.targets[]? | select((.repo_name? // "") == $id)] | length' \
+    /tmp/g3.json 2>/dev/null || echo "999")
+if [ "$G3_CODE" = "200" ] && [ "$G3_ROW_GHOSTS" = "0" ] && [ "$G3_TARGET_GHOSTS" = "0" ]; then
+    pass "G3 — status=200, no caller row or resolution target from '$REPO_C_ID'"
+else
+    fail "G3 — status=$G3_CODE, ghost caller rows=$G3_ROW_GHOSTS, ghost targets=$G3_TARGET_GHOSTS"
+    jq . /tmp/g3.json
+fi
+
+# ── G4: registered repositories are still fully reachable under all ──
+echo -e "\n${CYAN}G4: repo=all still reaches repos A and B${NC}"
+G4_CODE=$(curl -s -w "%{http_code}" -o /tmp/g4.json "$BASE_URL/api/search?q=SharedUtil&repo=all")
+G4_A=$(jq --arg id "$REPO_A_ID" '[.[]? | select(.repo_name == $id)] | length' /tmp/g4.json 2>/dev/null || echo "0")
+G4_B=$(jq --arg id "$REPO_B_ID" '[.[]? | select(.repo_name == $id)] | length' /tmp/g4.json 2>/dev/null || echo "0")
+if [ "$G4_CODE" = "200" ] && [ "$G4_A" -ge 1 ] && [ "$G4_B" -ge 1 ]; then
+    pass "G4 — SharedUtil found in repo A ($G4_A hits) and repo B ($G4_B hits)"
+else
+    fail "G4 — status=$G4_CODE, repo A hits=$G4_A, repo B hits=$G4_B"
+    cat /tmp/g4.json
+fi
+
+# ── G5 (regression): named scopes and per-repo routes are unchanged ──
+echo -e "\n${CYAN}G5: named scopes and per-repo routes unchanged${NC}"
+G5A_CODE=$(curl -s -w "%{http_code}" -o /tmp/g5a.json "$BASE_URL/api/search?q=SharedUtil&repo=$REPO_A_ID")
+G5A_OTHERS=$(jq --arg id "$REPO_A_ID" '[.[]? | select(.repo_name != $id)] | length' /tmp/g5a.json 2>/dev/null || echo "999")
+if [ "$G5A_CODE" = "200" ] && [ "$G5A_OTHERS" = "0" ]; then
+    pass "G5a — repo=$REPO_A_ID confined to repo A"
+else
+    fail "G5a — status=$G5A_CODE, non-repo-A entities=$G5A_OTHERS"
+fi
+
+G5B_CODE=$(curl -s -w "%{http_code}" -o /tmp/g5b.json "$BASE_URL/api/search?q=SharedUtil&repo=$REPO_C_ID")
+G5B_ERR=$(jq -r '.error // ""' /tmp/g5b.json 2>/dev/null || echo "")
+if [ "$G5B_CODE" = "400" ] && echo "$G5B_ERR" | grep -q "$REPO_C_ID"; then
+    pass "G5b — 400 mentioning '$REPO_C_ID': $G5B_ERR"
+else
+    fail "G5b — status=$G5B_CODE, error: $G5B_ERR"
+fi
+
+G5C_CODE=$(curl -s -w "%{http_code}" -o /tmp/g5c.json "$BASE_URL/api/repos/$REPO_A_ID/search?q=SharedUtil")
+G5C_OTHERS=$(jq --arg id "$REPO_A_ID" '[.[]? | select(.repo_name != $id)] | length' /tmp/g5c.json 2>/dev/null || echo "999")
+if [ "$G5C_CODE" = "200" ] && [ "$G5C_OTHERS" = "0" ]; then
+    pass "G5c — per-repo search route confined to repo A"
+else
+    fail "G5c — status=$G5C_CODE, non-repo-A entities=$G5C_OTHERS"
+fi
+
+# ── G6: empty-body drift guard for /api/callers ──
+echo -e "\n${CYAN}G6: callers empty-body key sets pinned${NC}"
+G6_CODE=$(curl -s -w "%{http_code}" -o /tmp/g6.json "$BASE_URL/api/callers?entity=NoSuchEntityXyz123")
+G6_KEYS=$(jq -r 'keys | sort | join(",")' /tmp/g6.json 2>/dev/null || echo "")
+G6_RES_KEYS=$(jq -r '.resolution | keys | sort | join(",")' /tmp/g6.json 2>/dev/null || echo "")
+G6_EXPECTED_KEYS="calls,extends,implements,overridden_by,overrides,references,resolution"
+G6_EXPECTED_RES_KEYS="fuzzy,query,targets,tier,truncated"
+if [ "$G6_CODE" = "200" ] \
+   && [ "$G6_KEYS" = "$G6_EXPECTED_KEYS" ] \
+   && [ "$G6_RES_KEYS" = "$G6_EXPECTED_RES_KEYS" ]; then
+    pass "G6 — top-level and resolution key sets match the pinned shape"
+else
+    fail "G6 — status=$G6_CODE, top-level keys='$G6_KEYS' (expected '$G6_EXPECTED_KEYS'), resolution keys='$G6_RES_KEYS' (expected '$G6_EXPECTED_RES_KEYS')"
+    cat /tmp/g6.json
 fi
 
 # ── Summary ──────────────────────────────────────────────────
