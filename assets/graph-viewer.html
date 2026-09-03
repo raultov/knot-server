@@ -53,7 +53,7 @@
     #search-results {
       position: absolute;
       top: 100%;
-      left: 0;
+      right: 0;
       margin-top: 4px;
       background: #1a1a1a;
       border: 1px solid #444;
@@ -148,6 +148,17 @@
       font-weight: 600;
       padding: 1px 6px;
       border-radius: 3px;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+
+    .repo-badge {
+      font-size: 9px;
+      padding: 1px 4px;
+      border-radius: 3px;
+      background: #2a3a4a;
+      color: #70b0ff;
+      border: 1px solid #3a5a7a;
       margin-left: 6px;
       vertical-align: middle;
     }
@@ -289,6 +300,7 @@
       </select>
     </div>
     <div style="position: relative; display: flex; gap: 8px; align-items: center;">
+      <label id="scope-all-label" title="Search across every registered repository" style="font-size: 11px; color: #aaa; cursor: pointer; display: flex; align-items: center; gap: 4px; white-space: nowrap;"><input type="checkbox" id="scope-all" style="cursor: pointer;" /> All repos</label>
       <input id="search-input" type="text" placeholder="Search entity..." disabled />
       <button id="search-btn" disabled>Search</button>
       <button id="clear-btn" class="hidden" title="Clear search and show full graph">✕ Clear</button>
@@ -340,6 +352,7 @@
       progressFetchInFlight: null,
       repoDepsMode: false,
       savedDepth: null,
+      overviewPromise: null,
     };
 
     // Minimum interval between /api/progress requests triggered by the
@@ -525,7 +538,19 @@
       return apiGet('/api/repos/' + repoId + '/graph/expand?' + params);
     }
 
+    function escapeHtml(str) {
+      return String(str == null ? '' : str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
     async function searchEntity(repoId, query, maxResults) {
+      if (document.getElementById('scope-all').checked) {
+        return apiGet('/api/search?q=' + encodeURIComponent(query) + '&max_results=' + (maxResults || 40));
+      }
       return apiGet('/api/repos/' + repoId + '/search?q=' + encodeURIComponent(query) + '&max_results=' + (maxResults || 10));
     }
 
@@ -684,6 +709,15 @@
       }
     }
 
+    function updateNodeDetailsPosition() {
+      var toolbar = document.getElementById('toolbar');
+      var panel = document.getElementById('node-details');
+      if (!toolbar || !panel) return;
+      var h = toolbar.offsetHeight;
+      panel.style.top = h + 'px';
+      panel.style.height = 'calc(100vh - ' + h + 'px)';
+    }
+
     // ── Event Handlers ─────────────────────────────────────────
     function handleNodeClick(node) {
       state.focusedEntity = node.id;
@@ -814,6 +848,8 @@
     // ── DOM Wiring ─────────────────────────────────────────────
     document.addEventListener('DOMContentLoaded', async function() {
       initGraph();
+      updateNodeDetailsPosition();
+      window.addEventListener('resize', updateNodeDetailsPosition);
 
       try {
         state.repos = await fetchRepos();
@@ -1049,18 +1085,33 @@
         });
         state.autoEnabledKinds = {};
 
-        var hasRepo = !!state.selectedRepo;
-        document.getElementById('search-input').disabled = !hasRepo;
-        document.getElementById('search-btn').disabled = !hasRepo;
+        function updateSearchEnabledState() {
+          var hasRepo = !!state.selectedRepo;
+          var isGlobal = document.getElementById('scope-all').checked;
+          var canSearch = hasRepo || isGlobal;
+          document.getElementById('search-input').disabled = !canSearch;
+          document.getElementById('search-btn').disabled = !canSearch;
+        }
+
+        updateSearchEnabledState();
         resetGraph();
         refreshGraph();
         hideNodeDetails();
         if (hasRepo) {
           setStatus('Loading entities for ' + state.selectedRepo + '...');
-          loadOverview(state.selectedRepo);
+          state.overviewPromise = loadOverview(state.selectedRepo);
         } else {
+          state.overviewPromise = null;
           setStatus('No repository selected');
         }
+      });
+
+      document.getElementById('scope-all').addEventListener('change', function() {
+        var hasRepo = !!state.selectedRepo;
+        var isGlobal = this.checked;
+        var canSearch = hasRepo || isGlobal;
+        document.getElementById('search-input').disabled = !canSearch;
+        document.getElementById('search-btn').disabled = !canSearch;
       });
 
       var searchInput = document.getElementById('search-input');
@@ -1069,14 +1120,16 @@
 
       async function doSearch() {
         var query = searchInput.value.trim();
-        if (!query || !state.selectedRepo) return;
+        var globalSearch = document.getElementById('scope-all').checked;
+        if (!query || (!state.selectedRepo && !globalSearch)) return;
 
         setStatus('Searching "' + query + '"...');
         searchResults.style.display = 'none';
 
         try {
           var results = await searchEntity(state.selectedRepo, query);
-          if (!results || results.length === 0) {
+          if (!results || !Array.isArray(results) || results.length === 0) {
+            searchResults.innerHTML = '';
             setStatus('No entities found');
             return;
           }
@@ -1086,14 +1139,18 @@
             var r = results[i];
             var div = document.createElement('div');
             div.className = 'result-item';
-            
+
             // Show FQN if available, otherwise just name
             var displayName = r.fqn || r.name;
-            
+            var badgeHtml = (globalSearch && r.repo_name)
+              ? ' <span class="repo-badge">' + escapeHtml(r.repo_name) + '</span>'
+              : '';
+
             div.innerHTML =
-              '<strong>' + displayName + '</strong>' +
-              ' <span class="result-kind">' + r.kind + '</span>' +
-              '<br><small>' + r.file_path + ':' + r.start_line + '</small>';
+              '<strong>' + escapeHtml(displayName) + '</strong>' +
+              badgeHtml +
+              ' <span class="result-kind">' + escapeHtml(r.kind) + '</span>' +
+              '<br><small>' + escapeHtml(r.file_path) + ':' + escapeHtml(r.start_line) + '</small>';
             (function(entity) {
               div.addEventListener('click', function() { selectEntity(entity); });
             })(r);
@@ -1215,6 +1272,31 @@
 
     async function selectEntity(entity) {
       document.getElementById('search-results').style.display = 'none';
+
+      // Cross-repo navigation: a global search result may belong to another
+      // registered repository. Switch the active repo (reusing the
+      // #open-repo-btn idiom) and wait for its overview to settle before
+      // focusing the entity against the new repository.
+      if (entity.repo_name && entity.repo_name !== state.selectedRepo) {
+        var select = document.getElementById('repo-select');
+        var optionExists = false;
+        for (var i = 0; i < select.options.length; i++) {
+          if (select.options[i].value === entity.repo_name) {
+            optionExists = true;
+            break;
+          }
+        }
+        if (!optionExists) {
+          setStatus('Repository ' + entity.repo_name + ' is not registered');
+          return;
+        }
+        select.value = entity.repo_name;
+        select.dispatchEvent(new Event('change'));
+        if (state.overviewPromise) {
+          await state.overviewPromise;
+        }
+      }
+
       setStatus('Loading graph for ' + entity.name + '...');
 
       // Save current depth and force to 1 for focused view (manageable size).
