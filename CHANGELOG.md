@@ -6,7 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
  
 ---
- 
+
+## [0.4.1] - 2026-09-03
+
+### Fixed
+- **`repo=all` reached unregistered repositories.** `resolve_scope` short-circuited
+  `RepoScope::All` past the registry membership check, so `GET /api/search` and
+  `GET /api/callers` with `repo=all` — or with `repo` omitted, the default — ran as an
+  *unfiltered* database query and returned rows for repositories that had been deleted from
+  the registry. The asymmetry was visible: `repo=<deleted>` was rejected with 400 while
+  `repo=all` happily returned its rows. `All` now expands to the registry id list, so both
+  spellings mean "all **registered** repositories". Named scopes, the 400 shape and the
+  per-repo routes are unchanged. Note that `RepoScope::Many(vec![])` cannot express
+  "nothing" — knot's DB layer reads an empty filter list as *unfiltered* — so an empty
+  registry is handled by a distinct code path that returns an empty result without querying.
+- **Graph viewer: details panel hidden behind the toolbar.** `#node-details` pinned
+  `top: 50px` while the toolbar grows to ~92px when its controls wrap, hiding the entity
+  name. Top and height are now derived from the live toolbar height.
+- **Graph viewer: search results dropdown overflowed the viewport.** `#search-results` is
+  now right-anchored.
+
+### Added
+- **Graph viewer: cross-repository search.** An "All repos" checkbox next to the search box
+  switches it from `GET /api/repos/{id}/search` to the cross-repo `GET /api/search`. Results
+  are grouped and badged by repository, and selecting a result from another repository
+  switches the active repository before focusing the entity. The 3D graph itself remains
+  single-repo: knot-server's subgraph queries match `repo_name` on both ends of every edge,
+  so cross-repo edges are not representable today.
+
+---
+
 ## [0.4.0] - 2026-09-02
 
 ### Added
@@ -561,7 +590,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/raultov/knot-server/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/raultov/knot-server/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/raultov/knot-server/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/raultov/knot-server/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/raultov/knot-server/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/raultov/knot-server/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/raultov/knot-server/compare/v0.2.19...v0.3.0
