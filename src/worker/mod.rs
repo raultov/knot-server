@@ -1,145 +1,69 @@
+mod plan;
+mod state;
+
+pub(crate) use plan::{GitAction, decide_job_plan, should_wipe_on_failure};
+pub(crate) use state::{StateSource, load_index_state_with_recovery};
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-
 use tracing::Instrument;
 
 use crate::cleanup::CleanupScope;
-use crate::locking::acquire_file_lock;
+use crate::locking::{FileLock, acquire_file_lock};
 use crate::models::{IndexJob, RepoEntry};
 
-/// The git-level operation the worker performs for a job, decided up front by
-/// [`decide_job_plan`] instead of being inferred ad-hoc from the on-disk state.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum GitAction {
-    /// Remote repo, start from a clean directory (`git clone`).
-    FreshClone,
-    /// Remote repo with an existing `.git`, incremental `git fetch`/reset.
-    Pull,
-    /// Local working-tree source, mirror it into the workspace.
-    LocalSync,
-}
-
-/// The full plan for a job: whether to wipe existing artifacts (databases +
-/// local directory) before the git action, and which git action to run.
-///
-/// Extracting this decision into a pure function makes the previously implicit
-/// pull-vs-clone choice (which ignored the job type entirely) testable and
-/// removes the race that let a background cleanup delete `local_path` while the
-/// worker was mid-fetch.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct JobPlan {
-    /// Delete databases + local directory before the git action.
-    pub wipe_before: bool,
-    pub action: GitAction,
-}
-
-/// Decide what a job should do based on its type and the current on-disk state.
-///
-/// Semantics (design doc §2.2):
-/// - `Clone` means "start from scratch": always wipe, then fresh-clone (or
-///   local-sync for a local source).
-/// - `Pull` is incremental: pull when `.git` exists, but **fall back to a
-///   fresh-clone** (with wipe) when the directory is gone, so a manual sync of
-///   an errored repo without a directory recovers instead of failing with
-///   "cannot pull".
-/// - A local source always uses `LocalSync`; it only wipes for a `Clone`.
-pub(crate) fn decide_job_plan(job: &IndexJob, git_dir_exists: bool, is_local: bool) -> JobPlan {
-    if is_local {
-        return JobPlan {
-            wipe_before: matches!(job, IndexJob::Clone { .. }),
-            action: GitAction::LocalSync,
-        };
-    }
-    match job {
-        IndexJob::Clone { .. } => JobPlan {
-            wipe_before: true,
-            action: GitAction::FreshClone,
-        },
-        IndexJob::Pull { .. } => {
-            if git_dir_exists {
-                JobPlan {
-                    wipe_before: false,
-                    action: GitAction::Pull,
-                }
-            } else {
-                JobPlan {
-                    wipe_before: true,
-                    action: GitAction::FreshClone,
-                }
-            }
+/// Look up a repo entry from the registry, logging and returning `None` on any failure.
+fn take_repo_entry(state: &Arc<crate::models::AppState>, repo_id: &str) -> Option<RepoEntry> {
+    let mut registry = match state.registry.lock() {
+        Ok(guard) => guard,
+        Err(e) => {
+            tracing::error!("Registry lock poisoned: {}", e);
+            return None;
+        }
+    };
+    match registry.get(repo_id) {
+        Some(entry) => Some(entry.clone()),
+        None => {
+            tracing::error!(
+                "Repository '{}' not found in registry, skipping job",
+                repo_id
+            );
+            None
         }
     }
 }
 
-/// Whether a failed job should trigger a destructive wipe of the repo's
-/// databases and local directory.
-///
-/// Policy (design doc §2.3, confirmed 2026-07-06): only wipe repos that never
-/// indexed successfully. A repo that was already indexed and fails a
-/// transient pull keeps its index and directory (recovery is still available by
-/// re-registering, which enqueues a `Clone` = wipe + fresh).
-pub(crate) fn should_wipe_on_failure(entry: &RepoEntry) -> bool {
-    entry.last_indexed.is_none()
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum StateSource {
-    LoadedOk { entries: usize, bytes: u64 },
-    Missing,
-    LegacyCleared,
-    LoadErrorFallback { error: String },
-}
-
-pub(crate) struct LoadedState {
-    pub state: knot::pipeline::state::IndexState,
-    pub source: StateSource,
-}
-
-pub(crate) fn load_index_state_with_recovery(
-    repo_path: &str,
-    is_local: bool,
-) -> anyhow::Result<LoadedState> {
-    let state_file = Path::new(repo_path).join(".knot").join("index_state.json");
-
-    if is_local && crate::local_sync::clear_stale_index_state(repo_path) {
-        return Ok(LoadedState {
-            state: knot::pipeline::state::IndexState::default(),
-            source: StateSource::LegacyCleared,
-        });
-    }
-
-    if !state_file.exists() {
-        return Ok(LoadedState {
-            state: knot::pipeline::state::IndexState::default(),
-            source: StateSource::Missing,
-        });
-    }
-
-    let bytes = std::fs::metadata(&state_file).map(|m| m.len()).unwrap_or(0);
-
-    match knot::pipeline::state::IndexState::load(repo_path) {
-        Ok(state) => {
-            let entries = state.file_hashes.len();
-            Ok(LoadedState {
-                state,
-                source: StateSource::LoadedOk { entries, bytes },
-            })
+/// Transition the repo from `Queued` to its in-progress status. Returns `true`
+/// when the claim succeeded and the job should proceed.
+fn claim_queued_job(state: &Arc<crate::models::AppState>, repo_id: &str, job: &IndexJob) -> bool {
+    let new_status = match job {
+        IndexJob::Clone { .. } => crate::models::RepoStatus::Cloning,
+        IndexJob::Pull { .. } => crate::models::RepoStatus::Pulling,
+    };
+    let mut registry = match state.registry.lock() {
+        Ok(guard) => guard,
+        Err(e) => {
+            tracing::error!("Registry lock poisoned during status claim: {}", e);
+            return false;
         }
-        Err(e) if is_local => {
-            let _ = std::fs::remove_file(&state_file);
-            Ok(LoadedState {
-                state: knot::pipeline::state::IndexState::default(),
-                source: StateSource::LoadErrorFallback {
-                    error: format!("{e:#}"),
-                },
-            })
+    };
+    match registry.transition_status(repo_id, &[crate::models::RepoStatus::Queued], new_status) {
+        Ok(true) => true,
+        Ok(false) => {
+            tracing::info!(
+                "Dropping stale job {:?} for '{}' — repo no longer Queued",
+                job,
+                repo_id
+            );
+            false
         }
-        Err(e) => Err(e),
+        Err(e) => {
+            tracing::error!("Failed to claim job for '{}': {e}", repo_id);
+            false
+        }
     }
 }
 
-#[expect(clippy::cognitive_complexity, reason = "deferred refactoring")]
-#[expect(clippy::too_many_lines, reason = "deferred refactoring")]
 pub async fn worker_loop(
     mut rx: tokio::sync::mpsc::Receiver<IndexJob>,
     state: Arc<crate::models::AppState>,
@@ -148,60 +72,15 @@ pub async fn worker_loop(
         let repo_id = job.repo_id().to_string();
         tracing::info!("Worker picked up job: {:?} for {}", job, repo_id);
 
-        let repo = {
-            let mut registry = match state.registry.lock() {
-                Ok(guard) => guard,
-                Err(e) => {
-                    tracing::error!("Registry lock poisoned: {}", e);
-                    continue;
-                }
-            };
-            match registry.get(&repo_id) {
-                Some(entry) => entry.clone(),
-                None => {
-                    tracing::error!(
-                        "Repository '{}' not found in registry, skipping job",
-                        repo_id
-                    );
-                    continue;
-                }
-            }
+        let Some(repo) = take_repo_entry(&state, &repo_id) else {
+            continue;
         };
 
-        let new_status = match &job {
-            IndexJob::Clone { .. } => crate::models::RepoStatus::Cloning,
-            IndexJob::Pull { .. } => crate::models::RepoStatus::Pulling,
-        };
-        {
-            let mut registry = match state.registry.lock() {
-                Ok(guard) => guard,
-                Err(e) => {
-                    tracing::error!("Registry lock poisoned during status claim: {}", e);
-                    continue;
-                }
-            };
-            match registry.transition_status(
-                &repo_id,
-                &[crate::models::RepoStatus::Queued],
-                new_status,
-            ) {
-                Ok(true) => {}
-                Ok(false) => {
-                    tracing::info!(
-                        "Dropping stale job {:?} for '{}' — repo no longer Queued",
-                        job,
-                        repo_id
-                    );
-                    continue;
-                }
-                Err(e) => {
-                    tracing::error!("Failed to claim job for '{}': {e}", repo_id);
-                    continue;
-                }
-            }
+        if !claim_queued_job(&state, &repo_id, &job) {
+            continue;
         }
 
-        // Root span for the whole job. Jobs are consumed off an mpsc queue, so
+        // Root span for the whole job. Jobs are consumed off a mpsc queue, so
         // this is a *separate trace* from the HTTP request that enqueued the
         // job (context propagation via IndexJob is future work).
         let kind_str = match &job {
@@ -277,19 +156,18 @@ pub(crate) async fn handle_job_failure(state: &Arc<crate::models::AppState>, rep
     .await;
 }
 
-#[expect(clippy::cognitive_complexity, reason = "deferred refactoring")]
-#[expect(clippy::too_many_lines, reason = "deferred refactoring")]
-async fn process_repository(
-    repo: &RepoEntry,
+/// Attempt to acquire the file lock for a repository. If the lock is held by
+/// another process, reverts the registry status to `Queued` and returns `None`
+/// so the caller can exit gracefully without failing the job.
+fn acquire_lock_or_requeue(
     state: &Arc<crate::models::AppState>,
-    job: &IndexJob,
-) -> anyhow::Result<()> {
-    // 1. Acquire exclusive file lock
-    let lock_path = PathBuf::from(&repo.local_path).join(".knot.lock");
-    let _lock = match acquire_file_lock(&lock_path) {
+    repo: &RepoEntry,
+    lock_path: &Path,
+) -> Option<FileLock> {
+    match acquire_file_lock(lock_path) {
         Ok(lock) => {
             tracing::info!("Worker: acquired file lock for '{}'", repo.id);
-            lock
+            Some(lock)
         }
         Err(_) => {
             tracing::info!("Worker: '{}' locked by another node, skipping", repo.id);
@@ -307,25 +185,24 @@ async fn process_repository(
                 "Lock for repo '{}' is held by another node; status claim was reverted to Queued",
                 repo.id
             );
-            return Ok(());
+            None
         }
-    };
+    }
+}
 
-    // 2. Decide what to do from the job type + on-disk state. The worker is the
-    //    sole owner of destructive cleanup: any wipe happens here, under the
-    //    file lock, serialized with the git/index work — this is what removes
-    //    the re-registration race (a background task can no longer delete
-    //    `local_path` mid-fetch).
-    let is_local = crate::local_sync::is_local_path(&repo.url);
-    let exists = Path::new(&repo.local_path).join(".git").exists();
-    let plan = decide_job_plan(job, exists, is_local);
-    tracing::info!("Worker: job plan for '{}': {:?}", repo.id, plan);
-
-    if plan.wipe_before {
+/// Wipe databases and local directory before the git action when the plan
+/// requires it. Runs under the file lock so no re-registration race can occur.
+async fn wipe_before_action(
+    state: &Arc<crate::models::AppState>,
+    repo: &RepoEntry,
+    job_plan: &plan::JobPlan,
+    job: &IndexJob,
+) {
+    if job_plan.wipe_before {
         tracing::info!(
             "Worker: wiping databases + local dir for '{}' before {:?} (job {:?})",
             repo.id,
-            plan.action,
+            job_plan.action,
             job
         );
         crate::cleanup::cleanup_repo_artifacts(
@@ -339,16 +216,28 @@ async fn process_repository(
         )
         .await;
     }
+}
 
-    // 3. Execute the git phase. Status was already set to Cloning/Pulling by
-    //    worker_loop via the Queued transition.
-    match plan.action {
+fn action_label(action: &GitAction) -> &'static str {
+    match action {
+        GitAction::LocalSync => "local sync",
+        GitAction::Pull => "pull",
+        GitAction::FreshClone => "clone",
+    }
+}
+
+/// Execute the git-level operation (clone / pull / local-sync) for the plan
+/// action, emitting a single "starting" and "complete" log regardless of which
+/// branch is taken.
+async fn run_git_phase(repo: &RepoEntry, action: &GitAction) -> anyhow::Result<()> {
+    tracing::info!(
+        "Worker: starting {} for '{}' from {}",
+        action_label(action),
+        repo.id,
+        repo.url
+    );
+    match action {
         GitAction::LocalSync => {
-            tracing::info!(
-                "Worker: syncing local working tree for '{}' from {}",
-                repo.id,
-                repo.url
-            );
             let src = repo.url.clone();
             let dst = repo.local_path.clone();
             tokio::task::spawn_blocking(move || {
@@ -356,36 +245,41 @@ async fn process_repository(
             })
             .instrument(tracing::info_span!("git_sync"))
             .await??;
-            tracing::info!("Worker: local sync complete for '{}'", repo.id);
         }
         GitAction::Pull => {
-            tracing::info!("Worker: pulling '{}' from {}", repo.id, repo.url);
             crate::git::run_git_pull(repo)
                 .instrument(tracing::info_span!("git_pull"))
                 .await?;
-            tracing::info!("Worker: pull complete for '{}'", repo.id);
         }
         GitAction::FreshClone => {
-            tracing::info!("Worker: cloning '{}' from {}", repo.id, repo.url);
             crate::git::run_git_clone(repo)
                 .instrument(tracing::info_span!("git_clone"))
                 .await?;
-            tracing::info!("Worker: clone complete for '{}'", repo.id);
         }
     }
+    tracing::info!(
+        "Worker: {} complete for '{}'",
+        action_label(action),
+        repo.id
+    );
+    Ok(())
+}
 
-    // 3. Update status to indexing
-    {
-        let mut registry = state
-            .registry
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Registry lock poisoned: {}", e))?;
-        registry.update_status(&repo.id, crate::models::RepoStatus::Indexing)?;
-        tracing::info!("Worker: status=indexing for '{}'", repo.id);
-    }
+fn mark_indexing(state: &Arc<crate::models::AppState>, repo: &RepoEntry) -> anyhow::Result<()> {
+    let mut registry = state
+        .registry
+        .lock()
+        .map_err(|e| anyhow::anyhow!("Registry lock poisoned: {}", e))?;
+    registry.update_status(&repo.id, crate::models::RepoStatus::Indexing)?;
+    tracing::info!("Worker: status=indexing for '{}'", repo.id);
+    Ok(())
+}
 
-    // 4. Build knot Config programmatically
-    let knot_cfg = knot::config::Config {
+fn build_knot_config(
+    repo: &RepoEntry,
+    state: &Arc<crate::models::AppState>,
+) -> knot::config::Config {
+    knot::config::Config {
         repo_path: repo.local_path.clone(),
         repo_name: repo.id.clone(),
         qdrant_url: state.qdrant_url.clone(),
@@ -406,23 +300,17 @@ async fn process_repository(
         rayon_threads: state.rayon_threads,
         include_config_files: false,
         embedder_reset_interval: 0,
-    };
+    }
+}
 
-    // 5. Load IndexState
-    //    For local paths, defend against a stale on-disk state file from an
-    //    older `knot` version (no `version` field → version=0 < current).
-    //    `local_sync` preserves `.knot/` across syncs (both copy_tree skips it
-    //    and prune_tree explicitly protects it) because it is the indexer's
-    //    incremental state, so a knot-version transition would otherwise block
-    //    every future sync. Clear the stale file and, if load still fails for
-    //    any other reason, fall back to a fresh state rather than failing the
-    //    whole local sync job.
-    let loaded = load_index_state_with_recovery(&repo.local_path, is_local)?;
-    match &loaded.source {
+/// Log the outcome of loading the `IndexState`, preserving the original
+/// severity (info for normal cases, warn for recovery paths).
+fn log_state_source(source: &StateSource, repo_id: &str) {
+    match source {
         StateSource::LoadedOk { entries, bytes } => {
             tracing::info!(
                 "IndexState loaded for '{}' ({} entries, {} bytes on disk)",
-                repo.id,
+                repo_id,
                 entries,
                 bytes
             );
@@ -430,28 +318,35 @@ async fn process_repository(
         StateSource::Missing => {
             tracing::info!(
                 "IndexState file absent for '{}' — full indexing will run",
-                repo.id
+                repo_id
             );
         }
         StateSource::LegacyCleared => {
             tracing::warn!(
                 "Removed stale .knot/index_state.json for local repo '{}' \
                  (older knot format); the next pipeline run will do a clean re-index",
-                repo.id
+                repo_id
             );
         }
         StateSource::LoadErrorFallback { error } => {
             tracing::warn!(
                 "IndexState::load failed for local repo '{}': {}; \
                  removed the file and forcing full re-index",
-                repo.id,
+                repo_id,
                 error
             );
         }
     }
-    let mut index_state = loaded.state;
+}
 
-    // 6. Run the indexing pipeline with progress tracking
+/// Run the indexing pipeline with progress tracking and clean up the progress
+/// snapshot once the pipeline completes (regardless of outcome).
+async fn run_pipeline_with_progress(
+    state: &Arc<crate::models::AppState>,
+    repo: &RepoEntry,
+    knot_cfg: &knot::config::Config,
+    index_state: &mut knot::pipeline::state::IndexState,
+) -> anyhow::Result<()> {
     let tracker = {
         let mut map = state
             .progress_trackers
@@ -465,15 +360,11 @@ async fn process_repository(
         spawn_progress_persister(state, repo.id.clone(), Arc::clone(&tracker), cancel.clone());
 
     tracing::info!("Worker: starting indexing pipeline for '{}'", repo.id);
-    // The knot pipeline runs parse → embed → graph-ingest internally as one
-    // call; a single child span captures the whole indexing phase (finer-grained
-    // per-stage spans would require instrumenting the `knot` library — future
-    // work, see TRACING_PLAN §4.1/Future work).
     let pipeline_result = knot::pipeline::runner::run_indexing_pipeline_with_progress(
-        &knot_cfg,
+        knot_cfg,
         &state.vector_db,
         &state.graph_db,
-        &mut index_state,
+        index_state,
         tracker,
     )
     .instrument(tracing::info_span!("index_pipeline"))
@@ -485,22 +376,57 @@ async fn process_repository(
     }
 
     crate::progress_store::remove_snapshot(&PathBuf::from(&state.workspace_dir), &repo.id);
-
     pipeline_result?;
     tracing::info!("Worker: indexing pipeline complete for '{}'", repo.id);
+    Ok(())
+}
 
-    // 7. Update registry
-    {
-        let mut registry = state
-            .registry
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Registry lock poisoned: {}", e))?;
-        registry.update_status(&repo.id, crate::models::RepoStatus::Indexed)?;
-        registry.update_last_indexed(&repo.id)?;
-        crate::metrics::set_last_success(&repo.id);
-        tracing::info!("Worker: status=indexed for '{}'", repo.id);
-    }
+fn mark_indexed(state: &Arc<crate::models::AppState>, repo: &RepoEntry) -> anyhow::Result<()> {
+    let mut registry = state
+        .registry
+        .lock()
+        .map_err(|e| anyhow::anyhow!("Registry lock poisoned: {}", e))?;
+    registry.update_status(&repo.id, crate::models::RepoStatus::Indexed)?;
+    registry.update_last_indexed(&repo.id)?;
+    crate::metrics::set_last_success(&repo.id);
+    tracing::info!("Worker: status=indexed for '{}'", repo.id);
+    Ok(())
+}
 
+async fn process_repository(
+    repo: &RepoEntry,
+    state: &Arc<crate::models::AppState>,
+    job: &IndexJob,
+) -> anyhow::Result<()> {
+    // 1. Acquire exclusive file lock
+    let lock_path = PathBuf::from(&repo.local_path).join(".knot.lock");
+    let Some(_lock) = acquire_lock_or_requeue(state, repo, &lock_path) else {
+        return Ok(());
+    };
+
+    // 2. Decide plan and wipe artifacts if needed (under the lock, so no race with re-registration)
+    let is_local = crate::local_sync::is_local_path(&repo.url);
+    let exists = Path::new(&repo.local_path).join(".git").exists();
+    let job_plan = decide_job_plan(job, exists, is_local);
+    tracing::info!("Worker: job plan for '{}': {:?}", repo.id, job_plan);
+    wipe_before_action(state, repo, &job_plan, job).await;
+
+    // 3. Execute the git phase (status was set to Cloning/Pulling by worker_loop)
+    run_git_phase(repo, &job_plan.action).await?;
+
+    // 4. Mark Indexing
+    mark_indexing(state, repo)?;
+
+    // 5. Build config and load IndexState
+    let knot_cfg = build_knot_config(repo, state);
+    let mut loaded = load_index_state_with_recovery(&repo.local_path, is_local)?;
+    log_state_source(&loaded.source, &repo.id);
+
+    // 6. Run the indexing pipeline
+    run_pipeline_with_progress(state, repo, &knot_cfg, &mut loaded.state).await?;
+
+    // 7. Mark Indexed
+    mark_indexed(state, repo)?;
     tracing::info!("Worker: job completed for '{}'", repo.id);
     Ok(())
 }
@@ -548,47 +474,26 @@ fn spawn_progress_persister(
         }
     }))
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::handlers::tests_common::make_test_repo;
     use crate::models::{AuthType, RepoStatus};
-    use crate::registry::Registry;
-    use knot::db::graph::ConnectExt;
-    use knot::db::vector::VectorConnectExt;
-    use std::collections::HashMap;
     use std::sync::Mutex;
     use tempfile::TempDir;
 
     async fn create_test_state(workspace: &Path) -> Arc<crate::models::AppState> {
-        let registry = Registry::load_or_create(workspace).unwrap();
+        create_test_state_with_rx(workspace).await.0
+    }
 
-        let graph_db =
-            knot::db::graph::GraphDb::connect("bolt://localhost:9999", "neo4j", "badpassword")
-                .await
-                .expect("connect for test db");
-        let vector_db =
-            knot::db::vector::VectorDb::connect("http://localhost:9999", "test_collection", 384)
-                .await
-                .expect("connect for test vector db");
-        Arc::new(crate::models::AppState {
-            vector_db: Arc::new(vector_db),
-            graph_db: Arc::new(graph_db),
-            embedder: None,
-            workspace_dir: workspace.to_string_lossy().into(),
-            registry: Arc::new(Mutex::new(registry)),
-            job_tx: tokio::sync::mpsc::channel(16).0,
-            qdrant_url: "http://localhost:6334".into(),
-            qdrant_collection: "knot_entities".into(),
-            neo4j_uri: "bolt://localhost:7687".into(),
-            neo4j_user: "neo4j".into(),
-            neo4j_password: "secret".into(),
-            embed_dim: 384,
-            rayon_threads: None,
-            batch_size: 64,
-            ingest_concurrency: 4,
-            start_time: std::time::Instant::now(),
-            progress_trackers: Arc::new(Mutex::new(HashMap::new())),
-        })
+    async fn create_test_state_with_rx(
+        workspace: &Path,
+    ) -> (
+        Arc<crate::models::AppState>,
+        tokio::sync::mpsc::Receiver<IndexJob>,
+    ) {
+        crate::handlers::tests_common::create_test_state_with_rx(workspace).await
     }
 
     #[tokio::test]
@@ -646,18 +551,12 @@ mod tests {
 
         let state = create_test_state(&workspace).await;
 
-        let repo = RepoEntry {
-            id: "nonexistent".into(),
-            url: "https://invalid.example.com/nonexistent.git".into(),
-            local_path: workspace.join("nonexistent").to_string_lossy().into(),
-            auth_type: AuthType::Ssh,
-            branch: "main".into(),
-            webhook_secret: None,
-            last_indexed: None,
-            status: RepoStatus::Indexed,
-        };
+        let repo = make_test_repo(
+            "nonexistent",
+            &workspace.join("nonexistent"),
+            RepoStatus::Indexed,
+        );
 
-        // Should fail during git clone but not panic
         let result = process_repository(
             &repo,
             &state,
@@ -666,93 +565,93 @@ mod tests {
             },
         )
         .await;
-        // The error is expected — we don't have a real git remote
-        // The test verifies the function runs without panicking
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_load_state_returns_loaded_ok_when_state_is_valid() {
+    #[tokio::test]
+    async fn test_take_repo_entry_returns_entry_when_present() {
         let dir = TempDir::new().unwrap();
-        let repo_path = dir.path().to_str().unwrap();
-        let knot_dir = dir.path().join(".knot");
-        std::fs::create_dir_all(&knot_dir).unwrap();
-        let raw = r#"{"version":4,"file_hashes":{"a.rs":"h1","b.rs":"h2"}}"#;
-        std::fs::write(knot_dir.join("index_state.json"), raw).unwrap();
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let state = create_test_state(&workspace).await;
 
-        let loaded = load_index_state_with_recovery(repo_path, true).unwrap();
+        let repo = make_test_repo("my-repo", &workspace.join("my-repo"), RepoStatus::Queued);
+        state
+            .registry
+            .lock()
+            .unwrap()
+            .add_or_replace(repo.clone())
+            .unwrap();
 
-        match loaded.source {
-            StateSource::LoadedOk { entries, bytes } => {
-                assert_eq!(entries, 2);
-                assert!(bytes > 0);
-            }
-            other => panic!("expected LoadedOk, got {other:?}"),
-        }
-        assert_eq!(loaded.state.file_hashes.len(), 2);
+        let result = take_repo_entry(&state, "my-repo");
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().id, "my-repo");
     }
 
-    #[test]
-    fn test_load_state_returns_missing_when_state_absent() {
+    #[tokio::test]
+    async fn test_take_repo_entry_returns_none_when_absent() {
         let dir = TempDir::new().unwrap();
-        let loaded = load_index_state_with_recovery(dir.path().to_str().unwrap(), true).unwrap();
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let state = create_test_state(&workspace).await;
 
-        assert!(matches!(loaded.source, StateSource::Missing));
-        assert!(loaded.state.file_hashes.is_empty());
+        let result = take_repo_entry(&state, "does-not-exist");
+        assert!(result.is_none());
     }
 
-    #[test]
-    fn test_load_state_returns_legacy_cleared_for_local_repo_with_v0_state() {
+    #[tokio::test]
+    async fn test_claim_queued_job_succeeds_from_queued() {
         let dir = TempDir::new().unwrap();
-        let knot_dir = dir.path().join(".knot");
-        std::fs::create_dir_all(&knot_dir).unwrap();
-        let raw = r#"{"file_hashes":{"a.rs":"h1"}}"#;
-        std::fs::write(knot_dir.join("index_state.json"), raw).unwrap();
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let state = create_test_state(&workspace).await;
 
-        let loaded = load_index_state_with_recovery(dir.path().to_str().unwrap(), true).unwrap();
+        let repo = make_test_repo("repo-a", &workspace.join("repo-a"), RepoStatus::Queued);
+        state.registry.lock().unwrap().add_or_replace(repo).unwrap();
 
-        assert!(matches!(loaded.source, StateSource::LegacyCleared));
-        assert!(loaded.state.file_hashes.is_empty());
-        assert!(
-            !knot_dir.join("index_state.json").exists(),
-            "El archivo legacy debe haberse eliminado"
-        );
+        let job = IndexJob::Pull {
+            repo_id: "repo-a".into(),
+        };
+        let claimed = claim_queued_job(&state, "repo-a", &job);
+        assert!(claimed);
+
+        let status = state
+            .registry
+            .lock()
+            .unwrap()
+            .get("repo-a")
+            .unwrap()
+            .status
+            .clone();
+        assert_eq!(status, RepoStatus::Pulling);
     }
 
-    #[test]
-    fn test_load_state_returns_error_fallback_when_json_is_corrupt() {
+    #[tokio::test]
+    async fn test_claim_queued_job_fails_from_non_queued() {
         let dir = TempDir::new().unwrap();
-        let knot_dir = dir.path().join(".knot");
-        std::fs::create_dir_all(&knot_dir).unwrap();
-        let raw = r#"{"version":4,"file_hashes":NOT_VALID_JSON}"#;
-        std::fs::write(knot_dir.join("index_state.json"), raw).unwrap();
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let state = create_test_state(&workspace).await;
 
-        let loaded = load_index_state_with_recovery(dir.path().to_str().unwrap(), true).unwrap();
+        let repo = make_test_repo("repo-b", &workspace.join("repo-b"), RepoStatus::Indexed);
+        state.registry.lock().unwrap().add_or_replace(repo).unwrap();
 
-        match loaded.source {
-            StateSource::LoadErrorFallback { error } => {
-                assert!(!error.is_empty());
-            }
-            other => panic!("expected LoadErrorFallback, got {other:?}"),
-        }
-        assert!(loaded.state.file_hashes.is_empty());
-        assert!(
-            !knot_dir.join("index_state.json").exists(),
-            "El archivo corrupto debe haberse eliminado para no atascar al siguiente run"
-        );
-    }
+        let job = IndexJob::Pull {
+            repo_id: "repo-b".into(),
+        };
+        let claimed = claim_queued_job(&state, "repo-b", &job);
+        assert!(!claimed);
 
-    #[test]
-    fn test_load_state_for_remote_repo_propagates_errors() {
-        let dir = TempDir::new().unwrap();
-        let knot_dir = dir.path().join(".knot");
-        std::fs::create_dir_all(&knot_dir).unwrap();
-        let raw = r#"{"version":1,"file_hashes":{}}"#;
-        std::fs::write(knot_dir.join("index_state.json"), raw).unwrap();
-
-        let result = load_index_state_with_recovery(dir.path().to_str().unwrap(), false);
-
-        assert!(result.is_err());
+        let status = state
+            .registry
+            .lock()
+            .unwrap()
+            .get("repo-b")
+            .unwrap()
+            .status
+            .clone();
+        // Status must remain unchanged
+        assert_eq!(status, RepoStatus::Indexed);
     }
 
     #[tokio::test]
@@ -804,6 +703,7 @@ mod tests {
             "tracker was not added to state.progress_trackers"
         );
     }
+
     #[tokio::test]
     async fn test_spawn_progress_persister_writes_and_exits() {
         let dir = TempDir::new().unwrap();
@@ -831,139 +731,8 @@ mod tests {
         handle.await.unwrap();
     }
 
-    // ---- Pure decision functions (Bug A / issue #7) ----
-
-    #[test]
-    fn test_decide_plan_clone_job_always_fresh_clone_even_if_git_exists() {
-        let job = IndexJob::Clone {
-            repo_id: "x".into(),
-        };
-        let plan = decide_job_plan(&job, true, false);
-        assert_eq!(
-            plan,
-            JobPlan {
-                wipe_before: true,
-                action: GitAction::FreshClone
-            }
-        );
-    }
-
-    #[test]
-    fn test_decide_plan_clone_job_on_missing_dir_is_fresh_clone() {
-        let job = IndexJob::Clone {
-            repo_id: "x".into(),
-        };
-        let plan = decide_job_plan(&job, false, false);
-        assert_eq!(
-            plan,
-            JobPlan {
-                wipe_before: true,
-                action: GitAction::FreshClone
-            }
-        );
-    }
-
-    #[test]
-    fn test_decide_plan_pull_job_with_git_dir_pulls_without_wipe() {
-        let job = IndexJob::Pull {
-            repo_id: "x".into(),
-        };
-        let plan = decide_job_plan(&job, true, false);
-        assert_eq!(
-            plan,
-            JobPlan {
-                wipe_before: false,
-                action: GitAction::Pull
-            }
-        );
-    }
-
-    #[test]
-    fn test_decide_plan_pull_job_without_git_dir_falls_back_to_fresh_clone() {
-        let job = IndexJob::Pull {
-            repo_id: "x".into(),
-        };
-        let plan = decide_job_plan(&job, false, false);
-        assert_eq!(
-            plan,
-            JobPlan {
-                wipe_before: true,
-                action: GitAction::FreshClone
-            }
-        );
-    }
-
-    #[test]
-    fn test_decide_plan_local_repo_clone_job_wipes_and_syncs() {
-        let job = IndexJob::Clone {
-            repo_id: "x".into(),
-        };
-        // is_local=true: git_dir_exists is irrelevant.
-        for git_dir_exists in [true, false] {
-            let plan = decide_job_plan(&job, git_dir_exists, true);
-            assert_eq!(
-                plan,
-                JobPlan {
-                    wipe_before: true,
-                    action: GitAction::LocalSync
-                }
-            );
-        }
-    }
-
-    #[test]
-    fn test_decide_plan_local_repo_pull_job_syncs_without_wipe() {
-        let job = IndexJob::Pull {
-            repo_id: "x".into(),
-        };
-        for git_dir_exists in [true, false] {
-            let plan = decide_job_plan(&job, git_dir_exists, true);
-            assert_eq!(
-                plan,
-                JobPlan {
-                    wipe_before: false,
-                    action: GitAction::LocalSync
-                }
-            );
-        }
-    }
-
-    #[test]
-    fn test_should_wipe_on_failure_true_when_never_indexed() {
-        let entry = RepoEntry {
-            id: "x".into(),
-            url: "https://example.com/x.git".into(),
-            local_path: "/tmp/x".into(),
-            auth_type: AuthType::Ssh,
-            branch: "main".into(),
-            webhook_secret: None,
-            last_indexed: None,
-            status: RepoStatus::Error,
-        };
-        assert!(should_wipe_on_failure(&entry));
-    }
-
-    #[test]
-    fn test_should_wipe_on_failure_false_when_previously_indexed() {
-        let entry = RepoEntry {
-            id: "x".into(),
-            url: "https://example.com/x.git".into(),
-            local_path: "/tmp/x".into(),
-            auth_type: AuthType::Ssh,
-            branch: "main".into(),
-            webhook_secret: None,
-            last_indexed: Some("2026-07-06T00:00:00Z".into()),
-            status: RepoStatus::Error,
-        };
-        assert!(!should_wipe_on_failure(&entry));
-    }
-
     // ---- Worker integration (TempDir + local bare repo) ----
 
-    /// Create a local bare git repo with one commit on `main` and return its
-    /// path. A bare repo is classified as *remote* by `is_local_path`
-    /// (`is_bare_git_repo` short-circuits), so the worker exercises the git
-    /// clone/pull branch rather than local-sync.
     fn create_bare_repo(dir: &Path) -> String {
         use std::process::Command as Cmd;
         let bare = dir.join("bare.git");
@@ -1021,8 +790,6 @@ mod tests {
         let state = create_test_state(&workspace).await;
 
         let local_path = workspace.join("clone-wipe");
-        // Pre-populate the local dir with a fake .git and a STALE marker that
-        // does not exist in origin.
         std::fs::create_dir_all(local_path.join(".git")).unwrap();
         std::fs::write(local_path.join("STALE.txt"), b"stale").unwrap();
 
@@ -1043,8 +810,6 @@ mod tests {
             .add_or_replace(repo.clone())
             .unwrap();
 
-        // The pipeline will fail against the stub DBs, but the git phase (wipe
-        // + fresh clone) runs first and is what we assert on.
         let _ = process_repository(
             &repo,
             &state,
@@ -1073,7 +838,6 @@ mod tests {
         let state = create_test_state(&workspace).await;
 
         let local_path = workspace.join("pull-fallback");
-        // No local directory at all.
         assert!(!local_path.exists());
 
         let repo = RepoEntry {
@@ -1102,8 +866,6 @@ mod tests {
         )
         .await;
 
-        // The only acceptable failure is a downstream (DB/pipeline) error, never
-        // the "cannot pull" bail from run_git_pull.
         if let Err(e) = &result {
             let msg = format!("{e:#}");
             assert!(
@@ -1141,7 +903,6 @@ mod tests {
             .add_or_replace(repo.clone())
             .unwrap();
 
-        // Partial local directory + a persisted progress snapshot + tracker.
         std::fs::create_dir_all(&repo.local_path).unwrap();
         std::fs::write(Path::new(&repo.local_path).join("partial"), b"x").unwrap();
         let persisted = crate::progress_store::PersistedProgress {
@@ -1189,48 +950,6 @@ mod tests {
         );
     }
 
-    async fn create_test_state_with_rx(
-        workspace: &Path,
-    ) -> (
-        Arc<crate::models::AppState>,
-        tokio::sync::mpsc::Receiver<IndexJob>,
-    ) {
-        let registry = Registry::load_or_create(workspace).unwrap();
-        let graph_db =
-            knot::db::graph::GraphDb::connect("bolt://localhost:9999", "neo4j", "badpassword")
-                .await
-                .expect("connect for test db");
-        let vector_db =
-            knot::db::vector::VectorDb::connect("http://localhost:9999", "test_collection", 384)
-                .await
-                .expect("connect for test vector db");
-        let (job_tx, job_rx) = tokio::sync::mpsc::channel::<IndexJob>(16);
-        (
-            Arc::new(crate::models::AppState {
-                vector_db: Arc::new(vector_db),
-                graph_db: Arc::new(graph_db),
-                embedder: None,
-                workspace_dir: workspace.to_string_lossy().into(),
-                registry: Arc::new(Mutex::new(registry)),
-                job_tx,
-                qdrant_url: "http://localhost:6334".into(),
-                qdrant_collection: "knot_entities".into(),
-                neo4j_uri: "bolt://localhost:7687".into(),
-                neo4j_user: "neo4j".into(),
-                neo4j_password: "secret".into(),
-                embed_dim: 384,
-                rayon_threads: None,
-                batch_size: 64,
-                ingest_concurrency: 4,
-                start_time: std::time::Instant::now(),
-                progress_trackers: Arc::new(Mutex::new(HashMap::new())),
-            }),
-            job_rx,
-        )
-    }
-
-    /// Fase 3 BDD: a registration whose clone fails can be fully recovered by
-    /// re-registering with a corrected URL that derives the same id.
     #[tokio::test]
     async fn test_failed_registration_can_be_recovered_by_reregistering() {
         use crate::models::RegisterRepoRequest;
@@ -1239,7 +958,7 @@ mod tests {
         use axum::http::StatusCode;
 
         let dir = TempDir::new().unwrap();
-        let bare_url = create_bare_repo(dir.path()); // .../bare.git → id "bare"
+        let bare_url = create_bare_repo(dir.path());
         let workspace = dir.path().join("workspace");
         std::fs::create_dir_all(&workspace).unwrap();
         let (state, mut job_rx) = create_test_state_with_rx(&workspace).await;
@@ -1255,7 +974,6 @@ mod tests {
         assert_eq!(id, "bare");
         assert_eq!(mk_req(&bare_url).generate_id(), id, "URLs must share an id");
 
-        // 1. Register with the broken URL → 202, one Clone job.
         let resp = crate::handlers::repo::register_repo_handler(
             State(state.clone()),
             Json(mk_req(broken_url)),
@@ -1264,7 +982,6 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::ACCEPTED);
         let job = job_rx.recv().await.expect("Clone job enqueued");
 
-        // 2. Worker processes and fails; failure handling wipes + keeps entry.
         let repo = state.registry.lock().unwrap().get(&id).unwrap().clone();
         let res = process_repository(&repo, &state, &job).await;
         assert!(res.is_err(), "clone of a broken URL must fail");
@@ -1279,7 +996,6 @@ mod tests {
             "never-indexed failure must leave no local dir"
         );
 
-        // 3. Re-register with the corrected URL (same id) → 202 re-registered.
         let resp2 = crate::handlers::repo::register_repo_handler(
             State(state.clone()),
             Json(mk_req(&bare_url)),
@@ -1289,9 +1005,6 @@ mod tests {
         let job2 = job_rx.recv().await.expect("second Clone job enqueued");
         assert!(matches!(job2, IndexJob::Clone { .. }));
 
-        // 4. Worker processes: the git phase now succeeds (dir is cloned). The
-        //    pipeline may still fail against the stub DBs, but that is no longer
-        //    a git error.
         let repo2 = state.registry.lock().unwrap().get(&id).unwrap().clone();
         let res2 = process_repository(&repo2, &state, &job2).await;
         if let Err(e) = &res2 {
@@ -1359,16 +1072,7 @@ mod tests {
         let local_path = workspace.join("alpha");
         std::fs::create_dir_all(&local_path).unwrap();
 
-        let repo = RepoEntry {
-            id: "alpha".into(),
-            url: "https://invalid.example/alpha.git".into(),
-            local_path: local_path.to_string_lossy().into(),
-            auth_type: AuthType::Ssh,
-            branch: "main".into(),
-            webhook_secret: None,
-            last_indexed: None,
-            status: RepoStatus::Pulling,
-        };
+        let repo = make_test_repo("alpha", &local_path, RepoStatus::Pulling);
         state
             .registry
             .lock()
@@ -1404,16 +1108,7 @@ mod tests {
         let local_path = workspace.join("alpha");
         std::fs::create_dir_all(&local_path).unwrap();
 
-        let repo = RepoEntry {
-            id: "alpha".into(),
-            url: "https://invalid.example/alpha.git".into(),
-            local_path: local_path.to_string_lossy().into(),
-            auth_type: AuthType::Ssh,
-            branch: "main".into(),
-            webhook_secret: None,
-            last_indexed: None,
-            status: RepoStatus::Indexing,
-        };
+        let repo = make_test_repo("alpha", &local_path, RepoStatus::Indexing);
         state
             .registry
             .lock()

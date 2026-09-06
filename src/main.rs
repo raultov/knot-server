@@ -1,5 +1,6 @@
 mod cleanup;
 mod config;
+mod fs_utils;
 mod git;
 mod handlers;
 mod local_sync;
