@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  
 ---
 
+## [0.5.1] - 2026-09-06
+
+### Fixed
+- **E2E: hardened the snapshot cleanup assertion in the Cluster Progress Coherence suite.** The
+  final check ("snapshot file removed on completion") only waited 3s while polling the filesystem
+  without re-querying the API, and raced against a transient re-index cycle on slow CI runners: the
+  forced sync in Scenario 2 can requeue `alpha` on the other node, whose worker legitimately
+  re-creates `progress/alpha.json` after both instances first reported `indexed`. The assertion now
+  polls up to 15s re-fetching both batch endpoints, passes as soon as the snapshot is gone, and
+  includes the last observed statuses in the failure message. Test-only change; no runtime behavior
+  was modified.
+
+---
+
 ## [0.5.0] - 2026-09-06
 
 ### Changed
@@ -603,7 +617,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/raultov/knot-server/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/raultov/knot-server/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/raultov/knot-server/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/raultov/knot-server/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/raultov/knot-server/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/raultov/knot-server/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/raultov/knot-server/compare/v0.3.1...v0.3.2
