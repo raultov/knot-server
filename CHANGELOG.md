@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  
 ---
 
+## [0.5.0] - 2026-09-06
+
+### Changed
+- **knot 1.9.0:** bumped dependency from 1.8.1 to 1.9.0.
+- **Modularized indexing worker:** split monolithic `src/worker.rs` into structured sub-modules `src/worker/mod.rs`, `src/worker/plan.rs`, and `src/worker/state.rs`.
+- **Graph subgraph parameter handling:** replaced 8-positional-argument `fetch_subgraph` function with `SubgraphRequest` and `CommonGraphParams` trait, eliminating `#[expect(clippy::too_many_arguments)]`.
+
+### Internal & Maintenance
+- **Test helper consolidation:** centralized `make_test_repo` and `create_test_state_with_rx` in `src/handlers/tests_common.rs`.
+- **Filesystem utilities:** introduced `src/fs_utils.rs` module for safe filesystem operations.
+
+---
+
 ## [0.4.1] - 2026-09-03
 
 ### Fixed
@@ -80,7 +93,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Worker status claim revert and atomic multi-instance registry updates:** (a) worker no longer leaves a claimed `cloning`/`pulling` status stuck when the repo lock is held by another node (the 202 sync could silently no-op), and (b) registry mutations now re-read repos.json under the workspace lock so multi-instance deployments can no longer lose status/last_indexed updates (last-writer-wins full-file overwrites).
 - **Nested types invisible in the graph overview:** nested declarations (inner classes, C# nested records/enums) were unreachable in the graph overview because the traversal closure started from `CONTAINS`-free roots and followed outgoing relationships only. The overview now merges in a one-hop `CONTAINS` query so every visible-kind declaration is present; node counts grow (openlogi-net 335→400, csharp-code-map 687→710); `fetch_edges` and the response schema are untouched.
-- **C# kinds categorised (graph overview was empty for C# repos):** the C# support recently added to the knot library emits `csharp_*` entity kinds, but none of them were present in `KIND_CATEGORY_CLASSES`, `KIND_CATEGORY_INTERFACES` or `KIND_CATEGORY_FUNCTIONS` in `src/handlers/models.rs`, so `parse_kinds("classes,interfaces")` matched nothing and `GET /api/repos/{id}/graph` returned an empty graph for every indexed C# repository. All C# declaration kinds are now categorised — types (`csharp_class`, `csharp_struct`, `csharp_record`, `csharp_enum`, `csharp_delegate`) in `classes`, `csharp_interface` in `interfaces`, and members (`csharp_method`, `csharp_constructor`, `csharp_local_function`, `csharp_operator`, `csharp_indexer`, `csharp_property`, `csharp_field`, `csharp_event`, `csharp_constant`) in `functions`. `assets/graph-viewer.html` gained matching `KIND_COLORS` entries (rebuild required, the file is embedded via `include_str!`). `csharp_namespace` intentionally stays uncategorised (only reachable via the `other` category): knot does not emit `namespace CONTAINS type` edges and namespace nodes carry almost no CALLS/EXTENDS/IMPLEMENTS edges, so they would otherwise flood the default overview with isolated containers. Four C# drift-guard unit tests added; the existing `kind_categories_are_disjoint_and_have_no_duplicates` test still passes (no kind belongs to two categories).
+- **C# kinds categorised (graph overview was empty for C# repos):** the C# support recently added to the knot library emits `csharp_*` entity kinds, but none of them were present in `KIND_CATEGORY_CLASSES`, `KIND_CATEGORY_INTERFACES` or `KIND_CATEGORY_FUNCTIONS` in `src/handlers/models.rs`, so `parse_kinds("classes,interfaces")` matched nothing and `GET /api/repos/{id}/graph` returned an empty graph for every indexed C# repository. All C# declaration kinds are now categorised — types (`csharp_class`, `csharp_struct`, `csharp_record`, `csharp_enum`, `csharp_delegate`) in `classes`, `csharp_interface` in `interfaces`, and members (`csharp_method`, `csharp_constructor`, `csharp_local_function`, `csharp_operator`, `csharp_indexer`, `csharp_property`, `csharp_field`, `csharp_event`, `csharp_constant`) in `functions`. `assets/graph-viewer.html` gained matching `KIND_COLORS` entries (rebuild required, the file is embedded via `include_str!`). `csharp_namespace` intentionally stays uncategorized (only reachable via the `other` category): knot does not emit `namespace CONTAINS type` edges and namespace nodes carry almost no CALLS/EXTENDS/IMPLEMENTS edges, so they would otherwise flood the default overview with isolated containers. Four C# drift-guard unit tests added; the existing `kind_categories_are_disjoint_and_have_no_duplicates` test still passes (no kind belongs to two categories).
 
 ---
 
