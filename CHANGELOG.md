@@ -10,9 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.5.0] - 2026-09-06
 
 ### Changed
-- **knot 1.9.0:** bumped dependency from 1.8.1 to 1.9.0.
-- **Modularized indexing worker:** split monolithic `src/worker.rs` into structured sub-modules `src/worker/mod.rs`, `src/worker/plan.rs`, and `src/worker/state.rs`.
-- **Graph subgraph parameter handling:** replaced 8-positional-argument `fetch_subgraph` function with `SubgraphRequest` and `CommonGraphParams` trait, eliminating `#[expect(clippy::too_many_arguments)]`.
+- **Upgrade `knot` to 1.9.0:** bumped core dependency from 1.8.1 to 1.9.0 to incorporate the latest indexing engine updates and performance fixes.
+- **Code legibility & maintenance refactoring:** reduced function complexity and line counts across core modules.
+  - Split the monolithic worker into structured sub-modules (`src/worker/mod.rs`, `src/worker/plan.rs`, and `src/worker/state.rs`).
+  - Refactored `fetch_subgraph` parameter handling using `SubgraphRequest` and `CommonGraphParams` trait, eliminating `#[expect(clippy::too_many_arguments)]`.
 
 ### Internal & Maintenance
 - **Test helper consolidation:** centralized `make_test_repo` and `create_test_state_with_rx` in `src/handlers/tests_common.rs`.
