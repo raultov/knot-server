@@ -87,31 +87,12 @@ pub fn snapshot_path(workspace: &Path, repo_id: &str) -> PathBuf {
 /// Persist a snapshot atomically (temp file + rename) so a concurrent
 /// reader never observes a half-written file.
 pub fn write_snapshot(workspace: &Path, p: &PersistedProgress) -> anyhow::Result<()> {
-    use std::io::Write;
-
     let dir = progress_dir(workspace);
     fs::create_dir_all(&dir)?;
     let path = snapshot_path(workspace, &p.repo_id);
     let temp_path = dir.join(format!(".{}.json.tmp", p.repo_id));
     let json = serde_json::to_string_pretty(p)?;
-    {
-        let mut f = fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&temp_path)?;
-        f.write_all(json.as_bytes())?;
-        // Flush so the on-disk mtime reflects the write before we rename.
-        // Otherwise the kernel may serve a stale mtime to the next reader
-        // (same concern as `Registry`'s atomic write).
-        f.sync_all()?;
-    }
-    // POSIX `rename` is atomic; on Windows rename over an existing file
-    // fails, so remove the destination first to stay cross-platform.
-    if path.exists() {
-        let _ = fs::remove_file(&path);
-    }
-    fs::rename(&temp_path, &path)?;
+    crate::fs_utils::write_file_atomically_with_temp(&path, &temp_path, &json)?;
     Ok(())
 }
 

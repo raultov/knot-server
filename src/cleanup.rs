@@ -82,43 +82,13 @@ pub async fn cleanup_repo_artifacts(state: &Arc<AppState>, repo_id: &str, scope:
 mod tests {
     use super::*;
     use crate::models::RepoStatus;
-    use crate::registry::Registry;
-    use knot::db::graph::ConnectExt;
-    use knot::db::vector::VectorConnectExt;
     use knot::pipeline::progress::ProgressTracker;
-    use std::collections::HashMap;
-    use std::sync::Mutex;
     use tempfile::TempDir;
 
     async fn create_test_state(workspace: &Path) -> Arc<AppState> {
-        let registry = Registry::load_or_create(workspace).unwrap();
-        let graph_db =
-            knot::db::graph::GraphDb::connect("bolt://localhost:9999", "neo4j", "badpassword")
-                .await
-                .expect("connect for test db");
-        let vector_db =
-            knot::db::vector::VectorDb::connect("http://localhost:9999", "test_collection", 384)
-                .await
-                .expect("connect for test vector db");
-        Arc::new(AppState {
-            vector_db: Arc::new(vector_db),
-            graph_db: Arc::new(graph_db),
-            embedder: None,
-            workspace_dir: workspace.to_string_lossy().into(),
-            registry: Arc::new(Mutex::new(registry)),
-            job_tx: tokio::sync::mpsc::channel(16).0,
-            qdrant_url: "http://localhost:6334".into(),
-            qdrant_collection: "knot_entities".into(),
-            neo4j_uri: "bolt://localhost:7687".into(),
-            neo4j_user: "neo4j".into(),
-            neo4j_password: "secret".into(),
-            embed_dim: 384,
-            rayon_threads: None,
-            batch_size: 64,
-            ingest_concurrency: 4,
-            start_time: std::time::Instant::now(),
-            progress_trackers: Arc::new(Mutex::new(HashMap::new())),
-        })
+        crate::handlers::tests_common::create_test_state_with_rx(workspace)
+            .await
+            .0
     }
 
     #[tokio::test]

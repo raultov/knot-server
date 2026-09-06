@@ -1,23 +1,103 @@
 #[cfg(test)]
+pub(crate) async fn create_test_state_with_capacity(
+    workspace: &std::path::Path,
+    queue_capacity: usize,
+) -> (
+    Arc<AppState>,
+    tokio::sync::mpsc::Receiver<crate::models::IndexJob>,
+) {
+    use knot::db::graph::ConnectExt;
+    use knot::db::vector::VectorConnectExt;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    let registry = Registry::load_or_create(workspace).expect("Failed to create test registry");
+
+    let graph_db =
+        knot::db::graph::GraphDb::connect("bolt://localhost:9999", "neo4j", "badpassword")
+            .await
+            .expect("connect for test db should work");
+
+    let vector_db =
+        knot::db::vector::VectorDb::connect("http://localhost:9999", "test_collection", 384)
+            .await
+            .expect("connect for test vector db should work");
+
+    let (job_tx, job_rx) = tokio::sync::mpsc::channel::<crate::models::IndexJob>(queue_capacity);
+
+    (
+        Arc::new(AppState {
+            vector_db: Arc::new(vector_db),
+            graph_db: Arc::new(graph_db),
+            embedder: None,
+            workspace_dir: workspace.to_string_lossy().into(),
+            registry: Arc::new(Mutex::new(registry)),
+            job_tx,
+            qdrant_url: "http://localhost:6334".into(),
+            qdrant_collection: "knot_entities".into(),
+            neo4j_uri: "bolt://localhost:7687".into(),
+            neo4j_user: "neo4j".into(),
+            neo4j_password: "secret".into(),
+            embed_dim: 384,
+            rayon_threads: None,
+            batch_size: 64,
+            ingest_concurrency: 4,
+            start_time: std::time::Instant::now(),
+            progress_trackers: Arc::new(Mutex::new(HashMap::new())),
+        }),
+        job_rx,
+    )
+}
+
+#[cfg(test)]
+pub(crate) async fn create_test_state_with_rx(
+    workspace: &std::path::Path,
+) -> (
+    Arc<AppState>,
+    tokio::sync::mpsc::Receiver<crate::models::IndexJob>,
+) {
+    create_test_state_with_capacity(workspace, 16).await
+}
+
+#[cfg(test)]
+pub(crate) fn make_test_repo(
+    id: &str,
+    local_path: &std::path::Path,
+    status: crate::models::RepoStatus,
+) -> crate::models::RepoEntry {
+    crate::models::RepoEntry {
+        id: id.into(),
+        url: format!("https://invalid.example/{id}.git"),
+        local_path: local_path.to_string_lossy().into(),
+        auth_type: crate::models::AuthType::Ssh,
+        branch: "main".into(),
+        webhook_secret: None,
+        last_indexed: None,
+        status,
+    }
+}
+
+#[cfg(test)]
+use crate::models::AppState;
+#[cfg(test)]
+use crate::registry::Registry;
+#[cfg(test)]
+use std::sync::Arc;
+
+#[cfg(test)]
 mod tests {
+    use super::*;
     use crate::handlers::graph_parse::*;
     use crate::handlers::models::*;
     use crate::handlers::*;
-    use crate::models::AppState;
     use crate::models::RegisterRepoResponse;
     use axum::Router;
     use axum::body::Body;
     use axum::http::Request;
     use axum::http::StatusCode;
     use axum::routing::{get, post};
-    use knot::db::graph::ConnectExt;
-    use knot::db::vector::VectorConnectExt;
-    use std::collections::HashMap;
-    use std::sync::{Arc, Mutex};
     use tempfile::TempDir;
     use tower::ServiceExt;
-
-    use crate::registry::Registry;
 
     fn build_test_app(state: Arc<AppState>) -> Router {
         Router::new()
@@ -62,44 +142,7 @@ mod tests {
         Arc<AppState>,
         tokio::sync::mpsc::Receiver<crate::models::IndexJob>,
     ) {
-        let workspace = temp_dir.path().to_path_buf();
-        let registry =
-            Registry::load_or_create(&workspace).expect("Failed to create test registry");
-
-        let graph_db =
-            knot::db::graph::GraphDb::connect("bolt://localhost:9999", "neo4j", "badpassword")
-                .await
-                .expect("connect for test db should work");
-
-        let vector_db =
-            knot::db::vector::VectorDb::connect("http://localhost:9999", "test_collection", 384)
-                .await
-                .expect("connect for test vector db should work");
-
-        let (job_tx, job_rx) = tokio::sync::mpsc::channel::<crate::models::IndexJob>(16);
-
-        (
-            Arc::new(AppState {
-                vector_db: Arc::new(vector_db),
-                graph_db: Arc::new(graph_db),
-                embedder: None,
-                workspace_dir: workspace.to_string_lossy().into(),
-                registry: Arc::new(Mutex::new(registry)),
-                job_tx,
-                qdrant_url: "http://localhost:6334".into(),
-                qdrant_collection: "knot_entities".into(),
-                neo4j_uri: "bolt://localhost:7687".into(),
-                neo4j_user: "neo4j".into(),
-                neo4j_password: "secret".into(),
-                embed_dim: 384,
-                rayon_threads: None,
-                batch_size: 64,
-                ingest_concurrency: 4,
-                start_time: std::time::Instant::now(),
-                progress_trackers: Arc::new(Mutex::new(HashMap::new())),
-            }),
-            job_rx,
-        )
+        create_test_state_with_rx(temp_dir.path()).await
     }
 
     #[tokio::test]
@@ -428,35 +471,8 @@ mod tests {
         let workspace = dir.path().to_owned();
         let workspace2 = workspace.join("ws2");
         std::fs::create_dir_all(&workspace2).unwrap();
-        let registry2 = Registry::load_or_create(&workspace2).expect("registry");
 
-        let graph_db2 = knot::db::graph::GraphDb::connect("bolt://localhost:9999", "neo4j", "bad")
-            .await
-            .expect("connect");
-        let vector_db2 = knot::db::vector::VectorDb::connect("http://localhost:9999", "test", 384)
-            .await
-            .expect("connect");
-
-        let (small_tx, mut small_rx) = tokio::sync::mpsc::channel::<crate::models::IndexJob>(1);
-        let state2 = Arc::new(AppState {
-            vector_db: Arc::new(vector_db2),
-            graph_db: Arc::new(graph_db2),
-            embedder: None,
-            workspace_dir: workspace2.to_string_lossy().into(),
-            registry: Arc::new(Mutex::new(registry2)),
-            job_tx: small_tx,
-            qdrant_url: "http://localhost:6334".into(),
-            qdrant_collection: "knot_entities".into(),
-            neo4j_uri: "bolt://localhost:7687".into(),
-            neo4j_user: "neo4j".into(),
-            neo4j_password: "secret".into(),
-            embed_dim: 384,
-            rayon_threads: None,
-            batch_size: 64,
-            ingest_concurrency: 4,
-            start_time: std::time::Instant::now(),
-            progress_trackers: Arc::new(Mutex::new(HashMap::new())),
-        });
+        let (state2, mut small_rx) = create_test_state_with_capacity(&workspace2, 1).await;
 
         let app = build_test_app(state2);
 

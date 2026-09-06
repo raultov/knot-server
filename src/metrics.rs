@@ -292,7 +292,7 @@ mod tests {
     /// `metrics::set_global_recorder` only succeeds once per process, so we
     /// share a single `DebuggingRecorder` across the parallel test threads via
     /// `OnceLock`. Tests grab the snapshotter at the start, install once on
-    /// first access, and use the snapshotter afterwards.
+    /// first access, and use the snapshotter afterward.
     fn shared_snapshotter() -> &'static Snapshotter {
         static SNAPSHOTTER: OnceLock<Snapshotter> = OnceLock::new();
         SNAPSHOTTER.get_or_init(|| {

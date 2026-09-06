@@ -102,39 +102,27 @@ pub fn map_repo_graph(
         });
     }
 
-    for dep in outgoing_deps {
-        if seen.insert(dep.name.clone()) {
-            let is_reg = registered_ids.contains(&dep.name);
-            nodes.push(RepoGraphNode {
-                id: dep.name.clone(),
-                name: dep.name.clone(),
-                build_system: dep.build_system,
-                group_id: dep.group_id,
-                artifact_id: dep.artifact_id,
-                version: dep.version,
-                is_root: false,
-                registered: is_reg,
-                relation: RepoRelation::Dependency,
-            });
+    let mut push_deps = |deps: Vec<RawRepoNode>, relation: RepoRelation| {
+        for dep in deps {
+            if seen.insert(dep.name.clone()) {
+                let is_reg = registered_ids.contains(&dep.name);
+                nodes.push(RepoGraphNode {
+                    id: dep.name.clone(),
+                    name: dep.name.clone(),
+                    build_system: dep.build_system,
+                    group_id: dep.group_id,
+                    artifact_id: dep.artifact_id,
+                    version: dep.version,
+                    is_root: false,
+                    registered: is_reg,
+                    relation,
+                });
+            }
         }
-    }
+    };
 
-    for dep in incoming_deps {
-        if seen.insert(dep.name.clone()) {
-            let is_reg = registered_ids.contains(&dep.name);
-            nodes.push(RepoGraphNode {
-                id: dep.name.clone(),
-                name: dep.name.clone(),
-                build_system: dep.build_system,
-                group_id: dep.group_id,
-                artifact_id: dep.artifact_id,
-                version: dep.version,
-                is_root: false,
-                registered: is_reg,
-                relation: RepoRelation::Dependent,
-            });
-        }
-    }
+    push_deps(outgoing_deps, RepoRelation::Dependency);
+    push_deps(incoming_deps, RepoRelation::Dependent);
 
     let edge_responses = edges
         .into_iter()
@@ -278,7 +266,7 @@ pub async fn repo_graph_handler(
             version: row.get::<String>("version").ok(),
         };
 
-        // For outgoing (or incoming), categorise by query type or fallback
+        // For outgoing (or incoming), categorize by query type or fallback
         match direction {
             RepoDirection::Outgoing => outgoing_deps.push(node),
             RepoDirection::Incoming => incoming_deps.push(node),

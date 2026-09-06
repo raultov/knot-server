@@ -221,90 +221,14 @@ pub async fn delete_repo_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::handlers::tests_common::create_test_state_with_rx;
     use crate::models::AuthType;
-    use knot::db::graph::ConnectExt;
-    use knot::db::vector::VectorConnectExt;
     use knot::pipeline::progress::ProgressTracker;
-    use std::collections::HashMap;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
     use tempfile::TempDir;
 
     async fn create_test_state(workspace: &std::path::Path) -> Arc<AppState> {
-        let registry = crate::registry::Registry::load_or_create(workspace)
-            .expect("Failed to create test registry");
-
-        let graph_db =
-            knot::db::graph::GraphDb::connect("bolt://localhost:9999", "neo4j", "badpassword")
-                .await
-                .expect("connect for test db");
-
-        let vector_db =
-            knot::db::vector::VectorDb::connect("http://localhost:9999", "test_collection", 384)
-                .await
-                .expect("connect for test vector db");
-
-        let (job_tx, _job_rx) = tokio::sync::mpsc::channel::<crate::models::IndexJob>(16);
-
-        Arc::new(AppState {
-            vector_db: Arc::new(vector_db),
-            graph_db: Arc::new(graph_db),
-            embedder: None,
-            workspace_dir: workspace.to_string_lossy().into(),
-            registry: Arc::new(Mutex::new(registry)),
-            job_tx,
-            qdrant_url: "http://localhost:6334".into(),
-            qdrant_collection: "knot_entities".into(),
-            neo4j_uri: "bolt://localhost:7687".into(),
-            neo4j_user: "neo4j".into(),
-            neo4j_password: "secret".into(),
-            embed_dim: 384,
-            rayon_threads: None,
-            batch_size: 64,
-            ingest_concurrency: 4,
-            start_time: std::time::Instant::now(),
-            progress_trackers: Arc::new(Mutex::new(HashMap::new())),
-        })
-    }
-
-    async fn create_test_state_with_rx(
-        workspace: &std::path::Path,
-    ) -> (
-        Arc<AppState>,
-        tokio::sync::mpsc::Receiver<crate::models::IndexJob>,
-    ) {
-        let registry = crate::registry::Registry::load_or_create(workspace)
-            .expect("Failed to create test registry");
-        let graph_db =
-            knot::db::graph::GraphDb::connect("bolt://localhost:9999", "neo4j", "badpassword")
-                .await
-                .expect("connect for test db");
-        let vector_db =
-            knot::db::vector::VectorDb::connect("http://localhost:9999", "test_collection", 384)
-                .await
-                .expect("connect for test vector db");
-        let (job_tx, job_rx) = tokio::sync::mpsc::channel::<crate::models::IndexJob>(16);
-        (
-            Arc::new(AppState {
-                vector_db: Arc::new(vector_db),
-                graph_db: Arc::new(graph_db),
-                embedder: None,
-                workspace_dir: workspace.to_string_lossy().into(),
-                registry: Arc::new(Mutex::new(registry)),
-                job_tx,
-                qdrant_url: "http://localhost:6334".into(),
-                qdrant_collection: "knot_entities".into(),
-                neo4j_uri: "bolt://localhost:7687".into(),
-                neo4j_user: "neo4j".into(),
-                neo4j_password: "secret".into(),
-                embed_dim: 384,
-                rayon_threads: None,
-                batch_size: 64,
-                ingest_concurrency: 4,
-                start_time: std::time::Instant::now(),
-                progress_trackers: Arc::new(Mutex::new(HashMap::new())),
-            }),
-            job_rx,
-        )
+        create_test_state_with_rx(workspace).await.0
     }
 
     #[tokio::test]
@@ -315,7 +239,7 @@ mod tests {
         let (state, mut job_rx) = create_test_state_with_rx(&workspace).await;
 
         let url = "git@github.com:org/reg-test.git";
-        let id = crate::models::RegisterRepoRequest {
+        let id = RegisterRepoRequest {
             url: url.into(),
             auth_type: AuthType::Ssh,
             branch: "main".into(),
@@ -347,7 +271,7 @@ mod tests {
             .add_or_replace(entry)
             .unwrap();
 
-        let body = crate::models::RegisterRepoRequest {
+        let body = RegisterRepoRequest {
             url: url.into(),
             auth_type: AuthType::Ssh,
             branch: "main".into(),

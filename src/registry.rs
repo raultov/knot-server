@@ -50,8 +50,6 @@ impl Registry {
     where
         F: FnOnce(&mut RegistryData) -> anyhow::Result<R>,
     {
-        use std::io::Write;
-
         // The in-memory Mutex<Registry> in AppState still serializes same-instance access;
         // the file lock serializes cross-instance access. This is required for a
         // multi-instance shared workspace to ensure NFS-safe atomic RMW.
@@ -75,19 +73,7 @@ impl Registry {
 
         let json = serde_json::to_string_pretty(&self.data)?;
         let temp_path = self.json_path.with_extension("json.tmp");
-        {
-            let mut f = fs::OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .open(&temp_path)?;
-            f.write_all(json.as_bytes())?;
-            f.sync_all()?;
-        }
-        if self.json_path.exists() {
-            let _ = fs::remove_file(&self.json_path);
-        }
-        fs::rename(&temp_path, &self.json_path)?;
+        crate::fs_utils::write_file_atomically_with_temp(&self.json_path, &temp_path, &json)?;
         Ok(res)
     }
 
@@ -119,8 +105,8 @@ impl Registry {
     ///
     /// The replacement happens before the save so the registry is never
     /// observable in a state with two entries sharing the same id, even on
-    /// a crash between the two mutations (the on-disk `repos.json` is only
-    /// written once, atomically with respect to the lock).
+    /// a crash between the two mutations. (The on-disk `repos.json` is only
+    /// written once, atomically with respect to the lock.)
     pub fn add_or_replace(&mut self, entry: RepoEntry) -> anyhow::Result<bool> {
         self.mutate(|data| {
             let replaced = data.repositories.iter().position(|r| r.id == entry.id);

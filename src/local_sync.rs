@@ -116,8 +116,8 @@ pub fn sync_local_working_tree(src: &str, dst: &str) -> anyhow::Result<()> {
     }
 
     // Fail fast on a truly unreadable repo root. Subtrees that become
-    // unreadable during recursion are handled inside `copy_tree` (best-
-    // effort, with a warning) so a single locked subdirectory does not
+    // unreadable during recursion are handled inside `copy_tree` (best-effort, with a warning) so
+    // a single locked subdirectory does not
     // abort the whole sync.
     fs::read_dir(&src_path).map_err(|e| {
         anyhow::Error::new(e).context(format!("Cannot read source directory: {}", src))
@@ -131,42 +131,146 @@ pub fn sync_local_working_tree(src: &str, dst: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[expect(clippy::cognitive_complexity, reason = "deferred refactoring")]
-#[expect(clippy::too_many_lines, reason = "deferred refactoring")]
-fn copy_tree(src: &Path, dst: &Path, src_root: &Path, gitignore: &Gitignore) -> anyhow::Result<()> {
-    // Reading a subdirectory can fail with EACCES even when the parent
-    // directory is fully accessible — e.g. an unrelated user's data/
-    // nested inside the repo, or a `chmod 0` artifact. The whole sync
-    // must not abort in that case; log and skip the subtree.
-    let entries = match fs::read_dir(src) {
-        Ok(it) => it,
+/// Attempt to read a directory, handling the permission-denied case gracefully.
+/// Returns `Ok(Some(ReadDir))` when readable, `Ok(None)` when the directory is
+/// not accessible (logged as a warning), or `Err` for any other I/O failure.
+fn read_dir_or_skip(src: &Path) -> anyhow::Result<Option<fs::ReadDir>> {
+    match fs::read_dir(src) {
+        Ok(it) => Ok(Some(it)),
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
             tracing::warn!(
                 "skipping unreadable directory during local sync: {} ({e})",
                 src.display()
             );
-            return Ok(());
+            Ok(None)
         }
-        Err(e) => return Err(anyhow::Error::new(e).context(format!("read_dir {}", src.display()))),
+        Err(e) => Err(anyhow::Error::new(e).context(format!("read_dir {}", src.display()))),
+    }
+}
+
+/// Parse a directory entry from the iterator and resolve its file type.
+/// Returns `None` (after logging) when either step fails.
+fn classify_entry(
+    result: io::Result<fs::DirEntry>,
+    src: &Path,
+) -> Option<(fs::DirEntry, fs::FileType)> {
+    let entry = match result {
+        Ok(e) => e,
+        Err(e) => {
+            tracing::warn!("skipping unreadable entry under {}: {e}", src.display());
+            return None;
+        }
+    };
+    let file_type = match entry.file_type() {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::warn!(
+                "skipping entry with unknown file type under {}: {e}",
+                src.display()
+            );
+            return None;
+        }
+    };
+    Some((entry, file_type))
+}
+
+/// Return `true` when `src_child` should be skipped: gitignore-matched paths
+/// or symlinks (which are never followed to avoid out-of-tree traversal).
+fn should_skip_entry(
+    src_child: &Path,
+    file_type: &fs::FileType,
+    src_root: &Path,
+    gitignore: &Gitignore,
+) -> bool {
+    if let Ok(relative) = src_child.strip_prefix(src_root) {
+        let m = gitignore.matched_path_or_any_parents(relative, file_type.is_dir());
+        if m.is_ignore() {
+            tracing::debug!(
+                "skipping gitignored entry during local sync: {}",
+                relative.to_string_lossy()
+            );
+            return true;
+        }
+    }
+    // Symlinks are not followed: the target might be outside the source tree,
+    // a broken link, or on a different filesystem.
+    if file_type.is_symlink() {
+        tracing::debug!(
+            "skipping symlink during local sync: {}",
+            src_child.display()
+        );
+        return true;
+    }
+    false
+}
+
+/// Mirror a source directory into `dst_child`. Probes the source before
+/// creating the destination so no empty directory is left behind on EACCES.
+fn sync_dir_child(src_child: &Path, dst_child: &Path, src_root: &Path) {
+    // `{e}` already carries the errno, so a single message covers both
+    // PermissionDenied and other errors without redundancy.
+    if let Err(e) = fs::read_dir(src_child) {
+        tracing::warn!(
+            "skipping directory: cannot read {}: {e}",
+            src_child.display()
+        );
+        return;
+    }
+    if let Err(e) = fs::create_dir_all(dst_child) {
+        tracing::warn!(
+            "skipping directory: cannot create mirror {}: {e}",
+            dst_child.display()
+        );
+        return;
+    }
+    if let Err(e) = make_writable(dst_child) {
+        tracing::warn!(
+            "skipping subtree: cannot make mirror writable {}: {e}",
+            dst_child.display()
+        );
+        return;
+    }
+    if let Err(e) = copy_tree(
+        src_child,
+        dst_child,
+        src_root,
+        &build_gitignore(src_root, src_child),
+    ) {
+        tracing::warn!("error syncing subtree {}: {e:#}", src_child.display());
+    }
+}
+
+/// Copy a single file from `src_child` to `dst_child`, overwriting an existing
+/// destination after stripping the read-only bit.
+fn copy_file_child(src_child: &Path, dst_child: &Path) {
+    if let Some(parent) = dst_child.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if dst_child.exists() {
+        if let Err(e) = make_writable(dst_child) {
+            tracing::warn!("cannot make mirror writable {}: {e}", dst_child.display());
+        }
+        let _ = fs::remove_file(dst_child);
+    }
+    if let Err(e) = fs::copy(src_child, dst_child) {
+        // EACCES on the source file is the common case — same policy: skip
+        // and continue so the rest of the repo still indexes.
+        tracing::warn!(
+            "skipping file: cannot copy {} -> {}: {e}",
+            src_child.display(),
+            dst_child.display()
+        );
+    }
+}
+
+fn copy_tree(src: &Path, dst: &Path, src_root: &Path, gitignore: &Gitignore) -> anyhow::Result<()> {
+    let Some(entries) = read_dir_or_skip(src)? else {
+        return Ok(());
     };
 
-    for entry in entries {
-        let entry = match entry {
-            Ok(e) => e,
-            Err(e) => {
-                tracing::warn!("skipping unreadable entry under {}: {e}", src.display());
-                continue;
-            }
-        };
-        let file_type = match entry.file_type() {
-            Ok(t) => t,
-            Err(e) => {
-                tracing::warn!(
-                    "skipping entry with unknown file type under {}: {e}",
-                    src.display()
-                );
-                continue;
-            }
+    for result in entries {
+        let Some((entry, file_type)) = classify_entry(result, src) else {
+            continue;
         };
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
@@ -179,96 +283,16 @@ fn copy_tree(src: &Path, dst: &Path, src_root: &Path, gitignore: &Gitignore) -> 
         }
 
         let src_child = entry.path();
-
-        if let Ok(relative) = src_child.strip_prefix(src_root) {
-            let relative_str = relative.to_string_lossy();
-            let m = gitignore.matched_path_or_any_parents(relative, file_type.is_dir());
-            if m.is_ignore() {
-                tracing::debug!(
-                    "skipping gitignored entry during local sync: {}",
-                    relative_str
-                );
-                continue;
-            }
+        if should_skip_entry(&src_child, &file_type, src_root, gitignore) {
+            continue;
         }
 
         let dst_child = dst.join(&name);
 
-        // Symlinks are not followed. The target might be outside the
-        // source tree (e.g. /etc/passwd), might be a broken link, or
-        // might be on a different filesystem. Copying the link as-is
-        // would either silently pull unrelated content into the mirror
-        // or fail with a confusing error.
-        if file_type.is_symlink() {
-            tracing::debug!(
-                "skipping symlink during local sync: {}",
-                src_child.display()
-            );
-            continue;
-        }
-
         if file_type.is_dir() {
-            // Probe the source subdir before creating the mirror, so we
-            // do not leave an empty `dst_child/` behind when the source
-            // is unreadable. EACCES here is the production failure
-            // (e.g. a subdir owned by another user); other errors are
-            // surfaced as warnings and the subtree is skipped.
-            if let Err(e) = fs::read_dir(&src_child) {
-                if e.kind() == io::ErrorKind::PermissionDenied {
-                    tracing::warn!(
-                        "skipping unreadable directory during local sync: {} ({e})",
-                        src_child.display()
-                    );
-                } else {
-                    tracing::warn!(
-                        "skipping directory: cannot read {}: {e}",
-                        src_child.display()
-                    );
-                }
-                continue;
-            }
-            if let Err(e) = fs::create_dir_all(&dst_child) {
-                tracing::warn!(
-                    "skipping directory: cannot create mirror {}: {e}",
-                    dst_child.display()
-                );
-                continue;
-            }
-            if let Err(e) = make_writable(&dst_child) {
-                tracing::warn!(
-                    "skipping subtree: cannot make mirror writable {}: {e}",
-                    dst_child.display()
-                );
-                continue;
-            }
-            if let Err(e) = copy_tree(
-                &src_child,
-                &dst_child,
-                src_root,
-                &build_gitignore(src_root, &src_child),
-            ) {
-                tracing::warn!("error syncing subtree {}: {e:#}", src_child.display());
-            }
+            sync_dir_child(&src_child, &dst_child, src_root);
         } else if file_type.is_file() {
-            if let Some(parent) = dst_child.parent() {
-                let _ = fs::create_dir_all(parent);
-            }
-            if dst_child.exists() {
-                if let Err(e) = make_writable(&dst_child) {
-                    tracing::warn!("cannot make mirror writable {}: {e}", dst_child.display());
-                }
-                let _ = fs::remove_file(&dst_child);
-            }
-            if let Err(e) = fs::copy(&src_child, &dst_child) {
-                // EACCES on the source file is the common case (unreadable
-                // by the user running the server) — same fix: skip and
-                // continue so the rest of the repo still indexes.
-                tracing::warn!(
-                    "skipping file: cannot copy {} -> {}: {e}",
-                    src_child.display(),
-                    dst_child.display()
-                );
-            }
+            copy_file_child(&src_child, &dst_child);
         } else {
             // FIFOs, sockets, device nodes, etc. — not meaningful to copy.
             tracing::debug!(
@@ -292,7 +316,7 @@ fn copy_tree(src: &Path, dst: &Path, src_root: &Path, gitignore: &Gitignore) -> 
 /// directory denies writes.
 ///
 /// A no-op if the path does not exist, has no read-only bit to clear,
-/// or cannot be stat'd. Errors from `set_permissions` propagate so the
+/// or cannot be stated. Errors from `set_permissions` propagate so the
 /// caller learns about truly unrecoverable permission problems.
 fn make_writable(path: &Path) -> anyhow::Result<()> {
     if !path.exists() {
@@ -1031,7 +1055,7 @@ mod tests {
         let final_state = fs::read_to_string(dst.path().join(".knot/index_state.json")).unwrap();
         assert_eq!(
             final_state, mirror_state,
-            "El state del mirror debe sobrevivir al sync sin importar lo que tenga el source"
+            "Mirror state must survive the sync regardless the source it has"
         );
     }
 
@@ -1068,7 +1092,7 @@ mod tests {
 
         assert!(
             !dst.path().join(".knot").exists(),
-            "copy_tree no debe crear ningún `.knot/` en el mirror si el mirror no lo tenía"
+            "copy_tree must not create any '.knot/' in the mirror if it already contained it"
         );
         assert!(dst.path().join("main.rs").exists());
     }
@@ -1086,7 +1110,7 @@ mod tests {
 
         assert!(
             dst.path().join(".knotrc").exists(),
-            "El skip debe ser exacto: `.knot` y `.knot.lock`, NO un prefijo `.knot*`"
+            "The skip must be exact: '.knot' and '.knot.lock', NOT a prefix '.knot*'"
         );
         assert!(dst.path().join("main.rs").exists());
     }

@@ -11,6 +11,10 @@ use crate::handlers::scope::{
 };
 use crate::models::AppState;
 
+fn extract_required_param(param: Option<&String>) -> Option<&str> {
+    param.map(String::as_str).filter(|s| !s.trim().is_empty())
+}
+
 /// Empty-registry body for `GET /api/search` (CROSS_REPO_SEARCH_PLAN §3):
 /// status 200 with a bare JSON array — the caller asked for "all registered
 /// repositories" and there are none.
@@ -72,9 +76,9 @@ pub async fn search_handler(
     Path(id): Path<String>,
     Query(params): Query<SearchParams>,
 ) -> Response {
-    let query = match &params.q {
-        Some(q) if !q.trim().is_empty() => q.as_str(),
-        _ => return error_response(StatusCode::BAD_REQUEST, "Missing required parameter 'q'"),
+    let query = match extract_required_param(params.q.as_ref()) {
+        Some(q) => q,
+        None => return error_response(StatusCode::BAD_REQUEST, "Missing required parameter 'q'"),
     };
 
     let max_results = params.max_results.unwrap_or(5);
@@ -140,9 +144,9 @@ pub async fn callers_handler(
     Path(id): Path<String>,
     Query(params): Query<CallersParams>,
 ) -> Response {
-    let entity_name = match &params.entity {
-        Some(e) if !e.trim().is_empty() => e.as_str(),
-        _ => {
+    let entity_name = match extract_required_param(params.entity.as_ref()) {
+        Some(e) => e,
+        None => {
             return error_response(
                 StatusCode::BAD_REQUEST,
                 "Missing required parameter 'entity'",
@@ -197,9 +201,9 @@ pub async fn search_all_handler(
     State(state): State<Arc<AppState>>,
     Query(params): Query<GlobalSearchParams>,
 ) -> Response {
-    let query = match &params.q {
-        Some(q) if !q.trim().is_empty() => q.as_str(),
-        _ => return error_response(StatusCode::BAD_REQUEST, "Missing required parameter 'q'"),
+    let query = match extract_required_param(params.q.as_ref()) {
+        Some(q) => q,
+        None => return error_response(StatusCode::BAD_REQUEST, "Missing required parameter 'q'"),
     };
 
     let max_results = clamp_max_results(params.max_results);
@@ -283,9 +287,9 @@ pub async fn callers_all_handler(
     State(state): State<Arc<AppState>>,
     Query(params): Query<GlobalCallersParams>,
 ) -> Response {
-    let entity_name = match &params.entity {
-        Some(e) if !e.trim().is_empty() => e.as_str(),
-        _ => {
+    let entity_name = match extract_required_param(params.entity.as_ref()) {
+        Some(e) => e,
+        None => {
             return error_response(
                 StatusCode::BAD_REQUEST,
                 "Missing required parameter 'entity'",
@@ -344,9 +348,11 @@ pub async fn explore_handler(
     Path(id): Path<String>,
     Query(params): Query<ExploreParams>,
 ) -> Response {
-    let relative = match &params.path {
-        Some(p) if !p.trim().is_empty() => p.as_str(),
-        _ => return error_response(StatusCode::BAD_REQUEST, "Missing required parameter 'path'"),
+    let relative = match extract_required_param(params.path.as_ref()) {
+        Some(p) => p,
+        None => {
+            return error_response(StatusCode::BAD_REQUEST, "Missing required parameter 'path'");
+        }
     };
     tracing::Span::current().record("path", relative);
 
