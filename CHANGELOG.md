@@ -252,7 +252,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   destructive cleanup now happens exclusively inside the worker's `Clone` job,
   under the per-repo file lock, so it is serialized with all git/index work.
 
-### Added — Recuperación de fallos de indexado (issue #7)
+### Added — Indexing failure recovery (issue #7)
 - The indexing jobs now have explicit semantics: `Clone` = *wipe databases +
   wipe local directory + fresh clone* ("start from scratch"); `Pull` =
   incremental, **falling back to a fresh clone when the local directory is
