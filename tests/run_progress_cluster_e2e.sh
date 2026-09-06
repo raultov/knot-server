@@ -296,13 +296,26 @@ else
 fi
 
 # The progress persister removes the snapshot asynchronously after
-# the worker signals cancel. Give it a small window to drain before
-# asserting the file is gone (CI runners can be slower than local).
-for i in {1..10}; do
+# the worker signals cancel. Give it a generous window and keep polling
+# the batch endpoints while waiting: a transient re-index cycle (the
+# forced sync in Scenario 2 can requeue alpha on the other node) may
+# legitimately re-create the snapshot after both nodes first reported
+# `indexed`, and the file only disappears once that run completes.
+LAST_STATUS_A="unknown"
+LAST_STATUS_B="unknown"
+SNAPSHOT_GONE=0
+for i in {1..30}; do
+    LAST_STATUS_A=$(curl -s "$BASE_A/api/progress" | jq -r '.repos[] | select(.repo_id=="alpha") | .status')
+    LAST_STATUS_B=$(curl -s "$BASE_B/api/progress" | jq -r '.repos[] | select(.repo_id=="alpha") | .status')
     if [ ! -f "$SHARED_WORKSPACE/progress/alpha.json" ]; then
+        SNAPSHOT_GONE=1
         break
     fi
-    sleep 0.3
+    sleep 0.5
 done
 
-if [ ! -f "$SHARED_WORKSPACE/progress/alpha.json" ]; then pass "Snapshot file removed on completion"; else fail "Snapshot file still exists"; fi
+if [ "$SNAPSHOT_GONE" -eq 1 ]; then
+    pass "Snapshot file removed on completion"
+else
+    fail "Snapshot file still exists (A: $LAST_STATUS_A, B: $LAST_STATUS_B)"
+fi
