@@ -391,7 +391,7 @@ mod tests {
             "vcc_function",
             "vcc_method",
         ];
-        let uncategorised: &[&str] = &[
+        let uncategorized: &[&str] = &[
             "vcl_version",
             "vcl_import",
             "vcl_object_instance",
@@ -411,7 +411,7 @@ mod tests {
                 "{k} must be in KIND_CATEGORY_FUNCTIONS"
             );
         }
-        for k in uncategorised {
+        for k in uncategorized {
             assert!(
                 !KIND_CATEGORY_CLASSES.contains(k)
                     && !KIND_CATEGORY_INTERFACES.contains(k)
@@ -462,7 +462,7 @@ mod tests {
             !KIND_CATEGORY_CLASSES.contains(&"csharp_namespace")
                 && !KIND_CATEGORY_INTERFACES.contains(&"csharp_namespace")
                 && !KIND_CATEGORY_FUNCTIONS.contains(&"csharp_namespace"),
-            "csharp_namespace must stay uncategorised so the default overview \
+            "csharp_namespace must stay uncategorized so the default overview \
              is not flooded with isolated container nodes"
         );
     }

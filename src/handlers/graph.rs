@@ -32,7 +32,6 @@ use std::sync::Arc;
     skip_all,
     fields(repo_id = %id, depth = params.depth.unwrap_or(2))
 )]
-#[expect(clippy::too_many_lines, reason = "deferred refactoring")]
 pub async fn graph_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -52,55 +51,13 @@ pub async fn graph_handler(
 
     match entity_name {
         Some(entity_name) => {
-            let depth = params.depth.unwrap_or(2).clamp(1, 5);
-            let direction_str = params.direction.as_deref().unwrap_or("both");
-            let direction = parse_direction(direction_str);
-            let rels_str = params
-                .relationships
-                .as_deref()
-                .unwrap_or(DEFAULT_RELATIONSHIPS_SUBGRAPH);
-            let relationships = match parse_relationships(rels_str) {
-                Ok(rels) => rels,
-                Err(msg) => return Err(error_response(StatusCode::BAD_REQUEST, msg)),
-            };
+            let req =
+                SubgraphRequest::from_params(&id, &entity_name, entity_uuid.as_deref(), &params);
+            let result = fetch_subgraph(&state, req).await?;
 
-            let kinds_str = params.kinds.as_deref().unwrap_or(DEFAULT_VISIBLE_KINDS);
-            let visible_kinds = match parse_kinds(kinds_str) {
-                Ok(kinds) => kinds,
-                Err(msg) => return Err(error_response(StatusCode::BAD_REQUEST, msg)),
-            };
-            let include_oth = includes_other(kinds_str);
-            let kind_filter: Option<&[&str]> = if include_oth {
-                None
-            } else {
-                Some(visible_kinds.as_slice())
-            };
-
-            match knot::cli_tools::run_get_subgraph(
-                knot::cli_tools::SubgraphQueryParams {
-                    entity_name: &entity_name,
-                    repo_name: &id,
-                    depth,
-                    relationships: &relationships,
-                    direction,
-                    max_nodes: None,
-                    entity_uuid: entity_uuid.as_deref(),
-                    visible_kinds: kind_filter,
-                },
-                &state.graph_db,
-            )
-            .await
-            {
-                Ok(result) => {
-                    let mut response = subgraph_to_response(result);
-                    filter_unconnected_nodes(&mut response);
-                    Ok((StatusCode::OK, Json(response)).into_response())
-                }
-                Err(e) => Err(error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Graph query failed: {e}"),
-                )),
-            }
+            let mut response = subgraph_to_response(result);
+            filter_unconnected_nodes(&mut response);
+            Ok((StatusCode::OK, Json(response)).into_response())
         }
         None => {
             let depth = params.depth.unwrap_or(2).clamp(1, 5);
@@ -190,17 +147,6 @@ pub async fn graph_expand_handler(
         }
     };
 
-    let direction_str = params.direction.as_deref().unwrap_or("both");
-    let direction = parse_direction(direction_str);
-    let rels_str = params
-        .relationships
-        .as_deref()
-        .unwrap_or(DEFAULT_RELATIONSHIPS_SUBGRAPH);
-    let relationships = match parse_relationships(rels_str) {
-        Ok(rels) => rels,
-        Err(msg) => return Err(error_response(StatusCode::BAD_REQUEST, msg)),
-    };
-
     let exclude_uuids: std::collections::HashSet<String> = params
         .exclude
         .as_deref()
@@ -210,50 +156,17 @@ pub async fn graph_expand_handler(
         .filter(|s| !s.is_empty())
         .collect();
 
-    let depth = params.depth.unwrap_or(2).clamp(1, 5);
+    let req = SubgraphRequest::from_params(&id, &entity_name, entity_uuid.as_deref(), &params);
+    let mut result = fetch_subgraph(&state, req).await?;
 
-    let kinds_str = params.kinds.as_deref().unwrap_or(DEFAULT_VISIBLE_KINDS);
-    let visible_kinds = match parse_kinds(kinds_str) {
-        Ok(kinds) => kinds,
-        Err(msg) => return Err(error_response(StatusCode::BAD_REQUEST, msg)),
-    };
-    let include_oth = includes_other(kinds_str);
-    let kind_filter: Option<&[&str]> = if include_oth {
-        None
-    } else {
-        Some(visible_kinds.as_slice())
-    };
-
-    match knot::cli_tools::run_get_subgraph(
-        knot::cli_tools::SubgraphQueryParams {
-            entity_name: &entity_name,
-            repo_name: &id,
-            depth,
-            relationships: &relationships,
-            direction,
-            max_nodes: None,
-            entity_uuid: entity_uuid.as_deref(),
-            visible_kinds: kind_filter,
-        },
-        &state.graph_db,
-    )
-    .await
-    {
-        Ok(mut result) => {
-            if !exclude_uuids.is_empty() {
-                result.nodes.retain(|n| !exclude_uuids.contains(&n.uuid));
-            }
-
-            let mut response = subgraph_to_response(result);
-            filter_unconnected_nodes(&mut response);
-
-            Ok((StatusCode::OK, Json(response)).into_response())
-        }
-        Err(e) => Err(error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Graph expand failed: {e}"),
-        )),
+    if !exclude_uuids.is_empty() {
+        result.nodes.retain(|n| !exclude_uuids.contains(&n.uuid));
     }
+
+    let mut response = subgraph_to_response(result);
+    filter_unconnected_nodes(&mut response);
+
+    Ok((StatusCode::OK, Json(response)).into_response())
 }
 
 /// Helper to verify if the repository exists in the registry.
@@ -309,4 +222,122 @@ fn filter_unconnected_nodes(response: &mut GraphResponse) {
     response.nodes.retain(|n| {
         Some(&n.id) == response.root_id.as_ref() || connected_uuids.contains(n.id.as_str())
     });
+}
+
+/// Trait unifying query parameters between `GraphParams` and `GraphExpandParams`.
+trait CommonGraphParams {
+    fn depth(&self) -> Option<u32>;
+    fn direction(&self) -> Option<&str>;
+    fn relationships(&self) -> Option<&str>;
+    fn kinds(&self) -> Option<&str>;
+}
+
+impl CommonGraphParams for GraphParams {
+    fn depth(&self) -> Option<u32> {
+        self.depth
+    }
+    fn direction(&self) -> Option<&str> {
+        self.direction.as_deref()
+    }
+    fn relationships(&self) -> Option<&str> {
+        self.relationships.as_deref()
+    }
+    fn kinds(&self) -> Option<&str> {
+        self.kinds.as_deref()
+    }
+}
+
+impl CommonGraphParams for GraphExpandParams {
+    fn depth(&self) -> Option<u32> {
+        self.depth
+    }
+    fn direction(&self) -> Option<&str> {
+        self.direction.as_deref()
+    }
+    fn relationships(&self) -> Option<&str> {
+        self.relationships.as_deref()
+    }
+    fn kinds(&self) -> Option<&str> {
+        self.kinds.as_deref()
+    }
+}
+
+/// Request-side parameters for a subgraph query before parsing and validation.
+///
+/// Groups the raw query-string values shared by `GraphParams` and `GraphExpandParams`
+/// so `fetch_subgraph` mirrors `SubgraphQueryParams` without requiring a positional
+/// argument list that triggers `clippy::too_many_arguments`.
+struct SubgraphRequest<'a> {
+    repo_id: &'a str,
+    entity_name: &'a str,
+    entity_uuid: Option<&'a str>,
+    depth: Option<u32>,
+    direction: Option<&'a str>,
+    relationships: Option<&'a str>,
+    kinds: Option<&'a str>,
+}
+
+impl<'a> SubgraphRequest<'a> {
+    fn from_params(
+        repo_id: &'a str,
+        entity_name: &'a str,
+        entity_uuid: Option<&'a str>,
+        params: &'a impl CommonGraphParams,
+    ) -> Self {
+        Self {
+            repo_id,
+            entity_name,
+            entity_uuid,
+            depth: params.depth(),
+            direction: params.direction(),
+            relationships: params.relationships(),
+            kinds: params.kinds(),
+        }
+    }
+}
+
+/// Builds the shared subgraph query parameters from request input and runs the query.
+///
+/// Centralizes parameter parsing (depth, direction, relationships, visible kinds) and
+/// the `run_get_subgraph` invocation so both `graph_handler` and `graph_expand_handler`
+/// share the exact same code path.
+async fn fetch_subgraph(
+    state: &AppState,
+    req: SubgraphRequest<'_>,
+) -> Result<knot::models::SubgraphResult, Response> {
+    let depth = req.depth.unwrap_or(2).clamp(1, 5);
+    let direction = parse_direction(req.direction.unwrap_or("both"));
+    let relationships =
+        parse_relationships(req.relationships.unwrap_or(DEFAULT_RELATIONSHIPS_SUBGRAPH))
+            .map_err(|msg| error_response(StatusCode::BAD_REQUEST, msg))?;
+
+    let kinds_str = req.kinds.unwrap_or(DEFAULT_VISIBLE_KINDS);
+    let visible_kinds =
+        parse_kinds(kinds_str).map_err(|msg| error_response(StatusCode::BAD_REQUEST, msg))?;
+    let kind_filter: Option<&[&str]> = if includes_other(kinds_str) {
+        None
+    } else {
+        Some(visible_kinds.as_slice())
+    };
+
+    knot::cli_tools::run_get_subgraph(
+        knot::cli_tools::SubgraphQueryParams {
+            entity_name: req.entity_name,
+            repo_name: req.repo_id,
+            depth,
+            relationships: &relationships,
+            direction,
+            max_nodes: None,
+            entity_uuid: req.entity_uuid,
+            visible_kinds: kind_filter,
+        },
+        &state.graph_db,
+    )
+    .await
+    .map_err(|e| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Graph query failed: {e}"),
+        )
+    })
 }
