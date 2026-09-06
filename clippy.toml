@@ -4,10 +4,10 @@
 # `tests/` and `benches/`) with `cargo clippy --all-targets --all-features`
 # on clippy 0.1.97.
 #
-# NOTE: a threshold here does NOT enable a lint, it only parametrises it.
+# NOTE: a threshold here does NOT enable a lint, it only parametrizes it.
 # The lint's default level decides whether it fires:
 #
-#   too_many_arguments    complexity  warn   -> active out of the box
+#   too_many_arguments    complexity  warn   -> active out-of-the-box
 #   type_complexity       complexity  warn   -> active out of the box
 #   excessive_nesting     complexity  warn   -> active once threshold > 0
 #   too_many_lines        pedantic    allow  -> needs [lints.clippy]
@@ -45,13 +45,20 @@ excessive-nesting-threshold = 6
 too-many-lines-threshold = 80
 
 # clippy::cognitive_complexity (nursery, default: 25)
-# Measured on knot-server: 14 functions over the default-ish range.
-# The lint runs post-macro-expansion and each tracing:: call adds ~6-8 points,
-# so log-dense code scores high with no real branching: setup_qdrant has ZERO
-# branches and scores 17; remove_stale_lock has 2 branches in 11 lines and
-# scores 16. 40 is the gap in the measured distribution (63 -> 35) and isolates
-# the four functions with genuine structural complexity:
-#   process_repository 160 | copy_tree 111 | worker_loop 67 | run_scheduler_iteration 63
-# Do NOT read 40 as permission to write complex functions; read it as the point
-# where the metric starts correlating with reality in this codebase.
+# The lint runs post-macro-expansion; each tracing:: macro call adds ~8 points,
+# so log-dense code scores high with no real branching. Empirical model:
+#
+#   score ≈ 1 + branches + 8 × (tracing:: calls)
+#
+# Validated on 5+ functions (r²≈1). Practical implication: the threshold of 40
+# is roughly "≤4 tracing:: calls per function". Measured distribution at
+# threshold 25 (post-0.4.1 refactor, excluding tests):
+#   cleanup.rs:delete_repo_from_databases 28 | local_sync.rs:copy_file_child 32
+#   worker/mod.rs:acquire_lock_or_requeue 31 | worker/mod.rs:log_state_source 30
+#   worker/mod.rs:claim_queued_job 28 | main.rs:setup_neo4j 35 (max)
+# Gap [36, 39] is empty. 40 is the stable entry point: lowering to 35 would
+# flag setup_neo4j (22 lines, 2 retry loops — macro noise, not complexity),
+# and lowering to 28 would catch delete_repo_from_databases (17 lines, 3
+# independent if-let-Err blocks). Do NOT read 40 as permission to write
+# complex functions; read it as the point where the metric stops being noise.
 cognitive-complexity-threshold = 40
