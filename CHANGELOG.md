@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  
 ---
 
+## [0.5.3] - 2026-09-08
+
+### Changed
+- **Upgrade `knot` to 1.9.1:** patch bump of the core indexing engine. Additive only: no signature changes, no re-index required.
+
+### Refactored
+- **Webhook: deduplicated `validate_github_signature` and `validate_bitbucket_signature`.** Both functions previously shared an identical 18-line HMAC-SHA256 verification body differing only in identifier, tripping the new `cargo-dupes` gate. The shared prefix-strip + hex-decode + constant-time-compare logic is now in a single private `validate_prefixed_hmac_sha256` helper; both public wrappers delegate to it. No behaviour change; the existing unit suite covers both wrappers unchanged.
+
+### Added
+- **Code duplication quality gate.** `dupes.toml` configures `cargo-dupes` 0.2.1 with `max_exact_duplicates = 0` / `max_near_duplicates = 0`, so any duplication fails CI.
+- **Local development workflow.** `Makefile` exposes `make check` (fmt + clippy + test + dupes), `make check-all` (adds the E2E suite), plus individual targets (`fmt`, `fmt-check`, `clippy`, `test`, `dupes`, `dupes-cleanup`, `build`, `install`, `e2e`).
+- **Quality gates in CI.** The E2E and Release workflows now run a `test-unit` job (fmt-check, clippy `-D warnings`, full test suite, `cargo dupes check`, `cargo dupes cleanup --dry-run`); the downstream E2E job and `dist plan` step declare `needs: test-unit`, so quality gates block integration and release on every push and PR.
+
+### Docs
+- **README: documented Development & Quality Gates** with `make check` and the individual `cargo fmt / clippy / test / dupes` commands.
+
+---
+
 ## [0.5.2] - 2026-09-08
 
 ### Fixed
@@ -630,7 +648,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/raultov/knot-server/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/raultov/knot-server/compare/v0.5.3...HEAD
+[0.5.3]: https://github.com/raultov/knot-server/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/raultov/knot-server/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/raultov/knot-server/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/raultov/knot-server/compare/v0.4.1...v0.5.0
