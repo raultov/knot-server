@@ -1097,7 +1097,7 @@
         resetGraph();
         refreshGraph();
         hideNodeDetails();
-        if (hasRepo) {
+        if (state.selectedRepo) {
           setStatus('Loading entities for ' + state.selectedRepo + '...');
           state.overviewPromise = loadOverview(state.selectedRepo);
         } else {
