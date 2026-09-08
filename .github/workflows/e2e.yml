@@ -8,8 +8,36 @@ on:
   pull_request:
 
 jobs:
+  test-unit:
+    name: Unit Tests & Quality Gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Format Check
+        run: cargo fmt -- --check
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Run Unit Tests
+        run: cargo test --all-targets --all-features
+      - name: Cache cargo-dupes
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-dupes
+          key: ${{ runner.os }}-cargo-dupes-0.2.1
+      - name: Install cargo-dupes
+        run: test -x ~/.cargo/bin/cargo-dupes || cargo install cargo-dupes --version 0.2.1 --locked
+      - name: Duplication Check
+        run: cargo dupes check
+      - name: Stale duplication suppressions (informational)
+        run: cargo dupes cleanup --dry-run
+
   test:
     name: Run E2E Integration Tests
+    needs: test-unit
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
