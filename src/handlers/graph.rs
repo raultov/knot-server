@@ -36,7 +36,7 @@ pub async fn graph_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Query(params): Query<GraphParams>,
-) -> Result<Response, Response> {
+) -> Result<Response, HandlerError> {
     if let Some(err) = check_repo_exists(&state, &id) {
         return Err(err);
     }
@@ -67,13 +67,13 @@ pub async fn graph_handler(
                 .unwrap_or(DEFAULT_RELATIONSHIPS_OVERVIEW);
             let relationships = match parse_relationships(rels_str) {
                 Ok(rels) => rels,
-                Err(msg) => return Err(error_response(StatusCode::BAD_REQUEST, msg)),
+                Err(msg) => return Err(error_response(StatusCode::BAD_REQUEST, msg).into()),
             };
 
             let kinds_str = params.kinds.as_deref().unwrap_or(DEFAULT_VISIBLE_KINDS);
             let visible_kinds = match parse_kinds(kinds_str) {
                 Ok(kinds) => kinds,
-                Err(msg) => return Err(error_response(StatusCode::BAD_REQUEST, msg)),
+                Err(msg) => return Err(error_response(StatusCode::BAD_REQUEST, msg).into()),
             };
             let other = includes_other(kinds_str);
 
@@ -93,7 +93,8 @@ pub async fn graph_handler(
                 Err(e) => Err(error_response(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("Graph overview query failed: {e}"),
-                )),
+                )
+                .into()),
             }
         }
     }
@@ -124,7 +125,7 @@ pub async fn graph_expand_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Query(params): Query<GraphExpandParams>,
-) -> Result<Response, Response> {
+) -> Result<Response, HandlerError> {
     if let Some(err) = check_repo_exists(&state, &id) {
         return Err(err);
     }
@@ -143,7 +144,8 @@ pub async fn graph_expand_handler(
             return Err(error_response(
                 StatusCode::BAD_REQUEST,
                 "Missing required parameter 'entity' or 'entity_id'",
-            ));
+            )
+            .into());
         }
     };
 
@@ -170,13 +172,16 @@ pub async fn graph_expand_handler(
 }
 
 /// Helper to verify if the repository exists in the registry.
-fn check_repo_exists(state: &AppState, id: &str) -> Option<Response> {
+fn check_repo_exists(state: &AppState, id: &str) -> Option<HandlerError> {
     let mut registry = state.registry.lock().unwrap();
     if registry.get(id).is_none() {
-        Some(error_response(
-            StatusCode::NOT_FOUND,
-            format!("Repository '{}' not found", id),
-        ))
+        Some(
+            error_response(
+                StatusCode::NOT_FOUND,
+                format!("Repository '{}' not found", id),
+            )
+            .into(),
+        )
     } else {
         None
     }
@@ -188,7 +193,7 @@ async fn resolve_entity(
     repo_id: &str,
     entity_name: Option<&String>,
     entity_uuid: Option<&String>,
-) -> Result<(Option<String>, Option<String>), Response> {
+) -> Result<(Option<String>, Option<String>), HandlerError> {
     if let Some(uuid) = entity_uuid
         && !uuid.trim().is_empty()
     {
@@ -197,11 +202,13 @@ async fn resolve_entity(
             Ok(None) => Err(error_response(
                 StatusCode::NOT_FOUND,
                 format!("Entity with UUID '{}' not found", uuid),
-            )),
+            )
+            .into()),
             Err(e) => Err(error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Failed to resolve entity UUID: {e}"),
-            )),
+            )
+            .into()),
         };
     }
 
@@ -304,7 +311,7 @@ impl<'a> SubgraphRequest<'a> {
 async fn fetch_subgraph(
     state: &AppState,
     req: SubgraphRequest<'_>,
-) -> Result<knot::models::SubgraphResult, Response> {
+) -> Result<knot::models::SubgraphResult, HandlerError> {
     let depth = req.depth.unwrap_or(2).clamp(1, 5);
     let direction = parse_direction(req.direction.unwrap_or("both"));
     let relationships =
@@ -339,5 +346,6 @@ async fn fetch_subgraph(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Graph query failed: {e}"),
         )
+        .into()
     })
 }

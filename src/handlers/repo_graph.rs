@@ -11,8 +11,8 @@ use std::sync::Arc;
 use utoipa::ToSchema;
 
 use crate::handlers::models::{
-    ErrorResponse, GraphEdgeResponse, RepoGraphNode, RepoGraphParams, RepoGraphResponse,
-    RepoRelation, error_response,
+    ErrorResponse, GraphEdgeResponse, HandlerError, RepoGraphNode, RepoGraphParams,
+    RepoGraphResponse, RepoRelation, error_response,
 };
 use crate::models::AppState;
 
@@ -167,7 +167,7 @@ pub async fn repo_graph_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Query(params): Query<RepoGraphParams>,
-) -> Result<Response, Response> {
+) -> Result<Response, HandlerError> {
     // 1. Verify repository exists in registry
     let registered_ids = {
         let mut registry = state.registry.lock().unwrap();
@@ -175,7 +175,8 @@ pub async fn repo_graph_handler(
             return Err(error_response(
                 StatusCode::NOT_FOUND,
                 format!("Repository '{}' not found", id),
-            ));
+            )
+            .into());
         }
         registry
             .list()
@@ -189,7 +190,7 @@ pub async fn repo_graph_handler(
     let direction_str = params.direction.as_deref().unwrap_or("both");
     let direction = match parse_repo_direction(direction_str) {
         Ok(d) => d,
-        Err(msg) => return Err(error_response(StatusCode::BAD_REQUEST, msg)),
+        Err(msg) => return Err(error_response(StatusCode::BAD_REQUEST, msg).into()),
     };
 
     // 3. Query Neo4j

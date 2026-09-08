@@ -192,6 +192,23 @@ pub fn error_response(status: StatusCode, message: impl Into<String>) -> Respons
         .into_response()
 }
 
+/// Wrapper for boxed error responses to prevent `clippy::result_large_err`
+/// warnings when returning `Result<T, HandlerError>` in axum handlers.
+#[derive(Debug)]
+pub struct HandlerError(pub Box<Response>);
+
+impl IntoResponse for HandlerError {
+    fn into_response(self) -> Response {
+        *self.0
+    }
+}
+
+impl From<Response> for HandlerError {
+    fn from(resp: Response) -> Self {
+        Self(Box::new(resp))
+    }
+}
+
 pub const VALID_RELATIONSHIPS: &[&str] = &[
     "CALLS",
     "EXTENDS",
