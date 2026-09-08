@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  
 ---
 
+## [0.5.2] - 2026-09-08
+
+### Fixed
+- **Graph viewer: `ReferenceError: hasRepo is not defined` on repo selection.** The repo `<select>`
+  change handler referenced `hasRepo`, but the variable was declared with `var` inside the nested
+  `updateSearchEnabledState()` function, so it was out of scope in the outer handler that needed
+  it. The exception aborted the handler before `loadOverview()` could be called, so selecting any
+  repository produced no network call and no entities. The check now uses `state.selectedRepo`
+  directly. No rebuild of any external state required; the change ships with the next binary
+  because the file is embedded via `include_str!`.
+
+---
+
 ## [0.5.1] - 2026-09-06
 
 ### Fixed
@@ -617,7 +630,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/raultov/knot-server/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/raultov/knot-server/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/raultov/knot-server/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/raultov/knot-server/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/raultov/knot-server/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/raultov/knot-server/compare/v0.4.0...v0.4.1
