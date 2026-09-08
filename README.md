@@ -259,6 +259,18 @@ The spec is auto-generated at compile time via [`utoipa`](https://crates.io/crat
 - **Distributed Locking**: File-based locking (`.knot.lock`) allows multiple `knot-server` instances to share a single NFS/EFS workspace, ensuring only one instance indexes a given repository at a time.
 - **Background Scheduler**: Automatically detects and cleans up stale locks, and periodically re-indexes repositories that haven't been synced recently.
 
+### 🛠️ Development & Quality Gates
+
+```bash
+make check                                  # Run all local quality gates (fmt, clippy, test, dupes)
+
+# Or run gates individually:
+cargo clippy --all-targets -- -D warnings  # Must pass
+cargo fmt -- --check                        # Must pass
+cargo test --all-targets                    # Run unit tests
+cargo dupes check                           # Code duplication check
+```
+
 ---
 
 ## 🛠️ Installation
