@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  
 ---
 
+## [0.5.4] - 2026-09-08
+
+### Fixed
+- **Clippy: fixed `clippy::result_large_err` in graph handlers.** Modern Rust toolchains trigger `clippy::result_large_err` when returning `Result<T, Response>` because `axum::response::Response` is ≥128 bytes. Wrapped response errors in `HandlerError(pub Box<Response>)`, reducing the `Err` variant size to 8 bytes while implementing `IntoResponse` and `From<Response>`.
+
+---
+
 ## [0.5.3] - 2026-09-08
 
 ### Changed
@@ -648,7 +655,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/raultov/knot-server/compare/v0.5.3...HEAD
+[Unreleased]: https://github.com/raultov/knot-server/compare/v0.5.4...HEAD
+[0.5.4]: https://github.com/raultov/knot-server/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/raultov/knot-server/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/raultov/knot-server/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/raultov/knot-server/compare/v0.5.0...v0.5.1
