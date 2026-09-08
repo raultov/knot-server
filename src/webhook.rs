@@ -20,13 +20,12 @@ pub fn validate_gitlab_token(header_value: &str, secret: &str) -> bool {
     constant_time_eq(header_bytes, secret_bytes)
 }
 
-pub fn validate_github_signature(header: &str, body: &[u8], secret: &str) -> bool {
-    let expected_prefix = "sha256=";
-    if header.len() < expected_prefix.len() || !header.starts_with(expected_prefix) {
+fn validate_prefixed_hmac_sha256(header: &str, body: &[u8], secret: &str, prefix: &str) -> bool {
+    if header.len() < prefix.len() || !header.starts_with(prefix) {
         return false;
     }
 
-    let signature_hex = &header[expected_prefix.len()..];
+    let signature_hex = &header[prefix.len()..];
     let expected = match hex::decode(signature_hex) {
         Ok(v) => v,
         Err(_) => return false,
@@ -42,26 +41,12 @@ pub fn validate_github_signature(header: &str, body: &[u8], secret: &str) -> boo
     constant_time_eq(&computed, &expected)
 }
 
+pub fn validate_github_signature(header: &str, body: &[u8], secret: &str) -> bool {
+    validate_prefixed_hmac_sha256(header, body, secret, "sha256=")
+}
+
 pub fn validate_bitbucket_signature(header: &str, body: &[u8], secret: &str) -> bool {
-    let expected_prefix = "sha256=";
-    if header.len() < expected_prefix.len() || !header.starts_with(expected_prefix) {
-        return false;
-    }
-
-    let signature_hex = &header[expected_prefix.len()..];
-    let expected = match hex::decode(signature_hex) {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-
-    let mut mac = match HmacSha256::new_from_slice(secret.as_bytes()) {
-        Ok(m) => m,
-        Err(_) => return false,
-    };
-    mac.update(body);
-    let computed = mac.finalize().into_bytes();
-
-    constant_time_eq(&computed, &expected)
+    validate_prefixed_hmac_sha256(header, body, secret, "sha256=")
 }
 
 #[cfg(test)]
