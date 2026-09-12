@@ -2,6 +2,9 @@
 
 **Endpoints:** `GET /api/repos/{id}/graph`, `GET /api/repos/{id}/graph/expand` and `GET /api/repos/{id}/graph/repos`
 
+> **MCP note:** raw entity subgraph queries are **REST-only**; `/mcp` exposes no
+> graph tool. Keep using the REST endpoints below.
+
 ## Step 0: Preflight
 
 Before running this, you **must** run the `[[preflight]]` check to ensure the

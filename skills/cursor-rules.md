@@ -13,6 +13,14 @@ grep or codebase search. Traditional text search lacks semantic and structural
 understanding and should only be used as a LAST RESORT.
 </critical-enforcement>
 
+## Transport: native MCP
+
+If a knot-server MCP server is configured, prefer its tools
+(`search_hybrid_context`, `find_callers`, `explore_file`,
+`list_repo_dependencies`, `list_repositories`) over curl. **The MCP surface is
+read-only**: register/sync/delete, health, progress and raw subgraphs have no
+MCP tool, so keep using the curl skills below for those.
+
 ## Available Skills
 
 The specific API endpoints and workflow rules are documented in 8 topic skills.

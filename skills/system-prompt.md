@@ -11,6 +11,25 @@ knot-server REST API for code exploration BEFORE falling back to `grep`, `find`,
 or `rg`. Traditional regex tools lack semantic and structural understanding and
 should only be used as a last resort.
 
+## Transport: MCP or REST
+
+If this agent is connected to a knot-server **MCP** endpoint (`/mcp`), prefer
+the native MCP tools over `curl` — same engine, structured results, no shell
+plumbing:
+
+| MCP tool | Replaces skill | REST equivalent |
+|----------|----------------|-----------------|
+| `search_hybrid_context` | `[[search]]` | `GET /api/.../search`, `GET /api/search` |
+| `find_callers` | `[[callers]]` | `GET /api/.../callers`, `GET /api/callers` |
+| `explore_file` | `[[explore]]` | `GET /api/.../explore` |
+| `list_repo_dependencies` | `[[deps]]` | `GET /api/.../deps` |
+| `list_repositories` | part of `[[repos]]` | `GET /api/repos` |
+
+The MCP surface is **read-only**. Registering/indexing, syncing, deleting, the
+health check, indexing progress and raw subgraphs have **no MCP tool**: use the
+`curl` skills documented here for those. When in doubt, the `curl` path always
+works.
+
 ## Available Skills
 
 You have been equipped with 8 specific skills covering the knot-server API.

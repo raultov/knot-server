@@ -2,6 +2,10 @@
 
 **Endpoints:** `GET /api/health` and `GET /api/repos`
 
+> **MCP note:** there is no MCP equivalent for the health check. If the agent is
+> connected over `/mcp`, `list_repositories` still shows what is indexed, but
+> reachability and indexing-status diagnostics require this REST check.
+
 ## Purpose
 
 **This is the first thing every LLM agent must do before invoking any other

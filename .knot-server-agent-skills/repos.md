@@ -2,6 +2,11 @@
 
 **Endpoints:** `GET/POST/DELETE /api/repos`, `GET /api/repos/{id}`, `POST /api/repos/{id}/sync`, `POST /api/webhook/{id}`
 
+> **MCP note:** `list_repositories` is equivalent to `GET /api/repos`. The
+> mutating operations here — register (`POST /api/repos`), sync
+> (`POST /api/repos/{id}/sync`) and delete (`DELETE /api/repos/{id}`) — have
+> **no MCP tool**; `/mcp` exposes read tools only.
+
 ## Step 0: Preflight
 
 You can run `GET /api/repos` as part of the `[[preflight]]` check to see what

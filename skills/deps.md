@@ -2,6 +2,11 @@
 
 **Endpoint:** `GET /api/repos/{id}/deps?depth=...&reverse=...`
 
+> **MCP equivalent:** if this agent is connected to a knot-server `/mcp`
+> endpoint, prefer the `list_repo_dependencies` tool — same engine, structured
+> result, no `curl`. The command below is the fallback and the only option when
+> the agent has no MCP support.
+
 ## Step 0: Preflight
 
 Before running this, you **must** run the `[[preflight]]` check to ensure the

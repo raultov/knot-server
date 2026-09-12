@@ -7,6 +7,9 @@ description: Register and index the current repository in knot-server
 
 Register or re-index the current repository in knot-server.
 
+> **MCP note:** indexing is a mutating operation and is **REST-only**; `/mcp` is
+> read-only. Keep using this skill to register/index repositories.
+
 ## Step 0: Preflight
 
 Before running this, you **must** run the `[[preflight]]` check to ensure the

@@ -273,6 +273,159 @@ cargo dupes check                           # Code duplication check
 
 ---
 
+## 🔌 MCP Endpoint (`/mcp`)
+
+knot-server is also an **MCP server**. The `/mcp` endpoint speaks the
+[Model Context Protocol](https://modelcontextprotocol.io) over stateless
+JSON-RPC HTTP (`POST /mcp`), so MCP clients (Claude Code, opencode, Cursor, …)
+can connect directly to knot-server — including a load-balanced cluster.
+
+The endpoint serves the **exact same five tools** as the `knot-mcp` stdio
+binary, backed by the same Neo4j and Qdrant connections the REST API uses:
+
+| Tool | Purpose |
+|------|---------|
+| `search_hybrid_context` | Semantic + structural code search with dependencies |
+| `find_callers` | Reverse dependency lookup (impact analysis) |
+| `explore_file` | File structure and entity declarations |
+| `list_repo_dependencies` | Cross-repository dependency graph traversal |
+| `list_repositories` | List all indexed repositories with optional name filtering |
+
+### What `/mcp` exposes vs. the REST API
+
+The five MCP tools are the **read** surface. They mirror the `skills/*.md`
+guide almost 1:1, with these differences:
+
+| Capability | MCP tool | REST equivalent |
+|------------|----------|-----------------|
+| Semantic code search | `search_hybrid_context` | `GET /api/repos/{id}/search`, `GET /api/search` |
+| Caller / impact analysis | `find_callers` | `GET /api/repos/{id}/callers`, `GET /api/callers` |
+| File anatomy | `explore_file` | `GET /api/repos/{id}/explore` |
+| Cross-repo dependencies | `list_repo_dependencies` | `GET /api/repos/{id}/deps`, `GET /api/repos/{id}/graph/repos` |
+| List indexed repositories | `list_repositories` | `GET /api/repos` |
+| Register / sync / delete a repository | — **REST only** | `POST /api/repos`, `POST /api/repos/{id}/sync`, `DELETE /api/repos/{id}` |
+| Server health, indexing progress | — **REST only** | `GET /api/health`, `GET /api/repos/{id}/progress` |
+| Raw entity subgraph | — **REST only** | `GET /api/repos/{id}/graph` |
+
+`/mcp` is read-only: if a repository is not indexed yet, register it through
+the REST API (or ask the operator) before calling the tools. The `initialize`
+response repeats this in its `instructions`, so a well-behaved client learns it
+during the handshake.
+
+### Client configuration
+
+Point your MCP client at the server (or the cluster's load balancer). The
+configuration syntax differs per tool — use the block that matches yours.
+
+**opencode** (`opencode.json`):
+
+```json
+{
+  "mcp": {
+    "knot": {
+      "type": "remote",
+      "url": "http://localhost:3000/mcp",
+      "enabled": true
+    }
+  }
+}
+```
+
+**Claude Code** (CLI, or a project-scoped `.mcp.json`):
+
+```bash
+claude mcp add --transport http knot http://localhost:3000/mcp        # user scope
+claude mcp add --transport http --scope project knot http://localhost:3000/mcp
+```
+
+The manual `.mcp.json` form is `{"mcpServers":{"knot":{"type":"http","url":"http://localhost:3000/mcp"}}}`.
+
+**Codex CLI** (`~/.codex/config.toml`):
+
+```toml
+[mcp_servers.knot]
+url = "http://localhost:3000/mcp"
+```
+
+Some Codex versions require the experimental Rust MCP client for remote HTTP;
+add `[features]` / `experimental_use_rmcp_client = true` if the server does not
+appear. Verify from inside a session with `/mcp`.
+
+**Cursor** (`.cursor/mcp.json`):
+
+```json
+{ "mcpServers": { "knot": { "url": "http://localhost:3000/mcp" } } }
+```
+
+**VS Code / GitHub Copilot** (`.vscode/mcp.json` — note the `servers` key):
+
+```json
+{ "servers": { "knot": { "type": "http", "url": "http://localhost:3000/mcp" } } }
+```
+
+**Gemini CLI** (`~/.gemini/settings.json` — note `httpUrl`, not `url`):
+
+```json
+{ "mcpServers": { "knot": { "httpUrl": "http://localhost:3000/mcp" } } }
+```
+
+To smoke-test the endpoint without any client, `tools/list` works before any
+`initialize` — that is what stateless means:
+
+```bash
+curl -s -X POST http://localhost:3000/mcp \
+  -H 'Content-Type: application/json' -H 'Accept: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
+  | jq '.result.tools[].name'
+```
+
+### Troubleshooting
+
+The endpoint also appears in Swagger UI (`/docs` → **MCP**) with a ready-to-run
+`tools/list` example, which is the fastest way to check connectivity, the
+`KNOT_SERVER_MCP_ENABLED` flag and the tool surface.
+
+| Symptom | Meaning |
+|---------|---------|
+| `GET /mcp` → `405` + `Allow: POST, DELETE` | **Correct.** A stateless server opens no SSE stream, so there is nothing to attach to. Compliant clients tolerate this. |
+| `406 Not Acceptable` | The `Accept` header excludes `application/json` (and `*/*` / `type/*`). Use a JSON-capable client or set `Accept: application/json`. |
+| `415 Unsupported Media Type` | `Content-Type` is not `application/json`. |
+| `400` + `code -32600` | The body is a JSON-RPC **batch**; batching was removed from the protocol in 2025-06-18. Send one message per request. |
+| `400` + `code -32700` | The body is not valid JSON. |
+| `200` + `error.code -32601` | Unknown method (e.g. `resources/list`). The five tools live under `tools/*`. |
+| `404` on `/mcp` | `KNOT_SERVER_MCP_ENABLED=false` (the route is not mounted). |
+
+### Statelessness — no sticky sessions required
+
+`/mcp` is **stateless by design**: the server never issues a
+`Mcp-Session-Id` header, keeps no handshake state, and every request is
+self-contained. A load balancer can distribute requests by load with **no
+session affinity**, and rolling deployments need no session draining — any
+node can answer any request, including `tools/list` and `tools/call` from a
+node that never saw the client's `initialize`.
+
+### Scope semantics (`repo_name`)
+
+Over `/mcp`, `repo_name: "all"` means **everything indexed in Neo4j** — a
+faithful passthrough to the knot engine, exactly as `knot-mcp` behaves. By
+contrast, `repo=all` on the REST endpoints (`/api/search`, `/api/callers`)
+expands to the **registered** repositories and rejects unknown names. If the
+graph and the registry ever diverge (e.g. a repository was deleted from the
+registry but not from Neo4j), the two surfaces report different corpora. This
+is intentional — `/mcp` must be a faithful copy of `knot-mcp` — but it is
+worth knowing when mixing transports.
+
+### Configuration & security
+
+- `KNOT_SERVER_MCP_ENABLED` (default `true`): set to `false` to unmount `/mcp`
+  entirely (requests then hit the 404 fallback).
+- `/mcp` is **unauthenticated**, like the rest of the API. Anyone who can
+  reach it can read the whole index. Protect it at the network layer — or, if
+  you build your own gateway, every client above supports a `headers` field
+  so a bearer token can be attached at the edge.
+
+---
+
 ## 🛠️ Installation
 
 <details open>
@@ -607,6 +760,13 @@ These skills teach the LLM to **always prefer knot-server `curl` calls over
 `grep`/`find`/`rg`** for code exploration, dramatically improving accuracy
 and reducing hallucinations.
 
+> **Prefer native MCP when your agent supports it.** If your assistant can talk
+> MCP (opencode, Claude Code, Codex, Cursor, VS Code/Copilot, Gemini CLI), point
+> it at the `/mcp` endpoint (see [MCP Endpoint](#-mcp-endpoint-mcp)) — it gets
+> the five read tools without any `curl` plumbing. Keep these `curl` skills for
+> the REST-only operations (register, sync, delete, health, progress, raw
+> subgraphs) and for agents without MCP support.
+
 ### Install Agent Skills
 
 Download the pre-built skill instructions to teach your AI agent how to use the `knot-server` REST API.
@@ -727,6 +887,7 @@ AI (via knot-server):
 | `KNOT_SERVER_QUEUE_CAPACITY` | `16` | Maximum number of jobs in the background indexing queue. Returns `429 Too Many Requests` when full. |
 | `RUST_LOG` | `info` | Log level (`debug`, `info`, `warn`, `error`) |
 | `KNOT_SERVER_METRICS_ENABLED` | `true` | Enable Prometheus metrics endpoint at `/metrics` |
+| `KNOT_SERVER_MCP_ENABLED` | `true` | Enable the stateless MCP endpoint at `/mcp` |
 
 > **Note:** When using Docker Compose, export `KNOT_SERVER_PORT` _before_ `docker compose up`
 > so the port mapping in `docker-compose.yml` also changes (defaults to `3000:3000`).

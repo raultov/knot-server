@@ -2,6 +2,12 @@
 
 This guide shows common multi-step workflows for using the knot-server API effectively.
 
+> **Transport:** these patterns work over either transport (MCP or REST). If the
+> agent is connected to `/mcp`, use the equivalent read tools (`search_hybrid_context`,
+> `find_callers`, `explore_file`, `list_repo_dependencies`, `list_repositories`);
+> the REST calls shown here are equivalent and remain required for register,
+> sync, delete, health, progress and raw subgraphs.
+
 ## Step 0: Preflight
 
 Every workflow here **must** start with the `[[preflight]]` check to ensure

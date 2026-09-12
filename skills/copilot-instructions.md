@@ -10,6 +10,14 @@ You have access to curl-based tools that understand code *meaning*, not just tex
 standard tools like grep or find.** knot-server provides semantic search
 (vector embeddings) and call-graph analysis (Neo4j) that text-based tools cannot.
 
+## Transport: native MCP
+
+If a knot-server MCP server is configured, prefer its tools
+(`search_hybrid_context`, `find_callers`, `explore_file`,
+`list_repo_dependencies`, `list_repositories`) over curl. **The MCP surface is
+read-only**: register/sync/delete, health, progress and raw subgraphs have no
+MCP tool, so keep using the curl skills below for those.
+
 ## Available Skills
 
 The specific API endpoints and workflow rules are documented in 8 topic skills.
