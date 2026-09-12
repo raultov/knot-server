@@ -40,7 +40,8 @@ inherits = "release"
 lto = "thin"
 
 [dependencies]
-knot = "1.9.1"
+knot = "1.9.4"
+rust-mcp-sdk = "1.1"
 ignore = "0.4"
 axum = "0.8.9"
 tokio = { version = "1", features = ["full"] }
@@ -60,7 +61,7 @@ utoipa = { version = "5", features = ["axum_extras"] }
 utoipa-axum = "0.2"
 utoipa-swagger-ui = { version = "9", features = ["axum", "vendored"] }
 metrics = "0.24"
-metrics-exporter-prometheus = { version = "0.16", default-features = false }
+metrics-exporter-prometheus = { version = "0.18.3", default-features = false }
 opentelemetry = "0.32"
 opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic"] }
@@ -69,4 +70,4 @@ tracing-opentelemetry = "0.33"
 [dev-dependencies]
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
-metrics-util = "0.19"
+metrics-util = "0.20.4"
