@@ -78,6 +78,18 @@ pub struct ServerConfig {
     #[arg(long, env = "KNOT_SERVER_METRICS_ENABLED", default_value_t = true)]
     pub metrics_enabled: bool,
 
+    #[arg(
+        long,
+        env = "KNOT_SERVER_MCP_ENABLED",
+        default_value_t = true,
+        default_missing_value = "true",
+        action = clap::ArgAction::Set,
+        num_args = 0..=1,
+        require_equals = false,
+        help = "Serve the knot MCP tool surface at /mcp (stateless JSON-RPC over HTTP)"
+    )]
+    pub mcp_enabled: bool,
+
     #[arg(long, env = "KNOT_SERVER_TRACING_ENABLED", default_value_t = false)]
     pub tracing_enabled: bool,
 
@@ -153,6 +165,26 @@ mod tests {
         let args = vec!["knot-server", "--neo4j-password", "secret"];
         let cfg = ServerConfig::try_parse_from(args).expect("Failed to parse");
         assert!(cfg.metrics_enabled);
+    }
+
+    #[test]
+    fn test_mcp_enabled_default_true() {
+        let args = vec!["knot-server", "--neo4j-password", "secret"];
+        let cfg = ServerConfig::try_parse_from(args).expect("Failed to parse");
+        assert!(cfg.mcp_enabled);
+    }
+
+    #[test]
+    fn test_mcp_can_be_disabled() {
+        let args = vec![
+            "knot-server",
+            "--neo4j-password",
+            "secret",
+            "--mcp-enabled",
+            "false",
+        ];
+        let cfg = ServerConfig::try_parse_from(args).expect("Failed to parse");
+        assert!(!cfg.mcp_enabled);
     }
 
     #[test]

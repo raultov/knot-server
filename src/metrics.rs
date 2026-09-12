@@ -28,6 +28,7 @@ pub(crate) const KNOWN_ROUTES: &[&str] = &[
     "/api/repos/{id}/graph/repos",
     "/api/webhook/{id}",
     "/api/health",
+    "/mcp",
 ];
 
 pub(crate) fn intern_route(path: &str) -> &str {
@@ -331,6 +332,11 @@ mod tests {
     }
 
     #[test]
+    fn intern_route_maps_mcp() {
+        assert_eq!(intern_route("/mcp"), "/mcp");
+    }
+
+    #[test]
     fn known_routes_has_no_duplicates() {
         let mut seen = std::collections::HashSet::new();
         for route in KNOWN_ROUTES {
@@ -350,6 +356,7 @@ mod tests {
         include_str!("handlers/repo_graph.rs"),
         include_str!("handlers/webhooks.rs"),
         include_str!("handlers/health.rs"),
+        include_str!("handlers/mcp.rs"),
     ];
 
     /// Drift guard: every `/api/...` path literal declared in a

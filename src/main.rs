@@ -145,12 +145,13 @@ async fn main() -> anyhow::Result<()> {
             (name = "Indexing", description = "Trigger manual sync and re-indexing"),
             (name = "Webhooks", description = "Git provider webhook endpoints (GitHub, GitLab, Bitbucket)"),
             (name = "Health", description = "Server health and statistics"),
+            (name = "MCP", description = "Stateless MCP (Model Context Protocol) endpoint at /mcp (JSON-RPC over HTTP). Try the POST operation with a tools/list body to check connectivity, the flag, and the tool surface."),
         ),
     )]
     struct ApiDoc;
 
     // Build API routes with automatic OpenAPI spec collection
-    let (api_router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
+    let mut openapi_router = OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(routes!(
             handlers::repo::list_repos_handler,
             handlers::register_repo_handler
@@ -172,8 +173,25 @@ async fn main() -> anyhow::Result<()> {
         .routes(routes!(handlers::graph_expand_handler))
         .routes(routes!(handlers::repo_graph_handler))
         .routes(routes!(handlers::webhook_handler))
-        .routes(routes!(handlers::health_handler))
-        .split_for_parts();
+        .routes(routes!(handlers::health_handler));
+
+    // MCP surface (MCP_ENDPOINT_PLAN.md): stateless JSON-RPC over HTTP at
+    // /mcp, additive to the REST API. Registered on the OpenApiRouter (rather
+    // than a plain axum route) so the three operations show up in /docs with
+    // "Try it out" — the fastest way to diagnose MCP connectivity and flag
+    // state. Mounted before the metrics/trace layers, so it inherits
+    // `track_http` and `trace_http` with no extra work. When disabled the
+    // route is simply absent and requests hit the 404 fallback.
+    if cfg.mcp_enabled {
+        tracing::info!("MCP endpoint enabled at /mcp (stateless, no session affinity)");
+        openapi_router = openapi_router.routes(routes!(
+            handlers::mcp_post_handler,
+            handlers::mcp_get_handler,
+            handlers::mcp_delete_handler
+        ));
+    }
+
+    let (api_router, api) = openapi_router.split_for_parts();
 
     // Merge the generated API routes with non-API routes and Swagger UI
     let app = api_router
