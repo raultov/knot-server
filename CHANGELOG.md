@@ -7,6 +7,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  
 ---
 
+## [0.6.0] - 2026-09-12
+
+### Added
+- **MCP endpoint at `/mcp` (stateless, cluster-ready).** knot-server now also
+  serves the exact `knot-mcp` tool surface (`search_hybrid_context`,
+  `find_callers`, `explore_file`, `list_repo_dependencies`,
+  `list_repositories`) as a stateless JSON-RPC-over-HTTP MCP endpoint, backed
+  by the connections the server already holds. Key properties:
+  - **Stateless by design:** the server never emits `Mcp-Session-Id` and keeps
+    no handshake state, so a load balancer needs no session affinity — any
+    node answers any request, and rolling deployments need no draining.
+  - **Hand-rolled on axum** rather than mounting `rust-mcp-axum`: the SDK's
+    HTTP layer stores live `Arc<ServerRuntime>` objects in a node-local
+    session store, which would force sticky sessions (404 `session_not_found`
+    when a request lands on another node).
+  - **Same engine, two transports:** tool execution reuses knot 1.9.4's
+    runtime-free `KnotMcpHandler::tools()` / `dispatch()` API, so `/mcp` and
+    `knot-mcp` behave identically by construction. Tool failures surface as
+    `CallToolResult { isError: true }` inside a `200` — never as JSON-RPC
+    errors — mirroring the stdio runtime.
+  - **Protocol contract:** `initialize` echoes supported protocol versions
+    (`2024-11-05` … `2025-11-25`) and falls back to the latest otherwise;
+    notifications and client replies are acknowledged with `202` + empty body;
+    batches are rejected (`400`, `-32600`); malformed JSON is `400`/`-32700`;
+    unknown methods are `200`/`-32601`; `GET /mcp` is `405` (`Allow: POST,
+    DELETE`); `DELETE /mcp` is a no-op `200`.
+  - **Scope semantics:** `repo_name: "all"` over `/mcp` is a pure passthrough
+    to knot (everything in Neo4j), whereas `repo=all` on the REST surface
+    expands to registered repositories. Documented in the README.
+  - **Configuration:** `KNOT_SERVER_MCP_ENABLED` / `--mcp-enabled`
+    (default `true`).
+  - **Tests:** 25 protocol-level unit tests driven through `tower::oneshot`
+    (no database required), a metrics drift-guard entry, and a new E2E suite
+    (`tests/run_mcp_e2e.sh`, registered in `tests/run_all_e2e.sh`) that
+    exercises a two-node cluster: cross-node conversations, a restarted node
+    with zero in-memory state, real indexed results, protocol errors, and
+    MCP/REST parity on `find_callers`. The statelessness invariant (no
+    `Mcp-Session-Id` on any response) is asserted on every captured response
+    of both nodes — including the restarted node and the error paths — not
+    just on the handshake; the protocol-error block runs against both nodes,
+    and node A's MCP output is compared byte-for-byte against node B's.
+  - **Discoverability:** a `MCP (/mcp)` folder in
+    `knot-server.postman_collection.json` with the six representative calls
+    (`initialize`, `notifications/initialized`, `ping`, `tools/list`, and two
+    `tools/call` examples); per-client configuration snippets in the README
+    (opencode, Claude Code, Codex CLI, Cursor, VS Code/Copilot, Gemini CLI), a
+    "what `/mcp` exposes vs. the REST API" routing table, a no-client smoke
+    test and a troubleshooting table; `MCP`-specific notes in the agent skills
+    (bundled copy regenerated); and the three `/mcp` operations annotated with
+    `utoipa::path` so they appear in Swagger UI with "Try it out".
+  - **Diagnostics:** the `initialize` response's `instructions` now list the
+    REST-only capabilities (register/sync/delete, health, progress, raw
+    subgraphs) so MCP clients learn the boundary during the handshake.
+
+### Fixed
+- **E2E: hardened `tests/run_mcp_e2e.sh` for multi-node coverage.** Captured
+  response headers on every MCP call (`mcp_post` helper + `assert_no_session_header`),
+  duplicated the protocol-error checks to both nodes, added on-the-wire checks
+  for `Allow: POST, DELETE`, `DELETE /mcp` and `Accept` without JSON, and made
+  M6 genuinely cross-node (MCP on node A vs REST on node B), comparing the two
+  nodes' `find_callers` output byte-for-byte (knot >= 1.9.4 renders the
+  `### Target:` sections in a stable `BTreeMap` order; 1.9.3's process-random
+  `HashMap` ordering is what the byte comparison caught).
+
+### Changed
+- **Upgrade `knot` to 1.9.4:** picks up the runtime-free MCP dispatch API
+  (`KnotMcpHandler::tools()` / `dispatch()`, `build_server_details()`) that
+  the `/mcp` endpoint embeds, plus the deterministic `find_callers` formatter
+  ordering (`HashMap` → `BTreeMap`) that makes cross-node MCP output
+  byte-reproducible.
+
+---
+
 ## [0.5.4] - 2026-09-08
 
 ### Fixed
@@ -655,7 +728,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/raultov/knot-server/compare/v0.5.4...HEAD
+[Unreleased]: https://github.com/raultov/knot-server/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/raultov/knot-server/compare/v0.5.4...v0.6.0
 [0.5.4]: https://github.com/raultov/knot-server/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/raultov/knot-server/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/raultov/knot-server/compare/v0.5.1...v0.5.2
