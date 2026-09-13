@@ -373,6 +373,34 @@ else
     fail "S9 — status=$S9_CODE, entity count=$S9_COUNT"
 fi
 
+# ── S9b: per-repo route clamps max_results too (parity with /api/search) ──
+echo -e "\n${CYAN}S9b: per-repo max_results=1000 clamped to 100${NC}"
+S9B_CODE=$(curl -s -w "%{http_code}" -o /tmp/s9b.json "$BASE_URL/api/repos/$REPO_A_ID/search?q=AlphaService&max_results=1000")
+S9B_COUNT=$(jq 'if . == null then 0 else length end' /tmp/s9b.json 2>/dev/null || echo "999999")
+if [ "$S9B_CODE" = "200" ] && [ "$S9B_COUNT" -le 100 ]; then
+    pass "S9b — status=200 with $S9B_COUNT entities (<= 100)"
+else
+    fail "S9b — status=$S9B_CODE, entity count=$S9B_COUNT (unclamped?)"
+fi
+
+# ── S9c: per-repo route honours the path filter ──
+echo -e "\n${CYAN}S9c: per-repo search path filter narrows results${NC}"
+# The fixture repos keep their sources at the root, so exercise the glob
+# form of the filter (`*.java`) — the same matcher knot's `list_files` uses.
+S9C_CODE=$(curl -s -w "%{http_code}" -o /tmp/s9c.json "$BASE_URL/api/repos/$REPO_A_ID/search?q=AlphaService&path=*.java")
+if [ "$S9C_CODE" = "200" ]; then
+    S9C_PATHS=$(jq -r '[.[]?.file_path] | unique | join(",")' /tmp/s9c.json 2>/dev/null || echo "")
+    if [ -z "$S9C_PATHS" ]; then
+        fail "S9c — no hits at all (filter too narrow?)"
+    elif echo "$S9C_PATHS" | grep -qv "\.java"; then
+        fail "S9c — hit outside the *.java glob: $S9C_PATHS"
+    else
+        pass "S9c — all hits match the *.java glob: $S9C_PATHS"
+    fi
+else
+    fail "S9c — status=$S9C_CODE"
+fi
+
 # ── S10 (regression guard): per-repo route untouched ──
 echo -e "\n${CYAN}S10: per-repo search route unchanged${NC}"
 S10_CODE=$(curl -s -w "%{http_code}" -o /tmp/s10.json "$BASE_URL/api/repos/$REPO_A_ID/search?q=AlphaService")
@@ -509,6 +537,82 @@ if [ "$C9_CODE" = "200" ] \
     pass "C9 — alphaCaller (repo_name=$REPO_A_ID) present, betaCaller absent"
 else
     fail "C9 — status=$C9_CODE, names: $C9_NAMES, alphaCaller repo: '$C9_ALPHA_REPO'"
+fi
+
+# ── C10: true total + explicit truncation + max_targets full-list ──
+echo -e "\n${CYAN}C10: max_targets controls truncation; total_targets is the true total${NC}"
+
+# SharedUtil.work resolves to one target per repository (2 total, per C3).
+# Capping the resolution at 1 must truncate: the response keeps the true
+# pre-truncation count in `resolution.total_targets` and flags it explicitly,
+# while the shown `resolution.targets[]` drops to the cap. That quantified
+# notice is what stops a sample being mistaken for the full impact set —
+# max_targets (up to knot's 500 ceiling) is the opt-in path back to the full
+# set.
+C10_TRUNC_CODE=$(curl -s -w "%{http_code}" -o /tmp/c10-trunc.json "$BASE_URL/api/callers?entity=SharedUtil.work&max_targets=1")
+C10_TRUNC_TOTAL=$(jq -r '.resolution.total_targets' /tmp/c10-trunc.json 2>/dev/null || echo "")
+C10_TRUNC_SHOWN=$(jq -r '.resolution.targets | length' /tmp/c10-trunc.json 2>/dev/null || echo "")
+C10_TRUNC_FLAG=$(jq -r '.resolution.truncated' /tmp/c10-trunc.json 2>/dev/null || echo "")
+
+C10_FULL_CODE=$(curl -s -w "%{http_code}" -o /tmp/c10-full.json "$BASE_URL/api/callers?entity=SharedUtil.work&max_targets=500")
+C10_FULL_TOTAL=$(jq -r '.resolution.total_targets' /tmp/c10-full.json 2>/dev/null || echo "")
+C10_FULL_SHOWN=$(jq -r '.resolution.targets | length' /tmp/c10-full.json 2>/dev/null || echo "")
+C10_FULL_FLAG=$(jq -r '.resolution.truncated' /tmp/c10-full.json 2>/dev/null || echo "")
+
+if [ "$C10_TRUNC_CODE" = "200" ] && [ "$C10_TRUNC_FLAG" = "true" ] \
+   && [ "$C10_TRUNC_TOTAL" = "2" ] && [ "$C10_TRUNC_SHOWN" = "1" ] \
+   && [ "$C10_FULL_CODE" = "200" ] && [ "$C10_FULL_FLAG" = "false" ] \
+   && [ "$C10_FULL_TOTAL" = "2" ] && [ "$C10_FULL_SHOWN" = "2" ]; then
+    pass "C10 — max_targets=1 truncates (total=2, shown=1); max_targets=500 completes (shown=2)"
+else
+    fail "C10 — trunc: status=$C10_TRUNC_CODE total=$C10_TRUNC_TOTAL shown=$C10_TRUNC_SHOWN flag=$C10_TRUNC_FLAG; full: status=$C10_FULL_CODE total=$C10_FULL_TOTAL shown=$C10_FULL_SHOWN flag=$C10_FULL_FLAG"
+    jq '.resolution' /tmp/c10-trunc.json 2>/dev/null
+    jq '.resolution' /tmp/c10-full.json 2>/dev/null
+fi
+
+# ── C11: per-repo callers honors max_targets + reports the true total ──
+echo -e "\n${CYAN}C11: per-repo callers honors max_targets and the true total${NC}"
+C11_CODE=$(curl -s -w "%{http_code}" -o /tmp/c11.json "$BASE_URL/api/repos/$REPO_A_ID/callers?entity=SharedUtil.work&max_targets=1")
+C11_TOTAL=$(jq -r '.resolution.total_targets' /tmp/c11.json 2>/dev/null || echo "")
+C11_SHOWN=$(jq -r '.resolution.targets | length' /tmp/c11.json 2>/dev/null || echo "")
+C11_FLAG=$(jq -r '.resolution.truncated' /tmp/c11.json 2>/dev/null || echo "")
+if [ "$C11_CODE" = "200" ] && [ "$C11_TOTAL" = "1" ] && [ "$C11_SHOWN" = "1" ] && [ "$C11_FLAG" = "false" ]; then
+    pass "C11 — per-repo max_targets=1 reports total=1, shown=1"
+else
+    fail "C11 — status=$C11_CODE total=$C11_TOTAL shown=$C11_SHOWN flag=$C11_FLAG"
+    jq '.resolution' /tmp/c11.json 2>/dev/null
+fi
+
+# ── C12: /mcp and REST agree on the TRUE total for the same entity ──
+echo -e "\n${CYAN}C12: /mcp and REST agree on the total and the truncation flag${NC}"
+
+# /mcp is a faithful passthrough of knot (repo_name scope, not the registry),
+# so scope it explicitly to A,B to match REST's registry expansion. max_targets=1
+# forces the same truncation C10 pinned on the REST side.
+C12_MCP_BODY=$(cat <<JSON
+{"jsonrpc":"2.0","id":61,"method":"tools/call","params":{"name":"find_callers","arguments":{"entity_name":"SharedUtil.work","repo_name":"$REPO_A_ID,$REPO_B_ID","max_targets":1}}}
+JSON
+)
+C12_MCP_STATUS=$(curl -s -o /tmp/c12-mcp.json -w "%{http_code}" -X POST "$BASE_URL/mcp" \
+    -H "Content-Type: application/json" -H "Accept: application/json" \
+    --data-binary "$C12_MCP_BODY")
+C12_MCP_TEXT=$(jq -r '.result.content[0].text' /tmp/c12-mcp.json 2>/dev/null || echo "")
+C12_MCP_TOTAL=$(echo "$C12_MCP_TEXT" \
+    | grep -oE 'cover only the [0-9]+ of [0-9]+ targets shown' \
+    | grep -oE '[0-9]+' | tail -1)
+C12_MCP_SHOWN=$(echo "$C12_MCP_TEXT" \
+    | grep -oE 'cover only the [0-9]+ of [0-9]+ targets shown' \
+    | grep -oE '[0-9]+' | head -1)
+C12_REST_TOTAL=$(jq -r '.resolution.total_targets' /tmp/c10-trunc.json)
+C12_REST_SHOWN=$(jq -r '.resolution.targets | length' /tmp/c10-trunc.json)
+if [ "$C12_MCP_STATUS" = "200" ] \
+   && [ "$C12_MCP_TOTAL" = "$C12_REST_TOTAL" ] \
+   && [ "$C12_MCP_SHOWN" = "$C12_REST_SHOWN" ] \
+   && echo "$C12_MCP_TEXT" | grep -q '\*\*Truncated\*\*'; then
+    pass "C12 — /mcp and REST agree: total=$C12_MCP_TOTAL, shown=$C12_MCP_SHOWN, both truncated"
+else
+    fail "C12 — status=$C12_MCP_STATUS mcp_total=$C12_MCP_TOTAL rest_total=$C12_REST_TOTAL mcp_shown=$C12_MCP_SHOWN rest_shown=$C12_REST_SHOWN"
+    echo "$C12_MCP_TEXT"
 fi
 
 # ═════════════════════════════════════════════════════════════
@@ -675,7 +779,9 @@ G6_CODE=$(curl -s -w "%{http_code}" -o /tmp/g6.json "$BASE_URL/api/callers?entit
 G6_KEYS=$(jq -r 'keys | sort | join(",")' /tmp/g6.json 2>/dev/null || echo "")
 G6_RES_KEYS=$(jq -r '.resolution | keys | sort | join(",")' /tmp/g6.json 2>/dev/null || echo "")
 G6_EXPECTED_KEYS="calls,extends,implements,overridden_by,overrides,references,resolution"
-G6_EXPECTED_RES_KEYS="fuzzy,query,targets,tier,truncated"
+# knot's truncation fix added `total_targets` (the true pre-truncation count)
+# to the resolution block; pin it so the shape cannot silently regress.
+G6_EXPECTED_RES_KEYS="fuzzy,query,targets,tier,total_targets,truncated"
 if [ "$G6_CODE" = "200" ] \
    && [ "$G6_KEYS" = "$G6_EXPECTED_KEYS" ] \
    && [ "$G6_RES_KEYS" = "$G6_EXPECTED_RES_KEYS" ]; then

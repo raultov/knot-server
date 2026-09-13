@@ -13,6 +13,8 @@
 #   M5 — protocol errors over the wire, executed against BOTH nodes
 #   M6 — parity with the REST surface (MCP on node A vs REST on node B)
 #        plus byte-identical find_callers output across nodes
+#   M7 — explicit truncation: max_targets is forwarded and both surfaces
+#        report the same TRUE total / shown count / truncated flag
 #
 # The statelessness invariant (D2: no Mcp-Session-Id) is asserted on EVERY
 # response captured by this suite — both nodes, including the restarted node
@@ -419,13 +421,34 @@ M6_MCP_TEXT=$(jq -r '.result.content[0].text' "$TMP/callers-a-resp.json" 2>/dev/
 assert_contains "$M6_MCP_TEXT" 'References to .greet.' \
     "M6: MCP find_callers output references the queried entity"
 
+M6_REST_JSON="$TMP/callers-rest.json"
+curl -sf "$BASE_B/api/repos/mcp-fixture/callers?entity=greet" -o "$M6_REST_JSON"
+
 M6_MCP_CALLS=$(echo "$M6_MCP_TEXT" \
     | grep -oE 'Calls \(function/method invocations\) \([0-9]+\)' \
     | grep -oE '[0-9]+' || echo "0")
-M6_REST_CALLS=$(curl -sf "$BASE_B/api/repos/mcp-fixture/callers?entity=greet" \
-    | jq -r '.calls | length' 2>/dev/null || echo "rest-error")
+M6_REST_CALLS=$(jq -r '.calls | length' "$M6_REST_JSON" 2>/dev/null || echo "rest-error")
 assert_eq "$M6_MCP_CALLS" "$M6_REST_CALLS" \
     "M6: /mcp on node A and /api/callers on node B agree (calls: $M6_MCP_CALLS vs $M6_REST_CALLS)"
+
+# The TOTAL must agree too, not just the shown bucket. knot emits the true
+# pre-truncation target count as `resolution.total_targets`; the Markdown
+# states it as "Resolved to N target(s)" (when complete) or in the truncation
+# notice (when partial). Default max_targets (25) covers the tiny fixture, so
+# here both must report the same total with no truncation.
+M6_REST_TOTAL=$(jq -r '.resolution.total_targets' "$M6_REST_JSON")
+M6_REST_TARGETS=$(jq -r '.resolution.targets | length' "$M6_REST_JSON")
+M6_REST_TRUNC=$(jq -r '.resolution.truncated' "$M6_REST_JSON")
+M6_MCP_RESOLVED=$(echo "$M6_MCP_TEXT" \
+    | grep -oE 'Resolved to [0-9]+ target' | grep -oE '[0-9]+' | head -1)
+assert_eq "$M6_MCP_RESOLVED" "$M6_REST_TOTAL" \
+    "M6: /mcp and REST report the same total (resolved: $M6_MCP_RESOLVED vs total_targets: $M6_REST_TOTAL)"
+assert_eq "$M6_REST_TARGETS" "$M6_REST_TOTAL" \
+    "M6: an untruncated response shows every resolved target"
+assert_eq "$M6_REST_TRUNC" "false" \
+    "M6: default max_targets leaves the tiny fixture untruncated"
+assert_not_contains "$M6_MCP_TEXT" "**Truncated**" \
+    "M6: MCP marks the complete result as untruncated, same as REST"
 
 # Same tool, same arguments, two different nodes: the output must be
 # byte-identical. knot >= 1.9.4 renders the `### Target:` sections in a stable
@@ -436,6 +459,49 @@ assert_eq "$M6_MCP_CALLS" "$M6_REST_CALLS" \
 M6_MCP_TEXT_B=$(jq -r '.result.content[0].text' "$TMP/callers-resp.json" 2>/dev/null || echo "")
 assert_eq "$M6_MCP_TEXT" "$M6_MCP_TEXT_B" \
     "M6: identical find_callers output from node A and node B"
+
+# ── M7: explicit truncation, quantified the same on both surfaces ─
+echo -e "\n${YELLOW}[M7] max_targets is forwarded; truncation is explicit and equal on /mcp and REST${NC}"
+
+# `greet` resolves to multiple targets (interface + overrides). Capping the
+# resolution at 1 forces a real truncation, exercising knot's new semantics:
+# the response must carry the true pre-truncation total, the shown count, and
+# an explicit truncated flag — and /mcp (a faithful passthrough) must agree.
+cat > "$TMP/callers-truncated.json" <<'JSON'
+{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"find_callers","arguments":{"entity_name":"greet","repo_name":"mcp-fixture","max_targets":1}}}
+JSON
+M7_MCP_STATUS=$(mcp_post "$BASE_A" "$TMP/callers-truncated.json" "callers-truncated")
+assert_eq "$M7_MCP_STATUS" "200" "M7: find_callers with max_targets via /mcp returns 200"
+assert_no_session_header "$TMP/callers-truncated-headers.txt" \
+    "M7: no Mcp-Session-Id on a max_targets tool call"
+
+M7_MCP_TEXT=$(jq -r '.result.content[0].text' "$TMP/callers-truncated-resp.json" 2>/dev/null || echo "")
+assert_contains "$M7_MCP_TEXT" "**Truncated**" \
+    "M7: /mcp discloses the truncated target resolution"
+assert_contains "$M7_MCP_TEXT" "Counts below are partial" \
+    "M7: /mcp quantifies the partial bucket counts"
+
+# Pull "shown of total" out of the machine-visible caveat:
+# "Counts below are partial — they cover only the 1 of 3 targets shown."
+M7_MCP_SHOWN=$(echo "$M7_MCP_TEXT" \
+    | grep -oE 'cover only the [0-9]+ of [0-9]+ targets shown' \
+    | grep -oE '[0-9]+' | head -1)
+M7_MCP_TOTAL=$(echo "$M7_MCP_TEXT" \
+    | grep -oE 'cover only the [0-9]+ of [0-9]+ targets shown' \
+    | grep -oE '[0-9]+' | tail -1)
+
+M7_REST_JSON="$TMP/callers-truncated-rest.json"
+curl -sf "$BASE_B/api/repos/mcp-fixture/callers?entity=greet&max_targets=1" -o "$M7_REST_JSON"
+M7_REST_TOTAL=$(jq -r '.resolution.total_targets' "$M7_REST_JSON")
+M7_REST_SHOWN=$(jq -r '.resolution.targets | length' "$M7_REST_JSON")
+M7_REST_TRUNC=$(jq -r '.resolution.truncated' "$M7_REST_JSON")
+
+assert_eq "$M7_REST_TRUNC" "true" \
+    "M7: REST marks the max_targets=1 resolution as truncated"
+assert_eq "$M7_MCP_TOTAL" "$M7_REST_TOTAL" \
+    "M7: /mcp and REST agree on the TRUE total (mcp: $M7_MCP_TOTAL vs rest: $M7_REST_TOTAL)"
+assert_eq "$M7_MCP_SHOWN" "$M7_REST_SHOWN" \
+    "M7: /mcp and REST agree on the shown target count (mcp: $M7_MCP_SHOWN vs rest: $M7_REST_SHOWN)"
 
 # ── Summary ──────────────────────────────────────────────────────
 echo ""
@@ -453,6 +519,7 @@ echo "  - Fresh node serves tools with zero handshake state (M3)"
 echo "  - Real indexed content served through the MCP surface (M4)"
 echo "  - Protocol-level error contract, on both nodes (M5)"
 echo "  - MCP/REST parity across nodes + identical output per node (M6)"
+echo "  - max_targets forwarding + same true total/truncation on both surfaces (M7)"
 
 if [ "$FAILED" -gt 0 ]; then
     echo -e "\n${RED}Some tests FAILED${NC}"
