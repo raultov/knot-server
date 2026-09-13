@@ -7,6 +7,102 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  
 ---
 
+## [Unreleased]
+
+## [0.6.1] - 2026-09-13
+
+### Added
+- **`path` filter on the search routes (REST).** `GET /api/repos/{id}/search` and
+  `GET /api/search` now accept an optional `path` filter — a repo-relative directory
+  prefix (`src/api`, matched on a path boundary) or a glob (`src/**/*_test.rs`) —
+  forwarded to knot's `run_search_hybrid_context`. Mirrors the `path` argument knot's
+  MCP `search_hybrid_context` tool now exposes, so REST and MCP match.
+- **`kinds` filter on the search routes (REST).** `GET /api/repos/{id}/search` and
+  `GET /api/search` now accept an optional comma-separated `kinds` filter, forwarded
+  verbatim to knot's `run_search_hybrid_context` (exact wire-format kinds such as
+  `rust_function` or aliases like `definition` / `class` / `function`; omit for no
+  filtering). Mirrors the `kinds` argument the MCP `search_hybrid_context` tool already
+  exposes, so both surfaces agree.
+- **`max_targets` on the callers routes (REST).** `GET /api/repos/{id}/callers`
+  and `GET /api/callers` now accept an optional `max_targets` (default 25,
+  clamped to 1..=500 by `scope::clamp_max_targets`, whose bounds mirror knot's
+  `DEFAULT_MAX_TARGETS` / `MAX_TARGETS_CEILING`). It is the opt-in path to the
+  full impact set when a response reports truncation.
+
+### Changed
+- **`max_results` bound is now knot-derived and enforced on every search surface.**
+  `scope::DEFAULT_MAX_RESULTS` / `MAX_MAX_RESULTS` are no longer hardcoded: they are
+  derived from `knot::cli_tools::DEFAULT_MAX_RESULTS` / `MAX_RESULTS_CEILING` (with a
+  drift-guard test), so REST can never widen — or lag behind — the bound the MCP tool
+  advertises. The per-repo route (`GET /api/repos/{id}/search`) now clamps through
+  `clamp_max_results` like the cross-repo route, closing the gap where
+  `max_results=1000` returned unclamped results. Both routes' OpenAPI descriptions and
+  `SearchParams` advertise `maximum = 100`, the enforced default of 5, the no-pagination
+  rule, and the narrow-with-`kinds`/`path`/`repo` guidance. Rebuilding against knot
+  1.9.5 also updates the `/mcp` passthrough: the `search_hybrid_context` schema now
+  advertises `maximum = 100` and clamps over-ceiling requests with an explicit notice.
+- **`list_files` MCP tool is documented as MCP-only.** knot added a `list_files`
+  tool (file layout discovery); the README's MCP-vs-REST table records the decision
+  not to add a REST counterpart — it is an agent-oriented aid for picking `path`
+  filters, and REST clients have `GET /api/repos/{id}/explore` plus the search
+  routes' `path` filter instead.
+- **Callers truncation is now explicit and quantified on both surfaces.**
+  Bumped `knot` to the build carrying the `find_callers` truncation fix
+  (`resolution.total_targets` is the true pre-truncation count and
+  `resolution.truncated` flags a sample; `max_targets` raises the target cap).
+  The REST handlers pass knot's JSON through unchanged and record the
+  true/returned/truncated triple on the tracing span, so a partial impact set is
+  visible in traces as well as in the body. The MCP `find_callers` tool is a
+  faithful passthrough of knot, so it carries the same semantics verbatim and
+  forwards the new `max_targets` argument without server-side rewriting.
+- **Empty-registry callers body** (`GET /api/callers` with no registered
+  repositories) now includes `resolution.total_targets: 0`, keeping the
+  resolution key set identical to knot's natural empty response.
+
+### Fixed
+- **Impact-analysis under-counting.** Before this change a callers response
+  bounded by knot's 25-target resolution cap did not surface the true total, so
+  a sample could be mistaken for the complete set. `resolution.total_targets`
+  now always reports the real count, `resolution.truncated` is explicit, and
+  `max_targets` (REST and MCP) retrieves more targets.
+
+### Tests
+- Unit tests for `clamp_max_targets` bounds, `CallersParams` /
+  `GlobalCallersParams` parsing, the callers truncation metadata helper (true
+  total vs returned entries), the empty-registry response shape, and an MCP test
+  pinning that knot's new `max_targets` schema is forwarded.
+- `tests/run_mcp_e2e.sh` M7 forces a truncated resolution and asserts `/mcp`
+  and REST agree on the true total, the shown count, and the truncation flag;
+  M6 now also compares the total. `tests/run_cross_repo_search_e2e.sh` adds
+  C10–C12 (truncation vs full-list, per-repo `max_targets`, and REST/MCP total
+  parity) and updates the G6 empty-body drift guard for `total_targets`.
+- New drift-guard tests for the search bound: `MAX_MAX_RESULTS` /
+  `DEFAULT_MAX_RESULTS` must equal knot's `MAX_RESULTS_CEILING` /
+  `DEFAULT_MAX_RESULTS`, REST and knot's `resolve_max_results` must agree for
+  every requested value (floor, default, in-range, ceiling), the clamp
+  acceptance matrix (`0 -> 1`, `5 -> 5`, `1000 -> 100`, `None -> 5`), and knot's
+  clamp notice must state the ceiling and the no-pagination rule.
+- `tests/run_cross_repo_search_e2e.sh` adds S9b (per-repo `max_results=1000`
+  clamped to 100, parity with `/api/search`) and S9c (per-repo `path` filter).
+
+### Documentation
+- README callers sections, `skills/callers.md` (bundled copy regenerated),
+  Swagger/OpenAPI (`CallersParams` / `GlobalCallersParams`) and the Postman
+  collection document `max_targets` and the `resolution` truncation contract.
+- README search sections (per-repo and cross-repo) document the enforced
+  1..=100 bound, the no-pagination rule, the `path` filter, and the
+  narrow-scope guidance; the MCP section now lists six tools (knot's new
+  `list_files`) and records the MCP-only decision for it;
+  `skills/search.md` (bundled copy regenerated) and the OpenAPI
+  `SearchParams` / `GlobalSearchParams` schemas match.
+
+> **Release blocker:** `knot = { path = "../knot" }` is not publishable. Before
+> shipping this version, publish knot carrying the `max_results` contract fix
+> and switch to a versioned dependency (`Cargo.lock` currently pins knot
+> without `source`/`checksum`).
+
+---
+
 ## [0.6.0] - 2026-09-12
 
 ### Added
