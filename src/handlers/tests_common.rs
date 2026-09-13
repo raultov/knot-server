@@ -1017,6 +1017,9 @@ mod tests {
         assert_eq!(json["resolution"]["targets"], serde_json::json!([]));
         assert_eq!(json["resolution"]["tier"], "none");
         assert_eq!(json["resolution"]["truncated"], false);
+        // The true pre-truncation total is pinned even on the trivial path so
+        // REST and MCP agree on the total (0 here).
+        assert_eq!(json["resolution"]["total_targets"], 0);
     }
 
     #[tokio::test]
@@ -1195,6 +1198,49 @@ mod tests {
         let app = build_test_app(state);
 
         let (status, _body) = get_error(app, "/api/repos/ghost/callers?entity=x").await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    // ── Callers `max_targets` (full-list) parameter ──────────────────
+    // The test DBs are unreachable, so a request that clears validation
+    // deterministically reaches the 500 "Find callers failed" branch. A 500
+    // (rather than a 400/422) pins that the knob is accepted and threaded
+    // through; the E2E suite pins that it reaches knot and widens the targets.
+
+    #[tokio::test]
+    async fn callers_all_accepts_max_targets_full_list() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        add_registry_entry(&state, "real-repo").await;
+        let app = build_test_app(state);
+
+        let (status, body) = get_error(app, "/api/callers?entity=x&max_targets=500").await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(body.contains("Find callers failed"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn callers_all_clamps_zero_max_targets_and_still_queries() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        add_registry_entry(&state, "real-repo").await;
+        let app = build_test_app(state);
+
+        // `0` is clamped to 1 (never disables the query) and the request still
+        // reaches the graph layer.
+        let (status, body) = get_error(app, "/api/callers?entity=x&max_targets=0").await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(body.contains("Find callers failed"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn per_repo_callers_accepts_max_targets() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        let (status, _body) =
+            get_error(app, "/api/repos/ghost/callers?entity=x&max_targets=500").await;
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
     }
 }

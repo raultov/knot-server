@@ -488,10 +488,11 @@ mod tests {
     /// independently rather than compared against `tools()` (comparing a
     /// value to itself proves nothing). If knot adds a sixth tool this test
     /// fails and we *choose* to update it.
-    const EXPECTED_TOOLS: [&str; 5] = [
+    const EXPECTED_TOOLS: [&str; 6] = [
         "search_hybrid_context",
         "find_callers",
         "explore_file",
+        "list_files",
         "list_repo_dependencies",
         "list_repositories",
     ];
@@ -535,7 +536,28 @@ mod tests {
         // A stateless server has no handshake state to enforce; this is what
         // lets a client's second request land on a different node.
         let (_, body) = post_json(mcp_app().await, &tools_list_body()).await;
-        assert_eq!(body["result"]["tools"].as_array().unwrap().len(), 5);
+        assert_eq!(body["result"]["tools"].as_array().unwrap().len(), 6);
+    }
+
+    #[tokio::test]
+    async fn tools_list_forwards_find_callers_max_targets() {
+        // knot's truncation fix added `max_targets` to `find_callers`. The
+        // `/mcp` surface is knot's, not a maintained copy (D3), so the new
+        // property must appear verbatim; filtering it server-side would
+        // silently drop the opt-in path to the full impact set.
+        let (_, body) = post_json(mcp_app().await, &tools_list_body()).await;
+        let tools = body["result"]["tools"].as_array().expect("tools array");
+        let find_callers = tools
+            .iter()
+            .find(|t| t["name"] == "find_callers")
+            .expect("find_callers tool present");
+        let props = find_callers["inputSchema"]["properties"]
+            .as_object()
+            .expect("find_callers inputSchema properties");
+        assert!(
+            props.contains_key("max_targets"),
+            "max_targets must be forwarded from knot's tool schema: {find_callers}"
+        );
     }
 
     // ── Cycle 4: notifications ───────────────────────────────────────

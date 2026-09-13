@@ -14,9 +14,22 @@ pub struct SearchParams {
     /// The search query string
     #[param(example = "authentication logic")]
     pub q: Option<String>,
-    /// Maximum number of results to return
-    #[param(example = 5)]
+    /// Maximum number of results to return (default: 5, max: 100). Requests
+    /// above 100 are clamped to 100 — there is no pagination or cursor; to
+    /// look past the bound, narrow the search with `kinds` / `path` or refine
+    /// the query.
+    #[param(example = 5, default = 5, minimum = 1, maximum = 100)]
     pub max_results: Option<usize>,
+    /// Optional path filter: a repo-relative directory prefix (`src/api`,
+    /// matched on a path boundary so `src/api-notes.md` never matches) or a
+    /// glob (`src/**/*_test.rs`). Omit to search every file.
+    #[param(example = "src/api")]
+    pub path: Option<String>,
+    /// Comma-separated entity kind filter forwarded to knot: exact wire-format
+    /// kinds (e.g. `rust_function`) or aliases like `definition`, `class`,
+    /// `function`. Omit for no filtering.
+    #[param(example = "definition")]
+    pub kinds: Option<String>,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -24,6 +37,12 @@ pub struct CallersParams {
     /// Name of the entity to find callers for
     #[param(example = "handleRequest")]
     pub entity: Option<String>,
+    /// Maximum number of resolved targets to include (default: 25, max: 500).
+    /// Raise this when `resolution.truncated` is true and the full impact set
+    /// is needed. The response always reports the true pre-truncation total in
+    /// `resolution.total_targets`.
+    #[param(example = 25)]
+    pub max_targets: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -36,9 +55,22 @@ pub struct GlobalSearchParams {
     /// an empty result without querying).
     #[param(example = "repo-a,repo-b")]
     pub repo: Option<String>,
-    /// Maximum number of results (global across the scope), clamped to 1..=100
-    #[param(example = 5)]
+    /// Maximum number of results (global across the scope), clamped to
+    /// 1..=100 (default: 5). Requests above 100 are clamped to 100 — there is
+    /// no pagination or cursor; to look past the bound, narrow the scope with
+    /// `repo` / `kinds` / `path` or refine the query.
+    #[param(example = 5, default = 5, minimum = 1, maximum = 100)]
     pub max_results: Option<usize>,
+    /// Optional path filter: a repo-relative directory prefix (`src/api`,
+    /// matched on a path boundary) or a glob (`src/**/*_test.rs`), applied
+    /// within every repository of the scope. Omit to search every file.
+    #[param(example = "src/api")]
+    pub path: Option<String>,
+    /// Comma-separated entity kind filter forwarded to knot: exact wire-format
+    /// kinds (e.g. `rust_function`) or aliases like `definition`, `class`,
+    /// `function`. Omit for no filtering.
+    #[param(example = "definition")]
+    pub kinds: Option<String>,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -51,6 +83,12 @@ pub struct GlobalCallersParams {
     /// empty buckets without querying).
     #[param(example = "repo-a,repo-b")]
     pub repo: Option<String>,
+    /// Maximum number of resolved targets to include (default: 25, max: 500).
+    /// Raise this when `resolution.truncated` is true and the full impact set
+    /// is needed. The response always reports the true pre-truncation total in
+    /// `resolution.total_targets`.
+    #[param(example = 25)]
+    pub max_targets: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -328,6 +366,52 @@ pub const VALID_KIND_CATEGORIES: &[&str] = &["classes", "interfaces", "functions
 mod tests {
     use super::*;
     use std::collections::HashSet;
+
+    #[test]
+    fn search_params_parse_path_and_max_results() {
+        let params: SearchParams = serde_json::from_value(serde_json::json!({
+            "q": "auth",
+            "max_results": 10,
+            "path": "src/api",
+            "kinds": "definition"
+        }))
+        .expect("SearchParams must accept path and max_results");
+        assert_eq!(params.path.as_deref(), Some("src/api"));
+        assert_eq!(params.max_results, Some(10));
+
+        let global: GlobalSearchParams = serde_json::from_value(serde_json::json!({
+            "q": "auth",
+            "path": "src/**/*_test.rs"
+        }))
+        .expect("GlobalSearchParams must accept path");
+        assert_eq!(global.path.as_deref(), Some("src/**/*_test.rs"));
+
+        // Absent filters must stay `None` (no filtering), matching MCP where
+        // `path` is optional too.
+        let absent: SearchParams =
+            serde_json::from_value(serde_json::json!({"q": "auth"})).unwrap();
+        assert_eq!(absent.path, None);
+        assert_eq!(absent.max_results, None);
+        assert_eq!(absent.kinds, None);
+    }
+
+    #[test]
+    fn callers_params_parse_max_targets() {
+        let params: CallersParams =
+            serde_json::from_value(serde_json::json!({"entity": "x", "max_targets": 500}))
+                .expect("CallersParams must accept max_targets");
+        assert_eq!(params.max_targets, Some(500));
+
+        let global: GlobalCallersParams = serde_json::from_value(
+            serde_json::json!({"entity": "x", "repo": "a", "max_targets": 2}),
+        )
+        .expect("GlobalCallersParams must accept max_targets");
+        assert_eq!(global.max_targets, Some(2));
+
+        let absent: CallersParams =
+            serde_json::from_value(serde_json::json!({"entity": "x"})).unwrap();
+        assert_eq!(absent.max_targets, None);
+    }
 
     #[test]
     fn valid_relationships_has_no_duplicates_and_is_upper_case() {

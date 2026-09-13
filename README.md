@@ -133,8 +133,8 @@ Repositories measured (as indexed): `spring-ai` 2 406 files / 25 733 entities, `
 - **`POST /api/webhook/:id`**: Endpoint for Git provider webhooks (GitHub, GitLab, Bitbucket). Securely validates payload signatures (HMAC-SHA256) or tokens, triggering a fast, incremental background re-index on push events. The request body should be the standard JSON webhook payload sent by the Git provider.
 
 ### 🔍 Code Intelligence Search
-- **`GET /api/repos/:id/search?q=...`**: Semantic + structural search. Find code by meaning, class name, method signature, or docstrings.
-- **`GET /api/repos/:id/callers?entity=...`**: Reverse dependency lookup. Identify callers, dead code, and perform impact analysis. Rows carry `repo_name` / `target_repo_name` (knot 1.8.1), so callers are self-labeling.
+- **`GET /api/repos/:id/search?q=...&kinds=...&path=...&max_results=...`**: Semantic + structural search. Find code by meaning, class name, method signature, or docstrings. The optional `kinds` filter accepts comma-separated exact wire-format kinds (e.g. `rust_function`) or aliases like `definition`, `class`, `function` (knot's kind filter, forwarded verbatim). The optional `path` filter accepts a repo-relative directory prefix (`src/api`, matched on a path boundary) or a glob (`src/**/*_test.rs`). `max_results` is **enforced** at 1..=100 (default 5): requests above 100 are clamped to 100 — there is no pagination or cursor, so to look past the bound narrow the search with `kinds` / `path` or refine the query.
+- **`GET /api/repos/:id/callers?entity=...&max_targets=...`**: Reverse dependency lookup. Identify callers, dead code, and perform impact analysis. Rows carry `repo_name` / `target_repo_name` (knot 1.8.1), so callers are self-labeling. The response always reports the true pre-truncation target count in `resolution.total_targets` and whether the relationship buckets are only a sample in `resolution.truncated`; `max_targets` (default 25, max 500) is the opt-in path to the full impact set.
 - **`GET /api/repos/:id/explore?path=...`**: File anatomy inspection. Quickly see all classes, interfaces, methods, and functions in a specific file.
 - **`GET /api/repos/:id/deps`**: View repository dependencies (transitive and reverse) across the indexed ecosystem.
 
@@ -143,13 +143,16 @@ The per-repo routes above remain **single-repo by design**. For queries spanning
 
 #### Cross-repo search & callers
 
-- **`GET /api/search?q=...&repo=...&max_results=...`**: Semantic + structural search across
+- **`GET /api/search?q=...&repo=...&max_results=...&kinds=...&path=...`**: Semantic + structural search across
   one, several, or all registered repositories. Every result entity carries `repo_name`, so
-  multi-repo results are self-labeling.
-- **`GET /api/callers?entity=...&repo=...`**: Reverse dependency lookup across repositories.
-  Every row identifies the repository of the caller (`repo_name`) and of the referenced
-  entity (`target_repo_name`) — a genuine cross-repo reference is the row where the two
-  differ. `resolution.targets[]` is labeled too.
+  multi-repo results are self-labeling. The optional `kinds` filter (same syntax as the per-repo
+  search) applies globally across the scope, and the optional `path` filter (same syntax as the
+  per-repo search) applies within every repository of the scope.
+- **`GET /api/callers?entity=...&repo=...&max_targets=...`**: Reverse dependency lookup across
+  repositories. Every row identifies the repository of the caller (`repo_name`) and of the
+  referenced entity (`target_repo_name`) — a genuine cross-repo reference is the row where the
+  two differ. `resolution.targets[]` is labeled too, and `resolution.total_targets` /
+  `resolution.truncated` make the completeness of the answer explicit.
 
 Both routes share the same `repo` scope syntax:
 
@@ -163,12 +166,18 @@ Both routes share the same `repo` scope syntax:
 
 Caveats:
 
-- `max_results` (search only, default 5, clamped to 1..=100) is a **global** cap across the
-  whole scope: with `repo=all` one dominant repository can crowd out the others.
-- `/api/callers` has no `max_results`: the response is bounded by knot's 25-target
-  resolution cap, surfaced as `resolution.truncated`. Under `repo=all` a common name
-  resolves against every registered repository, so the cap fills faster — pass a qualified
-  name (`Namespace.Type.Member`) or narrow the scope to avoid it.
+- `max_results` (search only, default 5, clamped to 1..=100 on both search routes, mirroring
+  knot's MCP contract) is a **global** cap across the whole scope: with `repo=all` one dominant
+  repository can crowd out the others. There is **no pagination or cursor** — when the bound is
+  not enough, narrow the scope with `repo` / `kinds` / `path` or refine the query instead of
+  raising the limit.
+- `max_targets` (callers only, default 25, clamped to 1..=500) caps how many target entities
+  the queried name is resolved against. Truncation is always explicit: `resolution.total_targets`
+  is the true pre-truncation count and `resolution.truncated` is the flag; when it is `true`, the
+  relationship buckets cover only `resolution.targets[]` (a sample), never the full impact set.
+  Raise `max_targets` (up to 500) or pass a qualified name (`Namespace.Type.Member`) / narrow the
+  scope for the complete set. Under `repo=all` a common name resolves against every registered
+  repository, so the cap fills faster.
 - A repository literally named `all` (or `*`) is not addressable through these routes (the
   token is the sentinel); use `/api/repos/all/search` and `/api/repos/all/callers`, which
   build a single-repo scope directly.
@@ -280,7 +289,7 @@ knot-server is also an **MCP server**. The `/mcp` endpoint speaks the
 JSON-RPC HTTP (`POST /mcp`), so MCP clients (Claude Code, opencode, Cursor, …)
 can connect directly to knot-server — including a load-balanced cluster.
 
-The endpoint serves the **exact same five tools** as the `knot-mcp` stdio
+The endpoint serves the **exact same six tools** as the `knot-mcp` stdio
 binary, backed by the same Neo4j and Qdrant connections the REST API uses:
 
 | Tool | Purpose |
@@ -288,8 +297,22 @@ binary, backed by the same Neo4j and Qdrant connections the REST API uses:
 | `search_hybrid_context` | Semantic + structural code search with dependencies |
 | `find_callers` | Reverse dependency lookup (impact analysis) |
 | `explore_file` | File structure and entity declarations |
+| `list_files` | File layout discovery (repo-relative listing, optional prefix/glob matcher) |
 | `list_repo_dependencies` | Cross-repository dependency graph traversal |
 | `list_repositories` | List all indexed repositories with optional name filtering |
+
+`search_hybrid_context` carries knot's result-bound contract verbatim: `max_results`
+is 1..=100 (default 5) and is **enforced** — a larger request is clamped to 100 and
+the reply says so. There is no pagination: when the bound is not enough, narrow the
+search with `kinds` / `path` / `repo_name` or refine the query. The REST search routes
+enforce the same default and ceiling (the bounds are derived from knot's constants, so
+they cannot drift).
+
+`find_callers` carries knot's truncation contract verbatim: `resolution.total_targets`
+is the true pre-truncation target count, `resolution.truncated` flags when the buckets
+are only a sample, and the `max_targets` argument (default 25, max 500) is the opt-in
+path to the full impact set. Because `/mcp` is a faithful passthrough of knot, REST and
+MCP report the **same total** for the same entity.
 
 ### What `/mcp` exposes vs. the REST API
 
@@ -301,6 +324,7 @@ guide almost 1:1, with these differences:
 | Semantic code search | `search_hybrid_context` | `GET /api/repos/{id}/search`, `GET /api/search` |
 | Caller / impact analysis | `find_callers` | `GET /api/repos/{id}/callers`, `GET /api/callers` |
 | File anatomy | `explore_file` | `GET /api/repos/{id}/explore` |
+| File layout discovery | `list_files` | — **MCP only** (by design: it is an agent-oriented "what files exist here?" aid used to pick `path` filters; REST clients have `GET /api/repos/{id}/explore` and the search routes' `path` filter instead) |
 | Cross-repo dependencies | `list_repo_dependencies` | `GET /api/repos/{id}/deps`, `GET /api/repos/{id}/graph/repos` |
 | List indexed repositories | `list_repositories` | `GET /api/repos` |
 | Register / sync / delete a repository | — **REST only** | `POST /api/repos`, `POST /api/repos/{id}/sync`, `DELETE /api/repos/{id}` |

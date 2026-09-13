@@ -210,7 +210,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 5,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"find_callers\",\n    \"arguments\": { \"entity_name\": \"handleRequest\", \"repo_name\": \"all\" }\n  }\n}\n",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 5,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"find_callers\",\n    \"arguments\": { \"entity_name\": \"handleRequest\", \"repo_name\": \"all\", \"max_targets\": 25 }\n  }\n}\n",
               "options": {
                 "raw": {
                   "language": "json"
@@ -239,7 +239,7 @@
         "method": "GET",
         "header": [],
         "url": {
-          "raw": "http://localhost:3000/api/repos/knot/search?q=run_indexing_pipeline",
+          "raw": "http://localhost:3000/api/repos/knot/search?q=run_indexing_pipeline&max_results=5&path=&kinds=",
           "protocol": "http",
           "host": [
             "localhost"
@@ -255,6 +255,23 @@
             {
               "key": "q",
               "value": "run_indexing_pipeline"
+            },
+            {
+              "key": "max_results",
+              "value": "5",
+              "description": "Enforced at 1..=100 (default 5): requests above 100 are clamped to 100. No pagination or cursor - narrow the search with kinds / path / repo, or refine the query."
+            },
+            {
+              "key": "path",
+              "value": "",
+              "description": "Optional path filter: repo-relative directory prefix (src/api, matched on a path boundary) or glob (src/**/*_test.rs). Disabled = omitted = search every file.",
+              "disabled": true
+            },
+            {
+              "key": "kinds",
+              "value": "",
+              "description": "Comma-separated entity kind filter: exact wire-format kinds (e.g. rust_function) or aliases like definition / class / function. Disabled = omitted = no filtering.",
+              "disabled": true
             }
           ]
         }
@@ -283,6 +300,12 @@
             {
               "key": "entity",
               "value": "run_indexing_pipeline"
+            },
+            {
+              "key": "max_targets",
+              "value": "25",
+              "description": "Max resolved targets (default 25, max 500). Raise it when resolution.truncated is true.",
+              "disabled": true
             }
           ]
         }
@@ -295,7 +318,7 @@
         "method": "GET",
         "header": [],
         "url": {
-          "raw": "http://localhost:3000/api/search?q=run_indexing_pipeline&repo=",
+          "raw": "http://localhost:3000/api/search?q=run_indexing_pipeline&repo=&path=&kinds=",
           "protocol": "http",
           "host": [
             "localhost"
@@ -319,7 +342,13 @@
             {
               "key": "max_results",
               "value": "5",
-              "description": "Global cap across the scope, clamped to 1..=100",
+              "description": "Global cap across the scope: enforced at 1..=100 (default 5): requests above 100 are clamped to 100. No pagination or cursor - narrow the search with kinds / path / repo, or refine the query.",
+              "disabled": true
+            },
+            {
+              "key": "path",
+              "value": "",
+              "description": "Optional path filter: repo-relative directory prefix (src/api, matched on a path boundary) or glob (src/**/*_test.rs). Disabled = omitted = search every file.",
               "disabled": true
             }
           ]
@@ -352,6 +381,12 @@
               "key": "repo",
               "value": "",
               "description": "Repository scope: one id, comma-separated list, or `all` / `*`. Disabled = omitted = analyze every registered repository (empty registry => empty buckets).",
+              "disabled": true
+            },
+            {
+              "key": "max_targets",
+              "value": "25",
+              "description": "Max resolved targets (default 25, max 500). Raise it when resolution.truncated is true.",
               "disabled": true
             }
           ]

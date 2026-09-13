@@ -1,7 +1,7 @@
 # Knot-Server Search: Semantic Code Discovery
 
-**Endpoint:** `GET /api/repos/{id}/search?q=...&max_results=...`
-**Cross-repo endpoint:** `GET /api/search?q=...&repo=...&max_results=...`
+**Endpoint:** `GET /api/repos/{id}/search?q=...&max_results=...&path=...`
+**Cross-repo endpoint:** `GET /api/search?q=...&repo=...&max_results=...&path=...`
 
 > **MCP equivalent:** if this agent is connected to a knot-server `/mcp`
 > endpoint, prefer the `search_hybrid_context` tool — same engine, structured
@@ -44,9 +44,16 @@ curl -fsS -G \
   - Examples: "user authentication", "error handling", "database connection"
   - Good queries describe *what the code does*, not specific names.
   - Works best with 2-5 word descriptions.
-- **`max_results`** (query, optional, default: 5): Limit the number of results.
+- **`max_results`** (query, optional, default: 5, max: 100): Limit the number of results.
+  - Enforced: requests above 100 are clamped to 100 — there is no pagination or
+    cursor. To look past the bound, narrow the search with `kinds` / `path` or
+    refine the query instead of raising the limit.
   - Use higher values (10-20) when exploring unfamiliar codebases.
   - Use lower values (3-5) for focused results.
+- **`path`** (query, optional): Restrict the search to part of the repository —
+  a repo-relative directory prefix (`src/api`, matched on a path boundary) or a
+  glob (`src/**/*_test.rs`). Omit to search every file. The best way to narrow
+  an over-broad query.
 
 ## Output Format
 
@@ -163,8 +170,9 @@ both spellings return an empty result with `200` without querying.
 ### Caveats
 
 - **`max_results` is a global cap across the whole scope** (default 5, clamped
-  to 1..=100): with `repo=all` one dominant repository can crowd out the
-  others. Prefer a comma-list of the repos you actually care about.
+  to 1..=100, enforced — there is no pagination): with `repo=all` one dominant
+  repository can crowd out the others. Prefer a comma-list of the repos you
+  actually care about, or narrow with `path` / `kinds`.
 - Every result entity carries `repo_name` — always surface it, it is the only
   way to attribute a hit to its repository.
 - A repository literally named `all` (or `*`) is not addressable through this

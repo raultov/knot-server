@@ -7,12 +7,43 @@ use std::sync::Arc;
 
 use crate::handlers::models::*;
 use crate::handlers::scope::{
-    ResolvedScope, clamp_max_results, scope_fields, scope_or_error, unknown_repos_error,
+    ResolvedScope, clamp_max_results, clamp_max_targets, scope_fields, scope_or_error,
+    unknown_repos_error,
 };
 use crate::models::AppState;
 
 fn extract_required_param(param: Option<&String>) -> Option<&str> {
     param.map(String::as_str).filter(|s| !s.trim().is_empty())
+}
+
+/// Read the explicit truncation contract out of a `find_callers` payload:
+/// `(true_total, returned, truncated)`.
+///
+/// `true_total` is knot's pre-truncation target count — never the number of
+/// entries actually returned — so a caller can quantify how partial the
+/// relationship buckets are. `returned` is the number of `resolution.targets[]`
+/// present in the payload. Returns `None` when the resolution block is absent.
+fn callers_target_metadata(value: &serde_json::Value) -> Option<(u64, u64, bool)> {
+    let resolution = value.get("resolution")?;
+    let true_total = resolution.get("total_targets")?.as_u64()?;
+    let returned = resolution.get("targets")?.as_array()?.len() as u64;
+    let truncated = resolution
+        .get("truncated")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    Some((true_total, returned, truncated))
+}
+
+/// Record the true/returned/truncated triple on the current span so a partial
+/// impact set is visible in traces, not just in the JSON body. Malformed or
+/// partial payloads are ignored (the response still passes through verbatim).
+fn record_callers_truncation(value: &serde_json::Value) {
+    if let Some((true_total, returned, truncated)) = callers_target_metadata(value) {
+        let span = tracing::Span::current();
+        span.record("total_targets", true_total);
+        span.record("returned_targets", returned);
+        span.record("truncated", truncated);
+    }
 }
 
 /// Empty-registry body for `GET /api/search` (CROSS_REPO_SEARCH_PLAN §3):
@@ -24,7 +55,9 @@ fn empty_search_response() -> Response {
 
 /// Empty-registry body for `GET /api/callers` (CROSS_REPO_SEARCH_PLAN §3):
 /// six empty buckets plus a neutral `resolution` block, shaped byte-for-byte
-/// like knot's natural empty response (pinned by E2E scenario G6).
+/// like knot's natural empty response (pinned by E2E scenario G6). The
+/// `total_targets: 0` field mirrors knot's pre-truncation count so REST and
+/// MCP agree on the total even for a trivially-empty result.
 fn empty_callers_response(entity_name: &str) -> Response {
     (
         StatusCode::OK,
@@ -40,6 +73,7 @@ fn empty_callers_response(entity_name: &str) -> Response {
                 "query": entity_name,
                 "targets": [],
                 "tier": "none",
+                "total_targets": 0,
                 "truncated": false,
             }
         })),
@@ -60,7 +94,11 @@ fn empty_callers_response(entity_name: &str) -> Response {
         (status = 400, description = "Missing or invalid query parameter", body = ErrorResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse),
     ),
-    description = "Semantic + structural search. Find code by meaning, class name, method signature, or docstrings.",
+    description = "Semantic + structural search. Find code by meaning, class name, method signature, or docstrings. \
+                   `max_results` is enforced at 1..=100 (default 5): requests above 100 are clamped to 100 — there is \
+                   no pagination or cursor, so to look past the bound narrow the search with `kinds` / `path` or refine \
+                   the query. The optional `path` filter accepts a repo-relative directory prefix or a glob \
+                   (e.g. `src/api` or `src/**/*_test.rs`).",
 )]
 #[tracing::instrument(
     name = "search",
@@ -81,7 +119,10 @@ pub async fn search_handler(
         None => return error_response(StatusCode::BAD_REQUEST, "Missing required parameter 'q'"),
     };
 
-    let max_results = params.max_results.unwrap_or(5);
+    // Enforced, not advisory: knot clamps again internally, but clamping here
+    // keeps the REST contract (and the tracing span) honest about what was
+    // actually served — 1..=100, default 5, no pagination.
+    let max_results = clamp_max_results(params.max_results);
 
     // Record only the query *length* — never the query text itself, which for a
     // code search may contain proprietary source.
@@ -103,6 +144,18 @@ pub async fn search_handler(
         query,
         max_results,
         &knot::models::RepoScope::One(id.clone()),
+        knot::cli_tools::SearchFilters {
+            kinds: params
+                .kinds
+                .as_deref()
+                .map(str::trim)
+                .filter(|k| !k.is_empty()),
+            path: params
+                .path
+                .as_deref()
+                .map(str::trim)
+                .filter(|p| !p.is_empty()),
+        },
         &knot::cli_tools::SearchContext {
             vector_db: &state.vector_db,
             graph_db: &state.graph_db,
@@ -132,12 +185,23 @@ pub async fn search_handler(
         (status = 400, description = "Missing or invalid query parameter", body = ErrorResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse),
     ),
-    description = "Find all callers referencing a specific entity. Returns reverse dependency graph.",
+    description = "Find all callers referencing a specific entity. Returns the reverse dependency graph. \
+                   `resolution.total_targets` is the true pre-truncation target count and \
+                   `resolution.truncated` says whether `resolution.targets[]` (and therefore the \
+                   per-bucket counts) is a sample; raise `max_targets` (default 25, max 500) for the \
+                   full set.",
 )]
 #[tracing::instrument(
     name = "callers",
     skip_all,
-    fields(repo_id = %id, entity = tracing::field::Empty)
+    fields(
+        repo_id = %id,
+        entity = tracing::field::Empty,
+        max_targets = tracing::field::Empty,
+        total_targets = tracing::field::Empty,
+        returned_targets = tracing::field::Empty,
+        truncated = tracing::field::Empty,
+    )
 )]
 pub async fn callers_handler(
     State(state): State<Arc<AppState>>,
@@ -153,16 +217,23 @@ pub async fn callers_handler(
             );
         }
     };
-    tracing::Span::current().record("entity", entity_name);
+    let max_targets = clamp_max_targets(params.max_targets);
+    let span = tracing::Span::current();
+    span.record("entity", entity_name);
+    span.record("max_targets", max_targets);
 
     match knot::cli_tools::run_find_callers(
         entity_name,
         &knot::models::RepoScope::One(id.clone()),
         &state.graph_db,
+        Some(max_targets),
     )
     .await
     {
-        Ok(value) => (StatusCode::OK, Json(value)).into_response(),
+        Ok(value) => {
+            record_callers_truncation(&value);
+            (StatusCode::OK, Json(value)).into_response()
+        }
         Err(e) => error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Find callers failed: {e}"),
@@ -181,11 +252,16 @@ pub async fn callers_handler(
         (status = 500, description = "Internal server error", body = ErrorResponse),
     ),
     description = "Semantic + structural search across one, several, or all registered repositories. \
-                   `repo` accepts a single id, a comma-separated list, or the sentinel `all` / `*`; \
-                   omit it (or use the sentinel) to search every registered repository — the scope \
-                   expands to the registry id list, so unregistered repositories are never queried \
-                   and an empty registry returns an empty result with 200. Each entity carries \
-                   `repo_name`. `max_results` is a global cap across the scope, clamped to 1..=100.",
+                    `repo` accepts a single id, a comma-separated list, or the sentinel `all` / `*`; \
+                    omit it (or use the sentinel) to search every registered repository — the scope \
+                    expands to the registry id list, so unregistered repositories are never queried \
+                    and an empty registry returns an empty result with 200. Each entity carries \
+                    `repo_name`. `max_results` is a global cap across the scope, enforced at 1..=100 \
+                    (default 5): requests above 100 are clamped to 100 — there is no pagination or \
+                    cursor, so to look past the bound narrow the scope with `repo` / `kinds` / `path` \
+                    or refine the query. The optional `path` filter accepts a repo-relative directory \
+                    prefix or a glob (e.g. `src/api` or `src/**/*_test.rs`), applied within every \
+                    repository of the scope.",
 )]
 #[tracing::instrument(
     name = "search_all",
@@ -240,6 +316,18 @@ pub async fn search_all_handler(
         query,
         max_results,
         &scope,
+        knot::cli_tools::SearchFilters {
+            kinds: params
+                .kinds
+                .as_deref()
+                .map(str::trim)
+                .filter(|k| !k.is_empty()),
+            path: params
+                .path
+                .as_deref()
+                .map(str::trim)
+                .filter(|p| !p.is_empty()),
+        },
         &knot::cli_tools::SearchContext {
             vector_db: &state.vector_db,
             graph_db: &state.graph_db,
@@ -271,8 +359,10 @@ pub async fn search_all_handler(
                    unregistered repositories are never queried; an empty registry returns empty \
                    buckets with 200 without querying). Every row identifies the repository of the \
                    caller (`repo_name`) and of the referenced entity (`target_repo_name`); \
-                   `resolution.targets[]` is labeled too. There is no `max_results`: the response \
-                   is bounded by knot's 25-target resolution cap, surfaced as `resolution.truncated`.",
+                   `resolution.targets[]` is labeled too. `resolution.total_targets` is the true \
+                   pre-truncation target count and `resolution.truncated` says whether the bucket \
+                   counts are a sample; raise `max_targets` (default 25, max 500) for the full set. \
+                   There is no `max_results` here.",
 )]
 #[tracing::instrument(
     name = "callers_all",
@@ -281,6 +371,10 @@ pub async fn search_all_handler(
         entity = tracing::field::Empty,
         repo_scope = tracing::field::Empty,
         repo_count = tracing::field::Empty,
+        max_targets = tracing::field::Empty,
+        total_targets = tracing::field::Empty,
+        returned_targets = tracing::field::Empty,
+        truncated = tracing::field::Empty,
     )
 )]
 pub async fn callers_all_handler(
@@ -312,9 +406,16 @@ pub async fn callers_all_handler(
         ResolvedScope::Scope(scope) => scope,
         ResolvedScope::NoRepositories => return empty_callers_response(entity_name),
     };
+    let max_targets = clamp_max_targets(params.max_targets);
+    span.record("max_targets", max_targets);
 
-    match knot::cli_tools::run_find_callers(entity_name, &scope, &state.graph_db).await {
-        Ok(value) => (StatusCode::OK, Json(value)).into_response(),
+    match knot::cli_tools::run_find_callers(entity_name, &scope, &state.graph_db, Some(max_targets))
+        .await
+    {
+        Ok(value) => {
+            record_callers_truncation(&value);
+            (StatusCode::OK, Json(value)).into_response()
+        }
         Err(e) => error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Find callers failed: {e}"),
@@ -424,5 +525,106 @@ pub async fn deps_handler(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Deps lookup failed: {e}"),
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A knot `find_callers` payload whose target resolution was truncated:
+    /// 1 target shown out of 112, with 2 caller rows. The bucket counts are a
+    /// sample; `total_targets` must stay 112 (the true total), never 1 or 2.
+    fn truncated_payload() -> serde_json::Value {
+        json!({
+            "calls": [
+                {"name": "a", "kind": "function", "file_path": "a.rs", "start_line": 1},
+                {"name": "b", "kind": "function", "file_path": "b.rs", "start_line": 2}
+            ],
+            "extends": [],
+            "implements": [],
+            "references": [],
+            "resolution": {
+                "query": "delete",
+                "tier": "exact_name",
+                "fuzzy": false,
+                "truncated": true,
+                "total_targets": 112,
+                "targets": [{"fqn": "repo::delete"}]
+            }
+        })
+    }
+
+    #[test]
+    fn metadata_reports_true_total_not_returned_entries() {
+        let (true_total, returned, truncated) =
+            callers_target_metadata(&truncated_payload()).expect("resolution present");
+        assert_eq!(
+            true_total, 112,
+            "true total must be the pre-truncation count"
+        );
+        assert_eq!(
+            returned, 1,
+            "returned must count resolution.targets[], not bucket rows"
+        );
+        assert!(truncated);
+        // The bucket row count (2) is irrelevant to the resolution metadata.
+        assert_ne!(true_total, 2);
+    }
+
+    #[test]
+    fn metadata_marks_complete_resolution_as_not_truncated() {
+        let payload = json!({
+            "calls": [],
+            "resolution": {
+                "tier": "exact_name",
+                "truncated": false,
+                "total_targets": 3,
+                "targets": [{}, {}, {}]
+            }
+        });
+        let (true_total, returned, truncated) =
+            callers_target_metadata(&payload).expect("resolution present");
+        assert_eq!(true_total, 3);
+        assert_eq!(returned, 3);
+        assert!(!truncated);
+    }
+
+    #[test]
+    fn metadata_is_none_without_a_resolution_block() {
+        assert!(callers_target_metadata(&json!({"calls": []})).is_none());
+    }
+
+    #[test]
+    fn metadata_is_none_when_total_targets_is_absent() {
+        // Pre-fix knot payloads omitted `total_targets`; the helper must not
+        // silently substitute the returned count for the true total.
+        let legacy = json!({
+            "resolution": {"tier": "exact_name", "truncated": true, "targets": [{}]}
+        });
+        assert!(callers_target_metadata(&legacy).is_none());
+    }
+
+    #[tokio::test]
+    async fn empty_callers_response_carries_zero_total_and_no_truncation() {
+        let response = empty_callers_response("Ghost");
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["resolution"]["total_targets"], 0);
+        assert_eq!(value["resolution"]["truncated"], false);
+        assert_eq!(value["resolution"]["query"], "Ghost");
+        for bucket in [
+            "calls",
+            "extends",
+            "implements",
+            "overridden_by",
+            "overrides",
+            "references",
+        ] {
+            assert_eq!(value[bucket], json!([]), "bucket {bucket} must be empty");
+        }
     }
 }

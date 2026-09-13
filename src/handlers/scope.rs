@@ -18,10 +18,32 @@ use knot::models::RepoScope;
 use crate::handlers::models::error_response;
 use crate::models::AppState;
 
-/// Default and clamp bounds for `max_results` on the cross-repo search route.
-pub(crate) const DEFAULT_MAX_RESULTS: usize = 5;
+/// Default and clamp bounds for `max_results` on the search routes. Both
+/// mirror knot's own advertised contract ([`knot::cli_tools::DEFAULT_MAX_RESULTS`]
+/// and [`knot::cli_tools::MAX_RESULTS_CEILING`]) so REST can never widen (or
+/// lag behind) the bound the MCP tool advertises, and cannot drift if knot
+/// retunes them. There is no pagination on either surface: past the ceiling,
+/// callers narrow the search with `kinds` / `path` / `repo` or refine the
+/// query instead of raising the limit.
+pub(crate) const DEFAULT_MAX_RESULTS: usize = knot::cli_tools::DEFAULT_MAX_RESULTS;
 pub(crate) const MIN_MAX_RESULTS: usize = 1;
-pub(crate) const MAX_MAX_RESULTS: usize = 100;
+pub(crate) const MAX_MAX_RESULTS: usize = knot::cli_tools::MAX_RESULTS_CEILING;
+
+/// Clamp bounds for `max_targets` on the callers routes. Both numeric bounds
+/// mirror knot's own target-resolution cap ([`knot::db::graph::DEFAULT_MAX_TARGETS`])
+/// and hard ceiling ([`knot::db::graph::MAX_TARGETS_CEILING`]) so the REST
+/// surface can never widen the contract knot enforces internally, and cannot
+/// drift if knot retunes them.
+pub(crate) const DEFAULT_MAX_TARGETS: usize = knot::db::graph::DEFAULT_MAX_TARGETS;
+pub(crate) const MIN_MAX_TARGETS: usize = 1;
+pub(crate) const MAX_MAX_TARGETS: usize = knot::db::graph::MAX_TARGETS_CEILING;
+
+/// Single clamping implementation behind every capped query parameter, so the
+/// search (`max_results`) and callers (`max_targets`) routes cannot drift
+/// apart.
+fn clamp_in_range(requested: Option<usize>, default: usize, min: usize, max: usize) -> usize {
+    requested.unwrap_or(default).clamp(min, max)
+}
 
 /// The outcome of resolving the `repo` parameter against the registry.
 ///
@@ -72,14 +94,37 @@ pub fn resolve_scope(raw: Option<&str>, known: &[String]) -> Result<ResolvedScop
     }
 }
 
-/// Clamp a caller-supplied `max_results` into the accepted range
-/// (`[1, 100]`, default 5). The route is unauthenticated and unfiltered by
+/// Clamp a caller-supplied `max_results` into knot's accepted range
+/// (`[1, 100]`, default 5). The routes are unauthenticated and unfiltered by
 /// default, so an unbounded cap over the whole corpus would be a cheap way
-/// to exhaust the server (CROSS_REPO_SEARCH_PLAN D4).
+/// to exhaust the server (CROSS_REPO_SEARCH_PLAN D4). The bounds are knot's
+/// ([`knot::cli_tools::resolve_max_results`]), so REST and `/mcp` enforce the
+/// same default and ceiling by construction.
 pub fn clamp_max_results(requested: Option<usize>) -> usize {
-    requested
-        .unwrap_or(DEFAULT_MAX_RESULTS)
-        .clamp(MIN_MAX_RESULTS, MAX_MAX_RESULTS)
+    clamp_in_range(
+        requested,
+        DEFAULT_MAX_RESULTS,
+        MIN_MAX_RESULTS,
+        MAX_MAX_RESULTS,
+    )
+}
+
+/// Clamp a caller-supplied `max_targets` into knot's accepted range
+/// (`[1, 500]`, default 25).
+///
+/// `max_targets` is the opt-in path to the full impact set when a callers
+/// response reports `resolution.truncated: true`: the response always carries
+/// the true pre-truncation count in `resolution.total_targets`, and raising
+/// `max_targets` (up to the ceiling) widens `resolution.targets[]`. Because
+/// the bounds are knot's, the server can never ask knot for more than knot's
+/// own ceiling allows.
+pub fn clamp_max_targets(requested: Option<usize>) -> usize {
+    clamp_in_range(
+        requested,
+        DEFAULT_MAX_TARGETS,
+        MIN_MAX_TARGETS,
+        MAX_MAX_TARGETS,
+    )
 }
 
 /// Snapshot the registry ids and resolve the scope. On failure, returns the
@@ -307,5 +352,101 @@ mod tests {
     fn clamp_ceiling_is_hundred() {
         assert_eq!(clamp_max_results(Some(99999)), 100);
         assert_eq!(clamp_max_results(Some(100)), 100);
+    }
+
+    // ---- max_results (search) --------------------------------------------
+
+    #[test]
+    fn result_bounds_mirror_knot() {
+        // The server must never widen (or lag behind) the bound knot's MCP
+        // tool advertises: same default, same ceiling.
+        assert_eq!(DEFAULT_MAX_RESULTS, knot::cli_tools::DEFAULT_MAX_RESULTS);
+        assert_eq!(MAX_MAX_RESULTS, knot::cli_tools::MAX_RESULTS_CEILING);
+    }
+
+    #[test]
+    fn rest_and_mcp_agree_on_the_clamp() {
+        // For every request knot's `resolve_max_results` and the REST clamp
+        // must land on the same enforced value, so a client sees identical
+        // behavior on `/mcp` and on both search routes.
+        for requested in [0usize, 1, 5, 20, 99, 100, 1000, usize::MAX] {
+            let rest = clamp_max_results(Some(requested));
+            let mcp = knot::cli_tools::resolve_max_results(requested).value;
+            assert_eq!(rest, mcp, "REST and /mcp disagree for {requested}");
+        }
+    }
+
+    #[test]
+    fn clamp_acceptance_matrix() {
+        // The exact contract from the search-limit spec: floor, default,
+        // in-range pass-through, ceiling.
+        assert_eq!(clamp_max_results(Some(0)), 1);
+        assert_eq!(clamp_max_results(Some(5)), 5);
+        assert_eq!(clamp_max_results(Some(1000)), 100);
+        assert_eq!(clamp_max_results(None), DEFAULT_MAX_RESULTS);
+    }
+
+    #[test]
+    fn knot_clamp_notice_mentions_ceiling_and_no_pagination() {
+        // REST relies on knot's notice wording for the clamped-MCP case; the
+        // reply must state the ceiling and the no-pagination rule so callers
+        // learn to narrow instead of raising the limit.
+        let notice = knot::cli_tools::resolve_max_results(1000)
+            .notice()
+            .expect("a clamped request must carry a notice");
+        assert!(
+            notice.contains("100"),
+            "notice must state the ceiling: {notice}"
+        );
+        assert!(
+            notice.to_lowercase().contains("no pagination"),
+            "notice must state the no-pagination rule: {notice}"
+        );
+        assert!(
+            knot::cli_tools::resolve_max_results(100).notice().is_none(),
+            "an in-range request must not carry a notice"
+        );
+    }
+
+    // ---- max_targets (callers) -------------------------------------------
+
+    #[test]
+    fn target_bounds_mirror_knot() {
+        // The server must never widen knot's own resolution contract.
+        assert_eq!(DEFAULT_MAX_TARGETS, knot::db::graph::DEFAULT_MAX_TARGETS);
+        assert_eq!(MAX_MAX_TARGETS, knot::db::graph::MAX_TARGETS_CEILING);
+    }
+
+    #[test]
+    fn clamp_max_targets_defaults_to_knot_default() {
+        assert_eq!(clamp_max_targets(None), DEFAULT_MAX_TARGETS);
+        assert_eq!(
+            clamp_max_targets(Some(DEFAULT_MAX_TARGETS)),
+            DEFAULT_MAX_TARGETS
+        );
+    }
+
+    #[test]
+    fn clamp_max_targets_floor_is_one() {
+        // `0` would mean "no targets at all"; it must not disable the query.
+        assert_eq!(clamp_max_targets(Some(0)), MIN_MAX_TARGETS);
+        assert_eq!(clamp_max_targets(Some(1)), 1);
+    }
+
+    #[test]
+    fn clamp_max_targets_ceiling_is_knot_ceiling() {
+        assert_eq!(clamp_max_targets(Some(usize::MAX)), MAX_MAX_TARGETS);
+        assert_eq!(clamp_max_targets(Some(MAX_MAX_TARGETS)), MAX_MAX_TARGETS);
+        assert_eq!(
+            clamp_max_targets(Some(MAX_MAX_TARGETS + 1)),
+            MAX_MAX_TARGETS
+        );
+    }
+
+    #[test]
+    fn clamp_max_targets_honours_in_range_values() {
+        for requested in [2usize, 25, 100, 499] {
+            assert_eq!(clamp_max_targets(Some(requested)), requested);
+        }
     }
 }

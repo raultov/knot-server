@@ -67,7 +67,7 @@ mod tests {
         let repo_path = dir.path().to_str().unwrap();
         let knot_dir = dir.path().join(".knot");
         std::fs::create_dir_all(&knot_dir).unwrap();
-        let raw = r#"{"version":4,"file_hashes":{"a.rs":"h1","b.rs":"h2"}}"#;
+        let raw = r#"{"version":5,"file_hashes":{"a.rs":"h1","b.rs":"h2"}}"#;
         std::fs::write(knot_dir.join("index_state.json"), raw).unwrap();
 
         let loaded = load_index_state_with_recovery(repo_path, true).unwrap();

@@ -47,6 +47,9 @@ curl -fsS -G \
   - Can be a class name, interface, function, or method name.
   - Supports partial names and signature fragments.
   - Examples: "AuthService", "handleRequest", "processPayment".
+- **`max_targets`** (query, optional): Maximum number of resolved targets to
+  include (default 25, max 500). Raise it when `resolution.truncated` is true
+  and you need the complete impact set.
 
 ## Output Format
 
@@ -77,7 +80,23 @@ The endpoint returns a JSON object grouped by relationship type:
       "target_name": "PaymentProcessor"
     }
   ],
-  "references": []
+  "references": [],
+  "resolution": {
+    "query": "PaymentProcessor",
+    "tier": "exact_name",
+    "fuzzy": false,
+    "truncated": false,
+    "total_targets": 1,
+    "targets": [
+      {
+        "name": "PaymentProcessor",
+        "fqn": "services.PaymentProcessor",
+        "kind": "class",
+        "file_path": "src/services/payment.ts",
+        "start_line": 1
+      }
+    ]
+  }
 }
 ```
 
@@ -87,6 +106,22 @@ The endpoint returns a JSON object grouped by relationship type:
 - **`extends`**: Class inheritance. Classes that inherit from this class.
 - **`implements`**: Interface implementation. Classes that implement this interface.
 - **`references`**: Type usage. Where this entity is used in annotations, signatures, or type declarations.
+
+### Resolution & truncation
+
+`resolution` describes how the queried name was resolved and whether the answer
+is complete:
+
+- **`total_targets`** — the TRUE pre-truncation number of entities the name
+  resolved to. It is *not* the number of returned rows nor of shown targets.
+- **`truncated`** — when `true`, `resolution.targets[]` (and therefore every
+  relationship bucket above) covers only a sample of the full impact set.
+- **`tier`** / **`fuzzy`** — the match tier that won and whether it was a fuzzy
+  substring match.
+- **`targets[]`** — the resolved entities actually shown.
+
+When `truncated` is `true`, re-run with a larger `max_targets` (up to 500) or a
+more qualified name to move toward the complete set.
 
 ## ⚠️ CRITICAL: Avoiding Noisy Results with Common Method Names
 
@@ -164,6 +199,7 @@ repository, one id, or a comma-separated list.
 curl -fsS -G \
   --data-urlencode "entity=SharedUtil.work" \
   --data-urlencode "repo=all" \
+  --data-urlencode "max_targets=25" \
   "${KNOT_SERVER_URL:-http://localhost:3000}/api/callers" \
   | jq '.calls[] | {name, repo_name, target_repo_name, file_path}'
 ```
@@ -178,14 +214,20 @@ curl -fsS -G \
 
 ### Caveats
 
-- **Read `resolution.truncated`.** Under `repo=all` a common name resolves
-  against every registered repository, so knot's 25-target resolution cap fills
-  faster and the answer becomes a *sample*, not the full set. Pass a qualified
-  name (`Namespace.Type.Member`) or narrow the scope to avoid it.
+- **Read `resolution.truncated` and `resolution.total_targets`.** The response
+  always reports the true pre-truncation target count in
+  `resolution.total_targets`; when `resolution.truncated` is `true` the
+  relationship buckets cover only `resolution.targets[]` — a *sample*, not the
+  full impact set. Under `repo=all` a common name resolves against every
+  registered repository, so the default 25-target cap fills faster.
+- **Raise `max_targets` (up to 500)** when truncated and you need the complete
+  set, or pass a qualified name (`Namespace.Type.Member`) / narrow the scope.
 - `repo=all` — and an omitted `repo` — are confined to the registry: rows from
   unregistered (deleted) repositories are never returned, and an empty registry
   yields empty buckets with `200` without querying.
-- There is no `max_results` on this route.
+- There is no `max_results` on this route; `max_targets` is the cap, and REST
+  and the MCP `find_callers` tool honour it identically (they share knot's
+  engine, so totals agree).
 - The match ladder is unchanged by scope (exact FQN → FQN suffix → exact name →
   signature prefix → fuzzy): a wide scope does not loosen matching, it only
   widens the candidate set.
