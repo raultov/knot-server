@@ -227,6 +227,7 @@ pub async fn callers_handler(
         &knot::models::RepoScope::One(id.clone()),
         &state.graph_db,
         Some(max_targets),
+        None,
     )
     .await
     {
@@ -409,8 +410,14 @@ pub async fn callers_all_handler(
     let max_targets = clamp_max_targets(params.max_targets);
     span.record("max_targets", max_targets);
 
-    match knot::cli_tools::run_find_callers(entity_name, &scope, &state.graph_db, Some(max_targets))
-        .await
+    match knot::cli_tools::run_find_callers(
+        entity_name,
+        &scope,
+        &state.graph_db,
+        Some(max_targets),
+        None,
+    )
+    .await
     {
         Ok(value) => {
             record_callers_truncation(&value);
