@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-09-14
+
+### Changed
+- **Upgrade `knot` to 1.9.6.** Updated `knot` dependency to 1.9.6 to pass context options down to `run_find_callers` in caller search handlers.
+
+### Fixed
+- Forward optional context parameters to `run_find_callers` in `callers_handler` and `callers_all_handler`.
+
 ## [0.6.1] - 2026-09-13
 
 ### Added
