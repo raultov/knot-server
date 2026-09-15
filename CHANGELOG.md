@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-09-15
+
+### Changed
+- **Upgrade `knot` to 1.9.7.** Updated `knot` dependency to 1.9.7 to pick up expanded callers resolution metadata and new relationship keys.
+
+### Tests
+- Updated `tests/run_cross_repo_search_e2e.sh` G6 caller empty-body key set expectations for `knot` 1.9.7.
+
 ## [0.6.2] - 2026-09-14
 
 ### Changed
@@ -832,8 +840,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/raultov/knot-server/compare/v0.6.0...HEAD
-[0.6.0]: https://github.com/raultov/knot-server/compare/v0.5.4...v0.6.0
+[Unreleased]: https://github.com/raultov/knot-server/compare/v0.6.3...HEAD
+[0.6.3]: https://github.com/raultov/knot-server/compare/v0.6.2...v0.6.3
+[0.6.2]: https://github.com/raultov/knot-server/compare/v0.6.1...v0.6.2
 [0.5.4]: https://github.com/raultov/knot-server/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/raultov/knot-server/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/raultov/knot-server/compare/v0.5.1...v0.5.2
