@@ -778,10 +778,9 @@ echo -e "\n${CYAN}G6: callers empty-body key sets pinned${NC}"
 G6_CODE=$(curl -s -w "%{http_code}" -o /tmp/g6.json "$BASE_URL/api/callers?entity=NoSuchEntityXyz123")
 G6_KEYS=$(jq -r 'keys | sort | join(",")' /tmp/g6.json 2>/dev/null || echo "")
 G6_RES_KEYS=$(jq -r '.resolution | keys | sort | join(",")' /tmp/g6.json 2>/dev/null || echo "")
-G6_EXPECTED_KEYS="calls,extends,implements,overridden_by,overrides,references,resolution"
-# knot's truncation fix added `total_targets` (the true pre-truncation count)
-# to the resolution block; pin it so the shape cannot silently regress.
-G6_EXPECTED_RES_KEYS="fuzzy,query,targets,tier,total_targets,truncated"
+G6_EXPECTED_KEYS="calls,declared_unused,extends,implements,imports_script,imports_stylesheet,imports_vmod,includes,macro_calls,overridden_by,overrides,references,references_dom,resolution,uses_acl,uses_backend,uses_css_class,uses_probe"
+# knot 1.9.6 expanded resolution with kind_filter / hidden fields
+G6_EXPECTED_RES_KEYS="fuzzy,hidden_kinds,hidden_non_code,kind_filter,query,targets,tier,total_targets,truncated"
 if [ "$G6_CODE" = "200" ] \
    && [ "$G6_KEYS" = "$G6_EXPECTED_KEYS" ] \
    && [ "$G6_RES_KEYS" = "$G6_EXPECTED_RES_KEYS" ]; then
