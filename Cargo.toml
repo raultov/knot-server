@@ -40,7 +40,7 @@ inherits = "release"
 lto = "thin"
 
 [dependencies]
-knot = "1.9.7"
+knot = "1.9.8"
 rust-mcp-sdk = "1.1"
 ignore = "0.4"
 axum = "0.8.9"
