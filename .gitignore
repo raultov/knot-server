@@ -19,3 +19,6 @@ opencode.json
 
 # Performance test logs
 *.csv
+
+# Local planning notes
+PLAN_*
