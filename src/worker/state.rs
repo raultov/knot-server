@@ -65,10 +65,17 @@ mod tests {
     fn test_load_state_returns_loaded_ok_when_state_is_valid() {
         let dir = TempDir::new().unwrap();
         let repo_path = dir.path().to_str().unwrap();
-        let knot_dir = dir.path().join(".knot");
-        std::fs::create_dir_all(&knot_dir).unwrap();
-        let raw = r#"{"version":5,"file_hashes":{"a.rs":"h1","b.rs":"h2"}}"#;
-        std::fs::write(knot_dir.join("index_state.json"), raw).unwrap();
+        // Persist through knot's own `save` so the fixture always carries the
+        // current schema version, rather than pinning a literal that breaks
+        // every time knot bumps `CURRENT_STATE_VERSION`.
+        let mut state = knot::pipeline::state::IndexState::default();
+        state
+            .file_hashes
+            .insert("a.rs".to_string(), "h1".to_string());
+        state
+            .file_hashes
+            .insert("b.rs".to_string(), "h2".to_string());
+        state.save(repo_path).unwrap();
 
         let loaded = load_index_state_with_recovery(repo_path, true).unwrap();
 

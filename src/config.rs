@@ -110,6 +110,44 @@ impl ServerConfig {
     }
 }
 
+/// Embedding model knot's indexing pipeline and knot-server's query embedder
+/// both resolve from `KNOT_EMBED_MODEL` (falling back to knot's default).
+///
+/// knot-server exposes the *dimension* as its own `KNOT_SERVER_EMBED_DIM` but
+/// lets knot own the model name, so this mirrors the exact lookup performed by
+/// `knot::pipeline::embed::Embedder::init`. Keeping that value and
+/// [`validate_embed_pair`] in one module means the manually-built
+/// `knot::config::Config` and the startup guard can never disagree.
+pub fn resolved_embed_model() -> String {
+    std::env::var("KNOT_EMBED_MODEL")
+        .unwrap_or_else(|_| knot::pipeline::embed::DEFAULT_EMBED_MODEL.to_owned())
+}
+
+/// Fail fast when `KNOT_SERVER_EMBED_DIM` does not match the native dimension
+/// of the model selected via `KNOT_EMBED_MODEL`.
+///
+/// Mirrors knot's own `validate_embed_pair`. Without it a mismatch (for
+/// example `KNOT_EMBED_MODEL=BGEBaseENV15` while `KNOT_SERVER_EMBED_DIM`
+/// stays at the 384 default) only surfaces later as a confusing Qdrant
+/// "wrong vector size" error during collection setup or ingestion. An unknown
+/// model name is rejected with knot's list of accepted names.
+pub fn validate_embed_pair(embed_model: &str, embed_dim: u64) -> anyhow::Result<()> {
+    use std::str::FromStr;
+
+    let choice = knot::pipeline::embed::EmbedModelChoice::from_str(embed_model)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    if choice.dim != embed_dim {
+        anyhow::bail!(
+            "KNOT_SERVER_EMBED_DIM ({embed_dim}) does not match the selected embedding model \
+             '{embed_model}' (native dimension {native}). \
+             Set KNOT_SERVER_EMBED_DIM to {native}, or unset KNOT_EMBED_MODEL and re-run. \
+             Changing the model also requires a full re-index.",
+            native = choice.dim
+        );
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -213,5 +251,34 @@ mod tests {
         assert!(cfg.tracing_enabled);
         assert_eq!(cfg.otlp_endpoint, "http://jaeger:4317");
         assert_eq!(cfg.trace_sample_ratio, 0.25);
+    }
+
+    #[test]
+    fn test_validate_embed_pair_accepts_matching_model() {
+        validate_embed_pair("AllMiniLML6V2", 384).expect("384 matches MiniLM");
+        validate_embed_pair("BGEBaseENV15", 768).expect("768 matches BGE-base");
+    }
+
+    #[test]
+    fn test_validate_embed_pair_is_case_insensitive() {
+        validate_embed_pair("jinaembeddingsv2basecode", 768)
+            .expect("names parse case-insensitively");
+    }
+
+    #[test]
+    fn test_validate_embed_pair_rejects_mismatched_dimension() {
+        let err = validate_embed_pair("BGEBaseENV15", 384)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("KNOT_SERVER_EMBED_DIM (384)"), "{err}");
+        assert!(err.contains("BGEBaseENV15"), "{err}");
+        assert!(err.contains("native dimension 768"), "{err}");
+    }
+
+    #[test]
+    fn test_validate_embed_pair_rejects_unknown_model() {
+        let err = validate_embed_pair("GPT5", 384).unwrap_err().to_string();
+        assert!(err.contains("Unknown embedding model 'GPT5'"), "{err}");
+        assert!(err.contains("AllMiniLML6V2"), "{err}");
     }
 }

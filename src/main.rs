@@ -61,6 +61,12 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Starting knot-server v{}", env!("CARGO_PKG_VERSION"));
     tracing::info!("Binding to {}:{}", cfg.bind_addr, cfg.port);
 
+    // Fail fast on a model/dimension mismatch (e.g. a 768-dim model with the
+    // default 384 `KNOT_SERVER_EMBED_DIM`) before any database is touched.
+    let embed_model = config::resolved_embed_model();
+    config::validate_embed_pair(&embed_model, cfg.embed_dim)?;
+    tracing::info!("Embedding model: {embed_model} (dim {})", cfg.embed_dim);
+
     setup_rayon(cfg.rayon_threads);
 
     let graph_db = setup_neo4j(&cfg.neo4j_uri, &cfg.neo4j_user, &cfg.neo4j_password).await;

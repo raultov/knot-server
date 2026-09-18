@@ -289,6 +289,7 @@ fn build_knot_config(
         neo4j_password: state.neo4j_password.clone(),
         custom_queries_path: None,
         embed_dim: state.embed_dim,
+        embed_model: crate::config::resolved_embed_model(),
         batch_size: state.batch_size,
         clean: false,
         dependency_repos: Vec::new(),
