@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-18
+
+### Added
+- **Embedding model guard.** `knot-server` now resolves `KNOT_EMBED_MODEL`
+  exactly as `knot` does and validates it against `KNOT_SERVER_EMBED_DIM` at
+  startup, aborting with both dimensions named before any database is touched
+  when the selected model's native dimension differs (e.g. a 768-dim model with
+  the default 384 dimension). Mirrors `knot`'s own `validate_embed_pair` guard.
+
+### Changed
+- **Upgrade `knot` to 1.10.0.** Updated the `knot` dependency to 1.10.0 to support `Config.embed_model`.
+
+### Fixed
+- **Compatibility with `knot` 1.10 `Config.embed_model`.** Populate the new
+  `embed_model` field when building `knot::config::Config`, sourced from the
+  same `KNOT_EMBED_MODEL` variable that the indexer and search embedders read,
+  so the indexing model and query model cannot drift apart.
+- **Version-agnostic index-state test.** The state-loading test now persists
+  through `IndexState::save()` instead of hard-coding a schema version, so it
+  survives `IndexState` bumps (v5 → v6).
+
 ## [0.6.4] - 2026-09-16
 
 ### Changed
