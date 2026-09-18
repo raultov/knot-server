@@ -901,7 +901,8 @@ AI (via knot-server):
 | `KNOT_SERVER_NEO4J_URI` | `bolt://localhost:7687` | URI to the Neo4j instance |
 | `KNOT_SERVER_NEO4J_USER` | `neo4j` | Neo4j username |
 | `KNOT_NEO4J_PASSWORD` | *(required)* | Neo4j password |
-| `KNOT_SERVER_EMBED_DIM` | `384` | Embedding dimension (must match the model) |
+| `KNOT_SERVER_EMBED_DIM` | `384` | Embedding dimension. Validated at startup against the native dimension of `KNOT_EMBED_MODEL`; a mismatch aborts before any database is touched. |
+| `KNOT_EMBED_MODEL` | `AllMiniLML6V2` | Embedding model used for **both** indexing and query embedding, owned by `knot`. One of `AllMiniLML6V2` (384), `BGESmallENV15` (384), `BGEBaseENV15` (768), `MultilingualE5Small` (384), `JinaEmbeddingsV2BaseCode` (768), `NomicEmbedTextV15` (768). Changing it requires a matching `KNOT_SERVER_EMBED_DIM` and a full re-index. |
 | `KNOT_SERVER_RAYON_THREADS`| *(all cores)* | Number of threads for parallel source code parsing. Reduces CPU usage when set to a low value (e.g. `2`). |
 | `KNOT_SERVER_BATCH_SIZE` | `64` | Number of code entities buffered in memory per indexing batch. Lower values reduce RAM usage. |
 | `KNOT_SERVER_INGEST_CONCURRENCY` | `4` | Number of concurrent async tasks for embedding computation and database ingestion. Lower values reduce RAM and CPU usage. |
@@ -916,6 +917,24 @@ AI (via knot-server):
 > **Note:** When using Docker Compose, export `KNOT_SERVER_PORT` _before_ `docker compose up`
 > so the port mapping in `docker-compose.yml` also changes (defaults to `3000:3000`).
 > Example: `KNOT_SERVER_PORT=8080 docker compose up`
+
+### Embedding Model Guard
+
+Indexing and search must use the **same** embedding model: vectors built with one
+model are not comparable with queries embedded by another, and because the
+dimensions often match (e.g. two different 384-dim models) the mismatch would
+not error — it would only silently degrade recall. `knot-server` therefore
+resolves `KNOT_EMBED_MODEL` exactly as `knot` does and validates it against
+`KNOT_SERVER_EMBED_DIM` at startup:
+
+```
+KNOT_EMBED_MODEL=BGEBaseENV15 KNOT_SERVER_EMBED_DIM=384 knot-server
+# Error: KNOT_SERVER_EMBED_DIM (384) does not match the selected embedding model
+#        'BGEBaseENV15' (native dimension 768). ...
+```
+
+Set the two consistently, then rebuild the index (`POST /api/repos/{id}/sync`
+after a clean) whenever the model changes.
 
 ### Docker Compose Host Variables
 
