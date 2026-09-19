@@ -8,10 +8,8 @@ opencode.json
 .e2e_data/
 .antigravitycli/
 
-# Test artifacts
-.last-e2e-server.log
-.last-recovery-r.log
-.last-recovery-e2e-server.log
+# Test artifacts (suites write .last-*.log next to the script)
+.last-*.log
 /tmp/
 
 # Local knot workspace for dev
