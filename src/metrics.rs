@@ -273,11 +273,12 @@ pub fn set_last_success(repo_id: &str) {
         .set(now);
 }
 
-pub fn set_build_info() {
+pub fn set_build_info(embed_model: &str) {
     gauge!(
         "knot_build_info",
         "version" => env!("CARGO_PKG_VERSION"),
         "knot_version" => env!("KNOT_VERSION"),
+        "embed_model" => embed_model.to_owned(),
     )
     .set(1.0);
 }
@@ -468,7 +469,8 @@ mod tests {
             neo4j_uri: "bolt://localhost:7687".into(),
             neo4j_user: "neo4j".into(),
             neo4j_password: "secret".into(),
-            embed_dim: 384,
+            embed_dim: crate::config::default_embed_dim(),
+            embed_model: knot::pipeline::embed::DEFAULT_EMBED_MODEL.to_string(),
             rayon_threads: None,
             batch_size: 64,
             ingest_concurrency: 4,

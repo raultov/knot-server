@@ -289,7 +289,9 @@ fn build_knot_config(
         neo4j_password: state.neo4j_password.clone(),
         custom_queries_path: None,
         embed_dim: state.embed_dim,
-        embed_model: crate::config::resolved_embed_model(),
+        // The model the startup guard validated, not a fresh environment read
+        // that could drift from it.
+        embed_model: state.embed_model.clone(),
         batch_size: state.batch_size,
         clean: false,
         dependency_repos: Vec::new(),
@@ -420,7 +422,18 @@ async fn process_repository(
 
     // 5. Build config and load IndexState
     let knot_cfg = build_knot_config(repo, state);
-    let mut loaded = load_index_state_with_recovery(&repo.local_path, is_local)?;
+    // `clean = false`: a repository whose on-disk state was written by another
+    // embedding model fails the job with an actionable error instead of
+    // silently mixing vectors (a "force clean re-index" job kind would thread
+    // `clean = true` through here). For local repos the LoadErrorFallback
+    // branch deletes the stale state so the next run re-indexes fully — the
+    // correct recovery for a model switch on a local repo.
+    let mut loaded = load_index_state_with_recovery(
+        &repo.local_path,
+        is_local,
+        &knot_cfg.embed_model,
+        knot_cfg.clean,
+    )?;
     log_state_source(&loaded.source, &repo.id);
 
     // 6. Run the indexing pipeline
@@ -495,6 +508,38 @@ mod tests {
         tokio::sync::mpsc::Receiver<IndexJob>,
     ) {
         crate::handlers::tests_common::create_test_state_with_rx(workspace).await
+    }
+
+    /// M1 regression: the per-repo `knot::config::Config` must carry the model
+    /// the startup guard validated (`AppState::embed_model`), not a fresh
+    /// `KNOT_EMBED_MODEL` read that could drift from it.
+    #[tokio::test]
+    async fn test_build_knot_config_uses_state_embed_model() {
+        let dir = TempDir::new().unwrap();
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+
+        let mut state = create_test_state(&workspace).await;
+        // The pre-fix code read the model from the environment, so the
+        // distinctive value must differ from whatever it would resolve to,
+        // otherwise this test could pass against the bug.
+        let env_model = crate::config::resolved_embed_model();
+        let distinctive = if env_model == "BGEBaseENV15" {
+            "AllMiniLML6V2"
+        } else {
+            "BGEBaseENV15"
+        };
+        Arc::get_mut(&mut state)
+            .expect("the test state is uniquely owned")
+            .embed_model = distinctive.to_string();
+
+        let repo = make_test_repo("probe", &workspace.join("probe"), RepoStatus::Indexed);
+        let knot_cfg = build_knot_config(&repo, &state);
+
+        assert_eq!(knot_cfg.embed_model, distinctive);
+        assert_ne!(knot_cfg.embed_model, env_model);
+        assert_eq!(knot_cfg.embed_dim, state.embed_dim);
+        assert_eq!(knot_cfg.qdrant_collection, state.qdrant_collection);
     }
 
     #[tokio::test]

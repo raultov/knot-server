@@ -10,6 +10,7 @@ mod models;
 mod progress_store;
 mod registry;
 mod scheduler;
+mod startup_guard;
 mod telemetry;
 mod time_utils;
 mod webhook;
@@ -29,6 +30,7 @@ use knot::pipeline::embed::Embedder;
 use models::AppState;
 use registry::Registry;
 use std::collections::HashMap;
+use std::str::FromStr as _;
 use tokio::signal;
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
@@ -51,9 +53,7 @@ async fn main() -> anyhow::Result<()> {
     telemetry::init_subscriber(tracer_provider.as_ref());
 
     let metrics_handle = if cfg.metrics_enabled {
-        let handle = metrics::init()?;
-        metrics::set_build_info();
-        Some(handle)
+        Some(metrics::init()?)
     } else {
         None
     };
@@ -61,11 +61,23 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Starting knot-server v{}", env!("CARGO_PKG_VERSION"));
     tracing::info!("Binding to {}:{}", cfg.bind_addr, cfg.port);
 
-    // Fail fast on a model/dimension mismatch (e.g. a 768-dim model with the
-    // default 384 `KNOT_SERVER_EMBED_DIM`) before any database is touched.
+    // Resolve the embedding model, the derived dimension and the derived
+    // collection. The dimension is model-derived (KNOT_SERVER_EMBED_DIM is
+    // deprecated); an explicitly supplied collection always wins, otherwise
+    // the model's suffix is applied to the base default.
     let embed_model = config::resolved_embed_model();
-    config::validate_embed_pair(&embed_model, cfg.embed_dim)?;
-    tracing::info!("Embedding model: {embed_model} (dim {})", cfg.embed_dim);
+    let embed_dim = config::resolve_embed_dim(&embed_model, cfg.embed_dim)?;
+    let embed_choice = knot::pipeline::embed::EmbedModelChoice::from_str(&embed_model)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let qdrant_collection = cfg.resolved_collection(&embed_choice);
+    tracing::info!(
+        "Embedding model: {embed_model} (dim {embed_dim}), collection: {qdrant_collection}"
+    );
+
+    // After model resolution so the build-info gauge carries the active model.
+    if metrics_handle.is_some() {
+        metrics::set_build_info(&embed_model);
+    }
 
     setup_rayon(cfg.rayon_threads);
 
@@ -73,7 +85,21 @@ async fn main() -> anyhow::Result<()> {
 
     let fastembed_cache_dir = setup_fastembed_cache(&cfg.workspace_dir)?;
 
-    let vector_db = setup_qdrant(&cfg.qdrant_url, &cfg.qdrant_collection, cfg.embed_dim).await?;
+    // Marker-aware startup guard (S4): before the collection is touched, the
+    // guard ladder aborts on a dimension mismatch, warns when repositories
+    // indexed with another model would be invisible to semantic search, and
+    // stays silent on a fresh deployment.
+    startup_guard::verify_server_startup(
+        &cfg.qdrant_url,
+        &qdrant_collection,
+        (&cfg.neo4j_uri, &cfg.neo4j_user, &cfg.neo4j_password),
+        &embed_model,
+        &embed_choice,
+    )
+    .await?;
+
+    let vector_db =
+        setup_qdrant(&cfg.qdrant_url, &qdrant_collection, embed_dim, &embed_model).await?;
 
     let embedder = setup_embedder(fastembed_cache_dir)?;
 
@@ -96,11 +122,12 @@ async fn main() -> anyhow::Result<()> {
         registry: Arc::new(Mutex::new(registry)),
         job_tx: job_tx.clone(),
         qdrant_url: cfg.qdrant_url.clone(),
-        qdrant_collection: cfg.qdrant_collection.clone(),
+        qdrant_collection: qdrant_collection.clone(),
         neo4j_uri: cfg.neo4j_uri.clone(),
         neo4j_user: cfg.neo4j_user.clone(),
         neo4j_password: cfg.neo4j_password.clone(),
-        embed_dim: cfg.embed_dim,
+        embed_dim,
+        embed_model,
         rayon_threads: cfg.rayon_threads,
         batch_size: cfg.batch_size,
         ingest_concurrency: cfg.ingest_concurrency,
@@ -358,8 +385,17 @@ fn setup_fastembed_cache(workspace_dir: &str) -> anyhow::Result<std::path::PathB
     Ok(fastembed_cache_dir)
 }
 
-async fn setup_qdrant(url: &str, collection: &str, dim: u64) -> anyhow::Result<VectorDb> {
+async fn setup_qdrant(
+    url: &str,
+    collection: &str,
+    dim: u64,
+    _embed_model: &str,
+) -> anyhow::Result<VectorDb> {
     tracing::info!("Connecting to Qdrant at {}...", url);
+    // The dimension/model/collection consistency was already verified by the
+    // marker-aware startup guard (`startup_guard::verify_server_startup`),
+    // which runs before this and inspects the real stored vector size plus
+    // the Neo4j embed markers.
     let vector_db = VectorDb::connect(url, collection, dim).await?;
     vector_db.ensure_collection().await?;
     tracing::info!("Qdrant connection established");

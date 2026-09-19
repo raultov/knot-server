@@ -413,10 +413,11 @@ fn prune_tree(
 ///
 /// This guards the local-path sync against a one-time transition when the
 /// `knot` library bumps its on-disk state version. Without this, the first
-/// sync after the transition would fail at `IndexState::load` with
-/// "Detected index_state v0; current version is v3", because local_sync
-/// preserves `.knot/` (it is the indexer's incremental state, not part of
-/// the source tree). The function is a no-op when:
+/// sync after the transition would fail at `IndexState::load_for_indexer`
+/// (from `knot::pipeline::state`) with a "Detected index_state v0; the minimum
+/// compatible version is ..." error, because local_sync preserves `.knot/`
+/// (it is the indexer's incremental state, not part of the source tree). The
+/// function is a no-op when:
 ///   - the file does not exist (fresh mirror, no migration needed)
 ///   - the file has a `version` field (current format, loadable)
 ///   - the file is corrupt or unreadable (we do not destroy unknown content)

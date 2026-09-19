@@ -165,6 +165,10 @@ pub struct AppState {
     pub neo4j_user: String,
     pub neo4j_password: String,
     pub embed_dim: u64,
+    /// Resolved embedding model name (from `KNOT_EMBED_MODEL`, falling back to
+    /// knot's default). Surfaced in the `/graph` footer alongside the server
+    /// version so the running model is visible without reading startup logs.
+    pub embed_model: String,
     pub rayon_threads: Option<usize>,
     pub batch_size: usize,
     pub ingest_concurrency: usize,

@@ -256,9 +256,20 @@
       transform: translateY(-1px);
     }
 
-    #version-badge {
+    #status-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    #version-badge,
+    #embed-badge {
       font-family: ui-monospace, SFMono-Regular, monospace;
       color: #666;
+    }
+
+    #embed-badge {
+      color: #4a9eff;
     }
   </style>
 </head>
@@ -325,7 +336,10 @@
 
   <div id="status-bar">
     <span id="status-text">Ready</span>
-    <span id="version-badge">knot-server v{{KNOT_SERVER_VERSION}}</span>
+    <div id="status-right">
+      <span id="version-badge">knot-server v{{KNOT_SERVER_VERSION}}</span>
+      <span id="embed-badge" title="Embedding model used for indexing and search, and its native vector dimension">{{KNOT_EMBED_MODEL}} · {{KNOT_EMBED_DIM}} dims</span>
+    </div>
   </div>
 
   <script src="https://unpkg.com/3d-force-graph"></script>

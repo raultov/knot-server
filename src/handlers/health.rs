@@ -43,6 +43,12 @@ pub async fn health_handler(State(state): State<Arc<AppState>>) -> Response {
         "repositories_indexing": indexing_count,
         "workspace_dir": state.workspace_dir,
         "metrics_endpoint": "/metrics",
+        // Transparency: an operator must be able to tell from the API which
+        // embedding model is answering, at which dimension and in which
+        // Qdrant collection.
+        "embed_model": state.embed_model,
+        "embed_dim": state.embed_dim,
+        "qdrant_collection": state.qdrant_collection,
     });
 
     (StatusCode::OK, Json(health)).into_response()

@@ -1,5 +1,10 @@
+use std::sync::Arc;
+
+use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+
+use crate::models::AppState;
 
 pub async fn favicon_handler() -> Response {
     const FAVICON_BYTES: &[u8] = include_bytes!("../../assets/favicon.png");
@@ -10,11 +15,17 @@ pub async fn favicon_handler() -> Response {
         .unwrap()
 }
 
-pub async fn graph_viewer_handler() -> Response {
+pub async fn graph_viewer_handler(State(state): State<Arc<AppState>>) -> Response {
+    // The version is compile-time (a `LazyLock`), but the embedding model and
+    // its dimension are resolved at startup, so they are substituted per
+    // request from the running state.
+    let html = GRAPH_VIEWER_HTML
+        .replace("{{KNOT_EMBED_MODEL}}", &state.embed_model)
+        .replace("{{KNOT_EMBED_DIM}}", &state.embed_dim.to_string());
     (
         StatusCode::OK,
         [("content-type", "text/html; charset=utf-8")],
-        GRAPH_VIEWER_HTML.as_str(),
+        html,
     )
         .into_response()
 }
