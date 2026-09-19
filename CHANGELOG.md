@@ -7,7 +7,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  
 ---
 
-## [Unreleased]
+## [0.8.0]
+
+### Changed
+- **Upgrade `knot` to 1.11.0 (two-model embedding selection).** The default
+  embedding model is `AllMiniLML6V2` (384, on `knot_entities`) —
+  **upgrading from `v0.7.0` with a MiniLM index needs zero re-index and zero
+  configuration change**. The supported set is closed to exactly two models:
+  `AllMiniLML6V2` (384, default) and `BGEBaseENV15` (768, opt-in via
+  `KNOT_EMBED_MODEL`). The previously accepted model names
+  (`BGESmallENV15`, `MultilingualE5Small`, `JinaEmbeddingsV2BaseCode`,
+  `NomicEmbedTextV15`) are removed upstream; selecting one now aborts with
+  the two accepted names.
+- **Derived dimension.** The vector dimension is derived from
+  `KNOT_EMBED_MODEL` (MiniLM → 384, BGE-base → 768).
+  **`KNOT_SERVER_EMBED_DIM` / `--embed-dim` are deprecated**: an agreeing
+  value still parses and warns (removed in the next major); a contradicting
+  one aborts, because it means the operator believes a different model is
+  active.
+- **Derived collection.** When `KNOT_SERVER_QDRANT_COLLECTION` is not
+  explicitly set, the model's suffix is applied to the base default:
+  MiniLM keeps `knot_entities` byte-for-byte; a BGE-base operator lands on
+  `knot_entities_bge768` automatically instead of colliding with a
+  fixed-size collection. An explicit value always wins.
+
+### Added
+- **Marker-aware startup guard.** Before any collection is touched,
+  `knot-server` runs knot's guard ladder: it probes the Qdrant collection's
+  real vector dimension and reads the per-repository embedding markers from
+  the Neo4j `:Repository` nodes. Outcome: proceed silently (fresh
+  deployment / everything agrees), **abort with an actionable message**
+  naming the collection, both dimensions and the model (dimension
+  mismatch / every marked repo on another model), or **warn naming every
+  repository** indexed with the other model — those repos exist in the
+  graph but are invisible to semantic search from this collection. A
+  server running `v0.7.0` was blind to partial model mixing; it now
+  surfaces at startup instead of as silently missing semantic hits.
+- **`GET /api/health` transparency fields**: `embed_model`, `embed_dim` and
+  `qdrant_collection` report which model answers, at which dimension and
+  in which collection — the cheapest way for an operator to see the active
+  model through the API.
+- **`knot_build_info` metric carries the `embed_model` label**, so the
+  active model is visible in scrapes as well.
+- **`tests/run_embed_guard_e2e.sh`**: regression E2E pinning the
+  zero-re-index MiniLM upgrade path (defaults start ready; `/api/health`
+  reports the derived model/dimension/collection), the abort against a
+  mismatched collection (exit non-zero; the message names the collection,
+  both dimensions and the model), and — scenario 3 — that a BGE-base server
+  with **no** explicit collection derives and probes `knot_entities_bge768`.
+
+### Fixed
+- **No silent vector mixing across models.** Repositories whose on-disk
+  state was written by another embedding model now fail the indexing job
+  with an actionable error (remote repos) or delete the stale state and
+  re-index fully (local repos), instead of mixing vectors from two models.
+- **Collection derivation now actually applies.** `ServerConfig::resolved_collection`
+  decides between an explicitly supplied `KNOT_SERVER_QDRANT_COLLECTION` /
+  `--qdrant-collection` and the model-derived name, using clap's `ValueSource`
+  (command line *or* environment). Previously the raw field was passed as if it
+  were always explicit, so a BGE-base operator without an explicit collection
+  silently got `knot_entities` instead of `knot_entities_bge768`.
+- **Indexing jobs use the startup-validated model.** `build_knot_config` now
+  reads `AppState.embed_model` instead of re-reading `KNOT_EMBED_MODEL`, so a
+  job cannot run under a model the startup guard did not validate.
 
 ## [0.7.0] - 2026-09-18
 
