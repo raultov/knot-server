@@ -38,7 +38,8 @@ pub(crate) async fn create_test_state_with_capacity(
             neo4j_uri: "bolt://localhost:7687".into(),
             neo4j_user: "neo4j".into(),
             neo4j_password: "secret".into(),
-            embed_dim: 384,
+            embed_dim: crate::config::default_embed_dim(),
+            embed_model: knot::pipeline::embed::DEFAULT_EMBED_MODEL.to_string(),
             rayon_threads: None,
             batch_size: 64,
             ingest_concurrency: 4,
@@ -327,6 +328,15 @@ mod tests {
         assert_eq!(health["status"], "ok");
         assert!(health["uptime_seconds"].as_u64().is_some());
         assert!(health["repositories_total"].as_u64().is_some());
+        // Transparency: the payload reports which embedding model answers,
+        // its dimension and the Qdrant collection in use. The test AppState
+        // pins knot's default model and the matching 384 dimension.
+        assert_eq!(
+            health["embed_model"],
+            knot::pipeline::embed::DEFAULT_EMBED_MODEL
+        );
+        assert_eq!(health["embed_dim"], 384);
+        assert_eq!(health["qdrant_collection"], "knot_entities");
     }
 
     #[tokio::test]
@@ -426,6 +436,18 @@ mod tests {
             "package version absent from HTML"
         );
         assert!(body.contains("knot-server v"), "version badge malformed");
+        assert!(
+            !body.contains("{{KNOT_EMBED_MODEL}}"),
+            "embedding model placeholder was not substituted"
+        );
+        assert!(
+            !body.contains("{{KNOT_EMBED_DIM}}"),
+            "embedding dimension placeholder was not substituted"
+        );
+        assert!(
+            body.contains(knot::pipeline::embed::DEFAULT_EMBED_MODEL),
+            "embedding model absent from the graph footer"
+        );
     }
 
     #[tokio::test]
