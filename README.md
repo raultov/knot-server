@@ -897,12 +897,12 @@ AI (via knot-server):
 | `KNOT_SERVER_BIND_ADDR` | `0.0.0.0` | Address the server binds to |
 | `KNOT_WORKSPACE_DIR` | `/var/lib/knot/repos` | Directory where Git repos are cloned & locks are managed. Ensure the user running the server has write access (e.g., `export KNOT_WORKSPACE_DIR=$HOME/.knot/repos`). |
 | `KNOT_SERVER_QDRANT_URL` | `http://localhost:6334` | URL to the Qdrant instance |
-| `KNOT_SERVER_QDRANT_COLLECTION`| `knot_entities` | Qdrant collection name |
+| `KNOT_SERVER_QDRANT_COLLECTION`| `knot_entities` | Explicit Qdrant collection override. By default the collection is **derived**: the model's suffix is appended to `knot_entities` (`knot_entities_bge768` for BGE-base). An explicitly supplied value always wins. |
 | `KNOT_SERVER_NEO4J_URI` | `bolt://localhost:7687` | URI to the Neo4j instance |
 | `KNOT_SERVER_NEO4J_USER` | `neo4j` | Neo4j username |
 | `KNOT_NEO4J_PASSWORD` | *(required)* | Neo4j password |
-| `KNOT_SERVER_EMBED_DIM` | `384` | Embedding dimension. Validated at startup against the native dimension of `KNOT_EMBED_MODEL`; a mismatch aborts before any database is touched. |
-| `KNOT_EMBED_MODEL` | `AllMiniLML6V2` | Embedding model used for **both** indexing and query embedding, owned by `knot`. One of `AllMiniLML6V2` (384), `BGESmallENV15` (384), `BGEBaseENV15` (768), `MultilingualE5Small` (384), `JinaEmbeddingsV2BaseCode` (768), `NomicEmbedTextV15` (768). Changing it requires a matching `KNOT_SERVER_EMBED_DIM` and a full re-index. |
+| `KNOT_EMBED_MODEL` | `AllMiniLML6V2` | Embedding model used for **both** indexing and query embedding, owned by `knot`. The supported set is closed to exactly two models: `AllMiniLML6V2` (384, default) and `BGEBaseENV15` (768). The vector **dimension** and the default collection are derived from the model; changing the model requires a full re-index. |
+| `KNOT_SERVER_EMBED_DIM` | *(deprecated)* | **Deprecated.** The dimension is derived from `KNOT_EMBED_MODEL`. An agreeing value still parses and warns; a contradicting one aborts. Removed in the next major. |
 | `KNOT_SERVER_RAYON_THREADS`| *(all cores)* | Number of threads for parallel source code parsing. Reduces CPU usage when set to a low value (e.g. `2`). |
 | `KNOT_SERVER_BATCH_SIZE` | `64` | Number of code entities buffered in memory per indexing batch. Lower values reduce RAM usage. |
 | `KNOT_SERVER_INGEST_CONCURRENCY` | `4` | Number of concurrent async tasks for embedding computation and database ingestion. Lower values reduce RAM and CPU usage. |
@@ -918,23 +918,77 @@ AI (via knot-server):
 > so the port mapping in `docker-compose.yml` also changes (defaults to `3000:3000`).
 > Example: `KNOT_SERVER_PORT=8080 docker compose up`
 
-### Embedding Model Guard
+### Embedding Model Selection
+
+`KNOT_EMBED_MODEL` is the single lever. The supported set is closed to exactly
+two models — the vector dimension **and** the default Qdrant collection are
+both derived from it:
+
+| Model (`KNOT_EMBED_MODEL`) | Dimension | Default collection |
+|---|---|---|
+| `AllMiniLML6V2` *(default)* | 384 | `knot_entities` (unchanged, byte-for-byte) |
+| `BGEBaseENV15` *(opt-in)* | 768 | `knot_entities_bge768` (derived) |
+
+A Qdrant collection's vector size is fixed at creation, so a
+different-dimension model cannot share the default collection — deriving a
+suffixed one prevents the collision. An explicitly supplied
+`KNOT_SERVER_QDRANT_COLLECTION` always wins.
 
 Indexing and search must use the **same** embedding model: vectors built with one
 model are not comparable with queries embedded by another, and because the
 dimensions often match (e.g. two different 384-dim models) the mismatch would
-not error — it would only silently degrade recall. `knot-server` therefore
-resolves `KNOT_EMBED_MODEL` exactly as `knot` does and validates it against
-`KNOT_SERVER_EMBED_DIM` at startup:
+not error — it would only silently degrade recall.
+
+`KNOT_SERVER_EMBED_DIM` / `--embed-dim` are **deprecated**: the dimension is
+derived from the model. An agreeing value still parses (with a deprecation
+warning naming the next removal); a contradicting one aborts, because it means
+the operator believes a different model is active:
 
 ```
 KNOT_EMBED_MODEL=BGEBaseENV15 KNOT_SERVER_EMBED_DIM=384 knot-server
 # Error: KNOT_SERVER_EMBED_DIM (384) does not match the selected embedding model
-#        'BGEBaseENV15' (native dimension 768). ...
+#        'BGEBaseENV15' (native dimension 768). Unset KNOT_SERVER_EMBED_DIM / --embed-dim: ...
 ```
 
-Set the two consistently, then rebuild the index (`POST /api/repos/{id}/sync`
-after a clean) whenever the model changes.
+### Startup Embed Guard
+
+At startup — before any collection is created or touched — `knot-server` runs
+knot's guard ladder with three possible outcomes:
+
+1. **Proceed silently** — fresh deployment (collection absent), or everything
+   agrees (dimension + every persisted per-repository embed marker).
+2. **Abort** — the configured model cannot write valid vectors into the
+   existing collection (dimension mismatch), or every marked repository was
+   indexed with another model:
+   ```
+   Qdrant collection 'knot_entities' holds 384-dimensional vectors but the
+   configured embedding model 'BGEBaseENV15' produces 768-dimensional ones. ...
+   ```
+   The message names the collection, both dimensions, the model and the fix.
+3. **Warn** — a partial mixed estate: repositories indexed with the other
+   model exist in the graph (Neo4j is model-agnostic) but are **invisible to
+   semantic search** from this collection; they are named in the warning so
+   they can be re-indexed. `find_callers` / `explore_file` / `deps` still
+   return them.
+
+The default-model upgrade path from `v0.7.0` needs **zero re-index and zero
+configuration change**: the default stays `AllMiniLML6V2`/384 on
+`knot_entities`, and the index state is accepted unchanged. Adopting
+`BGEBaseENV15` is a deliberate opt-in whose only cost is a clean re-index of
+every repository; per-repository markers are written at index time so future
+mismatches are always explicit.
+
+> **⚠️ Embedding default flip — rebuild and re-index together.**
+> When upgrading `knot` *or* `knot-server` across a **default model flip**
+> (e.g. an older binary whose default was `BGEBaseENV15`, now `AllMiniLML6V2`):
+> if the on-disk state/collection was built by the other model, the startup
+> guard aborts with an actionable message naming the collection, both
+> dimensions and the model. Wipe the collection (or unset
+> `KNOT_EMBED_MODEL`/opt into the model already in use) and re-index, then
+> restart. Note the inverse hazard: switching between two models of the
+> **same dimension** produces no dimension error, only silent recall loss —
+> the persisted markers make that class explicit too. Always rebuild and
+> re-index together.
 
 ### Docker Compose Host Variables
 
@@ -1163,7 +1217,8 @@ Open `http://localhost:3000/docs` in your browser to explore all endpoints with 
 **8. Explore the codebase visually**
 Open `http://localhost:3000/graph` in your browser. Select a repository from the
 dropdown, search for an entity, and click nodes to expand their call/relationship graph
-in 3D.
+in 3D. The footer shows the running `knot-server` version and, next to it, the resolved
+embedding model and its native dimension (e.g. `BGEBaseENV15 · 768 dims`).
 
 ---
 
