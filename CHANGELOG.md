@@ -9,7 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-09-20
+
 ### Changed
+- **Upgrade `knot` to 1.11.1.** Updated the `knot` dependency from 1.11.0 to 1.11.1 to pick up upstream patch fixes; no API or indexing changes required.
 - **REST/MCP parity for dependency lookup (`GET /api/repos/{id}/deps`) — BREAKING:** The response shape changed from a bare JSON array `[{"repo_name": ...}]` to an object `{"dependencies": [...], "diagnostics": {...} | null, "depth": {...}}`. When `dependencies` is empty, `diagnostics` is lazily populated with a structured explanation (e.g. declared dependencies that resolve to no indexed repo, stale graph, unindexed repo, or unmatchable build identity), establishing parity with `list_repo_dependencies` MCP tool.
 - **Surface depth report:** `GET /api/repos/{id}/deps` now surfaces a `depth` report object containing `requested`, `effective`, `clamped`, and `ceiling` (derived from knot core constants `DEFAULT_MAX_DEPTH` and `MAX_DEPTH_CEILING`).
 
