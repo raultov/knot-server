@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  
 ---
 
+## [Unreleased]
+
+### Changed
+- **REST/MCP parity for dependency lookup (`GET /api/repos/{id}/deps`) — BREAKING:** The response shape changed from a bare JSON array `[{"repo_name": ...}]` to an object `{"dependencies": [...], "diagnostics": {...} | null, "depth": {...}}`. When `dependencies` is empty, `diagnostics` is lazily populated with a structured explanation (e.g. declared dependencies that resolve to no indexed repo, stale graph, unindexed repo, or unmatchable build identity), establishing parity with `list_repo_dependencies` MCP tool.
+- **Surface depth report:** `GET /api/repos/{id}/deps` now surfaces a `depth` report object containing `requested`, `effective`, `clamped`, and `ceiling` (derived from knot core constants `DEFAULT_MAX_DEPTH` and `MAX_DEPTH_CEILING`).
+
+### Fixed
+- **Silent clamping on `/deps`:** A requested `max_depth` exceeding `MAX_DEPTH_CEILING` (10) or floored below 1 is now reported in `depth.clamped` and `depth.effective`.
+- **Parameter name mismatch in agent skills:** Corrected parameter name from `depth` to `max_depth` across all `knot-server-deps` skill documentation copies (`.opencode/skills/knot-server-deps/SKILL.md`, `skills/deps.md`, `.knot-server-agent-skills/deps.md`).
+
 ## [0.8.0]
 
 ### Changed

@@ -1,6 +1,6 @@
 # Knot-Server Deps: Repository Dependency Graph
 
-**Endpoint:** `GET /api/repos/{id}/deps?depth=...&reverse=...`
+**Endpoint:** `GET /api/repos/{id}/deps?max_depth=...&reverse=...`
 
 > **MCP equivalent:** if this agent is connected to a knot-server `/mcp`
 > endpoint, prefer the `list_repo_dependencies` tool — same engine, structured
@@ -32,7 +32,7 @@ This answers:
 REPO_ID="backend"
 
 curl -fsS -G \
-  --data-urlencode "depth=2" \
+  --data-urlencode "max_depth=2" \
   --data-urlencode "reverse=false" \
   "${KNOT_SERVER_URL:-http://localhost:3000}/api/repos/${REPO_ID}/deps" \
   | jq
@@ -41,24 +41,63 @@ curl -fsS -G \
 ### Parameters
 
 - **`id`** (path): The repository ID. Must match an indexed repository.
-- **`depth`** (query, optional, default: 3): Maximum depth for transitive traversal.
+- **`max_depth`** (query, optional, default: 3): Maximum depth for transitive traversal.
   - `1` = direct dependencies only
   - `2` = direct + one level deeper
-  - Maximum: 10
+  - Maximum: 10 (requests above 10 are clamped to 10)
 - **`reverse`** (query, optional, default: false): Show **reverse** dependencies
   — repositories that depend ON this one. Useful for impact analysis.
 
 ## Output Format
 
-The endpoint returns a JSON array of dependency objects. The exact shape
-depends on the traversal, but typically includes the repository names.
+The endpoint returns an object containing `dependencies`, `diagnostics` (populated when `dependencies` is empty), and `depth` report.
 
 ```json
-[
-  { "repo_name": "auth-lib" },
-  { "repo_name": "common-utils" },
-  { "repo_name": "billing-api" }
-]
+{
+  "dependencies": [
+    { "repo_name": "auth-lib" },
+    { "repo_name": "common-utils" }
+  ],
+  "diagnostics": null,
+  "depth": {
+    "requested": 2,
+    "effective": 2,
+    "clamped": false,
+    "ceiling": 10
+  }
+}
+```
+
+When `dependencies` is empty, `diagnostics` provides structured explanation:
+
+```json
+{
+  "dependencies": [],
+  "diagnostics": {
+    "direction": "forward",
+    "repo_indexed": true,
+    "answerable": true,
+    "reason": "declared_but_unresolved",
+    "remedy": "Index the dependency's own repository with `knot-indexer --repo-path <path>` — the DEPENDS_ON edge is created by that run.",
+    "identity": {
+      "build_system": "npm",
+      "group_id": "",
+      "artifact_id": "job-watch-ui",
+      "version": "0.1.0"
+    },
+    "declared_dependencies": [
+      { "name": "react", "resolved_repo": null }
+    ],
+    "declared_count": 35,
+    "resolved_count": 0
+  },
+  "depth": {
+    "requested": 3,
+    "effective": 3,
+    "clamped": false,
+    "ceiling": 10
+  }
+}
 ```
 
 ## Cross-Repository Call Resolution

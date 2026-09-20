@@ -1187,6 +1187,20 @@ else
     exit 1
 fi
 
+# Query /deps endpoint for the single local repo (no build system identity, empty result with diagnostics)
+DEPS=$(curl -s -w "%{http_code}" -o /tmp/s2_deps.json \
+    "$BASE_URL/api/repos/$LOCAL_REPO_ID/deps?max_depth=99")
+if [ "$DEPS" = "200" ] && \
+   jq -e 'type == "object" and (.dependencies | type == "array")' /tmp/s2_deps.json > /dev/null 2>&1 && \
+   jq -e '.diagnostics != null and (.diagnostics.reason | type == "string") and (.diagnostics | has("answerable"))' /tmp/s2_deps.json > /dev/null 2>&1 && \
+   jq -e '.depth.clamped == true and .depth.effective == 10 and .depth.requested == 99' /tmp/s2_deps.json > /dev/null 2>&1; then
+    echo -e "${GREEN}PASS${NC} — /deps returned object shape, diagnostics explanation, and depth report"
+else
+    echo -e "${RED}FAIL${NC} — /deps failed validation (status: $DEPS)"
+    cat /tmp/s2_deps.json
+    exit 1
+fi
+
 # ── Test S3: Modify an existing class uncommitted, re-sync, verify change ──
 echo -e "\n${CYAN}Test S3: Uncommitted modification picked up after sync${NC}"
 cat >> "$LOCAL_LIVE_PATH/UserService.java" <<'JAVA'
@@ -1396,7 +1410,7 @@ echo "  Cleaned up artifact live repo"
 curl -s -o /dev/null -X DELETE "$BASE_URL/api/repos/$LOCAL_REPO_ID"
 rm -rf "$LOCAL_LIVE_PATH"
 rm -rf "$LOCAL_SOURCE_ROOT"
-rm -f /tmp/s2_explore.json
+rm -f /tmp/s2_explore.json /tmp/s2_deps.json
 echo "  Cleaned up local live repo"
 
 # ── Test G13-G17: Repository Dependency Graph endpoint ──

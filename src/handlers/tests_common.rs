@@ -1265,4 +1265,20 @@ mod tests {
             get_error(app, "/api/repos/ghost/callers?entity=x&max_targets=500").await;
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
     }
+
+    #[tokio::test]
+    async fn deps_handler_reaches_graph_db_and_returns_500_on_test_harness() {
+        let dir = TempDir::new().unwrap();
+        let (state, _job_rx) = create_test_state_with_tempdir(&dir).await;
+        let app = build_test_app(state);
+
+        // The test harness uses unreachable graph DB credentials (bolt://localhost:9999),
+        // so run_deps deterministically returns an error resulting in 500 INTERNAL_SERVER_ERROR.
+        let (status, body) = get_error(app, "/api/repos/ghost/deps").await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(
+            body.contains("Deps lookup failed"),
+            "body must contain error message: {body}"
+        );
+    }
 }

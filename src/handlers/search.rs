@@ -504,11 +504,11 @@ pub async fn explore_handler(
         DepsParams,
     ),
     responses(
-        (status = 200, description = "Dependency lookup results", body = serde_json::Value),
+        (status = 200, description = "Dependency lookup results object", body = super::deps_response::DepsResponse),
         (status = 400, description = "Missing or invalid query parameter", body = ErrorResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse),
     ),
-    description = "Cross-repository dependency lookup. Shows which repos depend on this one or vice versa.",
+    description = "Cross-repository dependency lookup. Returns an object with dependencies array, depth report, and diagnostic details when empty.",
 )]
 #[tracing::instrument(
     name = "deps",
@@ -520,14 +520,39 @@ pub async fn deps_handler(
     Path(id): Path<String>,
     Query(params): Query<DepsParams>,
 ) -> Response {
-    let max_depth = params.max_depth.unwrap_or(3);
+    let requested_depth = params
+        .max_depth
+        .unwrap_or(knot::cli_tools::DEFAULT_MAX_DEPTH);
     let reverse = params.reverse.unwrap_or(false);
     let span = tracing::Span::current();
-    span.record("max_depth", max_depth);
+    span.record("max_depth", requested_depth);
     span.record("reverse", reverse);
 
-    match knot::cli_tools::run_deps(&id, max_depth, reverse, &state.graph_db).await {
-        Ok(value) => (StatusCode::OK, Json(value)).into_response(),
+    let effective_depth = knot::cli_tools::resolve_max_depth(requested_depth);
+
+    match knot::cli_tools::run_deps(&id, effective_depth, reverse, &state.graph_db).await {
+        Ok(value) => {
+            let diagnostics = if value.as_array().is_some_and(|a| a.is_empty()) {
+                match knot::cli_tools::collect_deps_diagnostics(&id, reverse, &state.graph_db).await
+                {
+                    Ok(diag) => Some(diag),
+                    Err(e) => {
+                        tracing::warn!("Failed to collect deps diagnostics for repo '{id}': {e}");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            let body = super::deps_response::build_deps_response(
+                value,
+                diagnostics.as_ref(),
+                reverse,
+                requested_depth,
+            );
+            (StatusCode::OK, Json(body)).into_response()
+        }
         Err(e) => error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Deps lookup failed: {e}"),
