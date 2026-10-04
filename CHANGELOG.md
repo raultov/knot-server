@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-10-04
+
+### Changed
+- **Upgrade `knot` to 1.11.2.** Updated the `knot` dependency to 1.11.2 to pick up upstream patch fixes.
+- **Update toolchain pin in Dockerfile.** Updated default Rust toolchain pin to 1.98.0 in Dockerfile.
+
+### Documentation
+- **Update batch size defaults in README.md.** Updated default `KNOT_SERVER_BATCH_SIZE` references from 64 to 128 in documentation tables.
+
 ## [0.8.1] - 2026-09-20
 
 ### Changed
