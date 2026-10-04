@@ -904,7 +904,7 @@ AI (via knot-server):
 | `KNOT_EMBED_MODEL` | `AllMiniLML6V2` | Embedding model used for **both** indexing and query embedding, owned by `knot`. The supported set is closed to exactly two models: `AllMiniLML6V2` (384, default) and `BGEBaseENV15` (768). The vector **dimension** and the default collection are derived from the model; changing the model requires a full re-index. |
 | `KNOT_SERVER_EMBED_DIM` | *(deprecated)* | **Deprecated.** The dimension is derived from `KNOT_EMBED_MODEL`. An agreeing value still parses and warns; a contradicting one aborts. Removed in the next major. |
 | `KNOT_SERVER_RAYON_THREADS`| *(all cores)* | Number of threads for parallel source code parsing. Reduces CPU usage when set to a low value (e.g. `2`). |
-| `KNOT_SERVER_BATCH_SIZE` | `64` | Number of code entities buffered in memory per indexing batch. Lower values reduce RAM usage. |
+| `KNOT_SERVER_BATCH_SIZE` | `128` | Number of code entities buffered in memory per indexing batch. Lower values reduce RAM usage. |
 | `KNOT_SERVER_INGEST_CONCURRENCY` | `4` | Number of concurrent async tasks for embedding computation and database ingestion. Lower values reduce RAM and CPU usage. |
 | `KNOT_SERVER_POLL_INTERVAL_SECS` | `86400` (24h) | How often the background scheduler runs |
 | `KNOT_SERVER_MAX_INDEX_AGE_SECS` | `86400` (24h) | Age before a repository is automatically re-indexed |
@@ -1011,7 +1011,7 @@ usage during indexing. Three environment variables control resource consumption:
 | Variable | Controls | Default | Effect of lowering |
 |----------|----------|---------|-------------------|
 | `KNOT_SERVER_RAYON_THREADS` | CPU | all cores | Fewer parallel parsers → lower CPU, slightly slower |
-| `KNOT_SERVER_BATCH_SIZE` | RAM | `64` | Fewer entities buffered in memory → lower RAM |
+| `KNOT_SERVER_BATCH_SIZE` | RAM | `128` | Fewer entities buffered in memory → lower RAM |
 | `KNOT_SERVER_INGEST_CONCURRENCY` | RAM + CPU | `4` | Fewer concurrent embedding + DB writes → lower RAM and CPU |
 
 ### Preconfigured Profiles
@@ -1020,7 +1020,7 @@ usage during indexing. Three environment variables control resource consumption:
 |---------|---------------|------------|--------------------|--------------|--------------|
 | **Kubernetes / Low memory** | `2` | `16` | `1` | < 1 GiB | ~200% |
 | **Balanced** | `4` | `32` | `2` | ~2 GiB | ~400% |
-| **Maximum throughput** (default) | all cores | `64` | `4` | ~5 GiB | all cores |
+| **Maximum throughput** (default) | all cores | `128` | `4` | ~5 GiB | all cores |
 
 ### Docker run with tuning
 
