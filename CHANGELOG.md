@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-10-06
+
+### Changed
+- **Upgrade `knot` to 1.11.3.** Updated the `knot` dependency from 1.11.2 to 1.11.3 to pick up upstream patch fixes; no API or indexing changes required.
+
 ## [0.8.2] - 2026-10-04
 
 ### Changed
