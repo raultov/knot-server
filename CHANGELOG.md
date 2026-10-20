@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.5] - 2026-10-20
+
+### Changed
+- **Upgrade `knot` to 1.11.5.** Updated the `knot` dependency from 1.11.4 to 1.11.5. Upstream fixes doubled FQNs on annotated Java/Kotlin types (restoring their `OVERRIDES` edges) and tightens receiver matching for untyped interface calls; re-indexing Java/Kotlin repositories is recommended to pick up the corrected graph.
+- **Callers responses gain a `dispatched_calls` bucket.** `GET /api/callers`, `GET /api/repos/{id}/callers` and the MCP `find_callers` tool now include knot's new *Dispatched calls* bucket (callers bound to an override of the target or to a supertype method it overrides). The E2E G6 key-set pin and the README were updated accordingly.
+
 ## [0.8.4] - 2026-10-19
 
 ### Changed
