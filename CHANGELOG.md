@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.6] - 2026-10-21
+
+### Changed
+- **Upgrade `knot` to 1.11.6.** Updated the `knot` dependency from 1.11.5 to 1.11.6. Upstream `OVERRIDES` edges now respect overloads (matched by arity and parameter types for Java/Kotlin/Groovy/C#), so **Overridden by** and **Dispatched calls** no longer report the wrong overload; no API changes required. Existing indexes keep the stale edges until re-indexed.
+
 ## [0.8.5] - 2026-10-20
 
 ### Changed
