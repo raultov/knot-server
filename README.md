@@ -265,7 +265,7 @@ The spec is auto-generated at compile time via [`utoipa`](https://crates.io/crat
 
 ### ⚙️ Cluster & Health
 - **`GET /api/health`**: Check the health of the server, including connections to Qdrant and Neo4j, and view repository statistics.
-- **Distributed Locking**: File-based locking (`.knot.lock`) allows multiple `knot-server` instances to share a single NFS/EFS workspace, ensuring only one instance indexes a given repository at a time.
+- **Distributed Locking**: File-based locking (`<workspace>/.locks/<repo_id>.lock`) allows multiple `knot-server` instances to share a single NFS/EFS workspace, ensuring only one instance indexes a given repository at a time. Lock files live outside the repository directories, so wiping a repository's local dir (fresh clone, failure cleanup) never lets a second node acquire a lock that is still held.
 - **Background Scheduler**: Automatically detects and cleans up stale locks, and periodically re-indexes repositories that haven't been synced recently.
 
 ### 🛠️ Development & Quality Gates
@@ -908,7 +908,7 @@ AI (via knot-server):
 | `KNOT_SERVER_INGEST_CONCURRENCY` | `4` | Number of concurrent async tasks for embedding computation and database ingestion. Lower values reduce RAM and CPU usage. |
 | `KNOT_SERVER_POLL_INTERVAL_SECS` | `86400` (24h) | How often the background scheduler runs |
 | `KNOT_SERVER_MAX_INDEX_AGE_SECS` | `86400` (24h) | Age before a repository is automatically re-indexed |
-| `KNOT_SERVER_STALE_LOCK_TIMEOUT_SECS` | `3600` (1h) | Timeout before a `.knot.lock` file is considered orphaned and removed |
+| `KNOT_SERVER_STALE_LOCK_TIMEOUT_SECS` | `3600` (1h) | Timeout before a repository lock file (`<workspace>/.locks/<repo_id>.lock`) is considered orphaned and removed |
 | `KNOT_SERVER_QUEUE_CAPACITY` | `16` | Maximum number of jobs in the background indexing queue. Returns `429 Too Many Requests` when full. |
 | `RUST_LOG` | `info` | Log level (`debug`, `info`, `warn`, `error`) |
 | `KNOT_SERVER_METRICS_ENABLED` | `true` | Enable Prometheus metrics endpoint at `/metrics` |
@@ -1356,7 +1356,7 @@ spec:
 ```
 
 Any Pod can receive webhook events or sync requests; the shared workspace
-(`repos.json`, `.knot.lock` files) ensures exactly-once processing per repository.
+(`repos.json`, `.locks/<repo_id>.lock` files) ensures exactly-once processing per repository.
 
 ---
 
