@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Upgrade `knot` to 1.11.7.** Updated the `knot` dependency from 1.11.6 to 1.11.7. Upstream, `qdrant-client` no longer prints version-compatibility warnings to stdout, and the relationship summary returned by search (`GET /api/search`, `GET /api/repos/{id}/search` and the MCP `search_hybrid_context` tool) now agrees with `find_callers`: each result is enriched from its own entity instead of every same-named homonym, callers reached only through dynamic dispatch are reported separately (`dispatched_caller_count` / `dispatched_caller_samples`), and callees are labelled with their owning type or module. No API changes or re-index required.
 
+### Fixed
+- **Two cluster nodes could index the same repository concurrently.** The per-repository lock lived at `<local_path>/.knot.lock`, inside the directory the worker wipes under that lock before a fresh clone. The wipe unlinked the held lock file, so another node created a new file at the same path and acquired it too; both nodes then wrote to the same graph/vector data and working tree, and one node's failure cleanup deleted the directory under the other (seen as `Missing 'name' field` / `No such file or directory` in the cluster progress E2E). Locks now live at `<workspace>/.locks/<repo_id>.lock`, outside every repository directory (dot-prefixed so a repository whose id is `locks` cannot collide), and `DELETE /api/repos/{id}` removes the lock file along with the other artifacts. **Upgrade every node of a cluster together:** nodes on 0.8.6 or earlier still lock the old path and do not exclude nodes on 0.8.7. Leftover `.knot.lock` files inside repository directories are harmless and can be deleted.
+
 ## [0.8.6] - 2026-10-21
 
 ### Changed
