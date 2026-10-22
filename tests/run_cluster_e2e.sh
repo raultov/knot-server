@@ -272,7 +272,7 @@ assert_contains "$LIST_B" '"repo-gamma"' "repo-gamma visible on B"
 # ── Step 4: Create orphaned lock file and kill Instance A ─────────
 echo -e "\n${YELLOW}[4/5] Simulating orphaned lock after crash of A...${NC}"
 
-LOCK_PATH="$SHARED_WORKSPACE/repo-alpha/.knot.lock"
+LOCK_PATH="$SHARED_WORKSPACE/.locks/repo-alpha.lock"
 
 # Clean up any stale lock files left from the initial indexing
 rm -f "$LOCK_PATH" 2>/dev/null || true
@@ -287,7 +287,7 @@ FLOCK_PID=$!
 sleep 0.5
 
 echo "  flock process holding lock (PID: $FLOCK_PID)"
-assert_file_exists "$LOCK_PATH" ".knot.lock exists (flock holding it)"
+assert_file_exists "$LOCK_PATH" "repo-alpha lock exists (flock holding it)"
 
 # Kill the flock process — OS releases the advisory lock, file stays.
 kill -9 "$FLOCK_PID"
@@ -312,9 +312,9 @@ fi
 # Artificially age the lock file so the scheduler detects it as stale
 # (the stale_lock_timeout is 3 seconds, so we set mtime to 10 seconds ago)
 touch -d "10 seconds ago" "$LOCK_PATH" 2>/dev/null || touch -t "$(date -d '10 seconds ago' +%Y%m%d%H%M.%S 2>/dev/null || date -d '-10 sec' +%Y%m%d%H%M.%S 2>/dev/null)" "$LOCK_PATH"
-echo "  .knot.lock artificially aged (mtime set to 10s ago)"
+echo "  repo-alpha lock artificially aged (mtime set to 10s ago)"
 
-assert_file_exists "$LOCK_PATH" ".knot.lock orphaned on disk after crash"
+assert_file_exists "$LOCK_PATH" "repo-alpha lock orphaned on disk after crash"
 
 # ── Step 5: Verify B detects stale lock and recovers ─────────────
 echo -e "\n${YELLOW}[5/5] Waiting for B to detect stale lock and recover...${NC}"
@@ -326,7 +326,7 @@ echo -e "\n${YELLOW}[5/5] Waiting for B to detect stale lock and recover...${NC}
 #   3. The worker processes it (pull + index) and sets status=indexed
 #
 # We verify by checking B's server log for the recovery messages.
-# Note: after processing, the worker creates a fresh .knot.lock
+# Note: after processing, the worker creates a fresh lock file
 # (which it releases), so we can't rely on file absence alone.
 
 for i in $(seq 1 20); do
@@ -367,7 +367,7 @@ for i in $(seq 1 90); do
 done
 
 # Verify B's log shows the full recovery sequence
-assert_contains "$(tail -500 "$SERVER_B_LOG")" "Removed stale lock" "B scheduler removed stale .knot.lock"
+assert_contains "$(tail -500 "$SERVER_B_LOG")" "Removed stale lock" "B scheduler removed stale repo-alpha lock"
 assert_contains "$(tail -500 "$SERVER_B_LOG")" "job completed for 'repo-alpha'" "B worker processed repo-alpha after recovery"
 
 # Verify repos are still in good shape via B
@@ -387,7 +387,7 @@ echo -e "  Passed: ${GREEN}$PASSED${NC}"
 echo -e "  Failed: ${RED}$FAILED${NC}"
 echo ""
 echo "Validated:"
-echo "  - Shared workspace (repos.json, .knot.lock)"
+echo "  - Shared workspace (repos.json, .locks/<repo_id>.lock)"
 echo "  - Multi-instance registry visibility"
 echo "  - Orphaned lock after crash (SIGKILL)"
 echo "  - Scheduler stale lock detection and cleanup"

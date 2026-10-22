@@ -857,7 +857,7 @@ fi
 #      before its initial Clone job ran) was never re-enqueued.
 #   R) "Indexing status abruptly cut": a repo left mid-indexing (Cloning /
 #      Pulling / Indexing) after a crash had no active recovery — it only
-#      recovered if a stale .knot.lock file happened to survive the crash.
+#      recovered if a stale repo lock file happened to survive the crash.
 # Both bugs are fixed by the startup recovery loop in src/main.rs, which
 # re-enqueues any non-terminal repo on restart. The tests below simulate
 # the crash by stopping the server, rewriting repos.json with a stuck
@@ -1002,7 +1002,7 @@ RECOVERY_R_PATH="$WORKSPACE_DIR/$RECOVERY_R_ID"
 rm -rf "$RECOVERY_R_PATH"
 
 # Seed the local path with a real .git dir, as if the clone had finished
-# before the crash. No .knot.lock — the worker process released it on
+# before the crash. No repo lock — the worker process released it on
 # exit. (A surviving lock would be cleaned by the stale-lock scheduler
 # path, not the startup recovery loop under test.)
 git clone "$FIXTURE_REPO" "$RECOVERY_R_PATH" > /dev/null 2>&1
