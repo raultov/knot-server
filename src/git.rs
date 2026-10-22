@@ -19,9 +19,9 @@ pub async fn run_git_clone(repo: &RepoEntry) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // The lock code creates the directory (and .knot.lock inside it).
-    // git clone requires the destination to not exist or be empty,
-    // so clean up the directory (the file lock is still held via fd).
+    // git clone requires the destination to not exist or be empty, so clean
+    // up any leftover directory. The repository lock lives under
+    // `<workspace>/.locks/`, outside this directory, so wiping it is safe.
     if local_path.exists() {
         fs::remove_dir_all(local_path)?;
     }

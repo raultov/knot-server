@@ -199,6 +199,7 @@ pub async fn delete_repo_handler(
                 },
             )
             .await;
+            remove_repo_lock_file(&state, &id);
 
             tracing::info!("Deleted repository '{}'", id);
             (
@@ -215,6 +216,18 @@ pub async fn delete_repo_handler(
                 error_response(StatusCode::INTERNAL_SERVER_ERROR, msg)
             }
         }
+    }
+}
+
+/// Remove the repository's lock file on delete. It lives outside the local
+/// directory, so the cleanup above no longer takes it along; a leftover file
+/// would keep the scheduler from picking up a re-registered `Pending` repo.
+fn remove_repo_lock_file(state: &AppState, id: &str) {
+    let lock_path = crate::locking::repo_lock_path(std::path::Path::new(&state.workspace_dir), id);
+    if let Err(e) = std::fs::remove_file(&lock_path)
+        && e.kind() != std::io::ErrorKind::NotFound
+    {
+        tracing::warn!("Failed to remove lock file {}: {e}", lock_path.display());
     }
 }
 
@@ -335,6 +348,44 @@ mod tests {
         assert!(
             !map.contains_key("delete-test"),
             "tracker should be removed after delete"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_delete_removes_repo_lock_file() {
+        let dir = TempDir::new().unwrap();
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+
+        let state = create_test_state(&workspace).await;
+
+        let entry = RepoEntry {
+            id: "lock-test".into(),
+            url: "git@github.com:org/lock-test.git".into(),
+            local_path: workspace.join("lock-test").to_string_lossy().into_owned(),
+            auth_type: AuthType::Ssh,
+            branch: "main".into(),
+            webhook_secret: None,
+            last_indexed: None,
+            status: crate::models::RepoStatus::Indexed,
+        };
+        state
+            .registry
+            .lock()
+            .unwrap()
+            .add_or_replace(entry)
+            .unwrap();
+
+        let lock_path = crate::locking::repo_lock_path(&workspace, "lock-test");
+        drop(crate::locking::acquire_file_lock(&lock_path).unwrap());
+        assert!(lock_path.exists());
+
+        let response = delete_repo_handler(State(state.clone()), Path("lock-test".into())).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(
+            !lock_path.exists(),
+            "lock file should be removed after delete"
         );
     }
 }

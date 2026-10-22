@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::locking::{is_lock_stale, remove_stale_lock};
+use crate::locking::{is_lock_stale, remove_stale_lock, repo_lock_path};
 use crate::models::AppState;
 use crate::models::{IndexJob, RepoStatus};
 
@@ -163,7 +163,7 @@ fn run_scheduler_iteration(
     let mut stale_locks_recovered: u64 = 0;
 
     for repo in &repos {
-        let lock_path = Path::new(&repo.local_path).join(".knot.lock");
+        let lock_path = repo_lock_path(Path::new(&state.workspace_dir), &repo.id);
         let threshold = Duration::from_secs(stale_lock_timeout_secs);
 
         if let Some(enqueued) = recover_stale_lock(state, repo, &lock_path, threshold) {

@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tracing::Instrument;
 
 use crate::cleanup::CleanupScope;
-use crate::locking::{FileLock, acquire_file_lock};
+use crate::locking::{FileLock, acquire_file_lock, repo_lock_path};
 use crate::models::{IndexJob, RepoEntry};
 
 /// Look up a repo entry from the registry, logging and returning `None` on any failure.
@@ -402,7 +402,7 @@ async fn process_repository(
     job: &IndexJob,
 ) -> anyhow::Result<()> {
     // 1. Acquire exclusive file lock
-    let lock_path = PathBuf::from(&repo.local_path).join(".knot.lock");
+    let lock_path = repo_lock_path(Path::new(&state.workspace_dir), &repo.id);
     let Some(_lock) = acquire_lock_or_requeue(state, repo, &lock_path) else {
         return Ok(());
     };
@@ -1126,7 +1126,7 @@ mod tests {
             .add_or_replace(repo.clone())
             .unwrap();
 
-        let lock_path = local_path.join(".knot.lock");
+        let lock_path = repo_lock_path(&workspace, "alpha");
         let _holder = acquire_file_lock(&lock_path).unwrap();
 
         let result = process_repository(
@@ -1162,7 +1162,7 @@ mod tests {
             .add_or_replace(repo.clone())
             .unwrap();
 
-        let lock_path = local_path.join(".knot.lock");
+        let lock_path = repo_lock_path(&workspace, "alpha");
         let _holder = acquire_file_lock(&lock_path).unwrap();
 
         let result = process_repository(

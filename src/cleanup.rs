@@ -53,9 +53,9 @@ pub struct CleanupScope {
 ///
 /// The local directory is derived from `repo_id` via
 /// [`crate::models::repo_local_path`] so it matches the path the worker and the
-/// registry use. Note (see the design doc §2.5): when this runs under the
-/// worker's file lock, removing the directory that holds `.knot.lock` does not
-/// invalidate the already-acquired lock on Linux (the fd survives the unlink).
+/// registry use. The repository lock lives under `<workspace>/.locks/` (see
+/// [`crate::locking::repo_lock_path`]), so removing the local directory while
+/// the worker holds the lock never lets another node acquire it.
 pub async fn cleanup_repo_artifacts(state: &Arc<AppState>, repo_id: &str, scope: CleanupScope) {
     if scope.databases {
         delete_repo_from_databases(repo_id, &state.graph_db, &state.vector_db).await;
