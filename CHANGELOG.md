@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.7] - 2026-10-22
+
+### Changed
+- **Upgrade `knot` to 1.11.7.** Updated the `knot` dependency from 1.11.6 to 1.11.7. Upstream, `qdrant-client` no longer prints version-compatibility warnings to stdout, and the relationship summary returned by search (`GET /api/search`, `GET /api/repos/{id}/search` and the MCP `search_hybrid_context` tool) now agrees with `find_callers`: each result is enriched from its own entity instead of every same-named homonym, callers reached only through dynamic dispatch are reported separately (`dispatched_caller_count` / `dispatched_caller_samples`), and callees are labelled with their owning type or module. No API changes or re-index required.
+
 ## [0.8.6] - 2026-10-21
 
 ### Changed
