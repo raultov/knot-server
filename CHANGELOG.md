@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.8] - 2026-10-24
+
+### Changed
+- **Upgrade `knot` to 1.11.9.** Updated the `knot` dependency from 1.11.7 to 1.11.9. Upstream, Rust `self.method()`, field-path (`self.repo.save()`) and call-chain receivers now produce `CALLS` edges (1.11.8), and overload disambiguation no longer crosses classes: calls bind to the exact-arity overload of the receiver's own type (or its nearest supertype), Java invocations carry their argument count, and arity alone no longer resolves a name-only homonym (1.11.9). No API changes required. Existing indexes keep the missing/wrong edges until re-indexed.
+
 ## [0.8.7] - 2026-10-22
 
 ### Changed
