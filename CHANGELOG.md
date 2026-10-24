@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.9] - 2026-10-24
+
+### Changed
+- **Upgrade `knot` to 1.11.12.** Updated the `knot` dependency from 1.11.9 to 1.11.12. Upstream, Kotlin, TypeScript and Groovy calls carry their argument count so overload disambiguation applies to them, while arity never constrains JavaScript (1.11.10); cross-repo calls no longer bind to a dependency's homonym when the receiver type is local, and the primary project identity is picked deterministically (1.11.11); calls on types outside the indexed repositories (`String.valueOf`, a third-party `ModelMapper.map`) no longer bind to unrelated same-named repository methods (1.11.12). No API changes required. Existing indexes keep the wrong edges until re-indexed.
+
 ## [0.8.8] - 2026-10-24
 
 ### Changed
