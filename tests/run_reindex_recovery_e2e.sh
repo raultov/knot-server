@@ -14,6 +14,8 @@
 #          local dir and its index (no destructive wipe).
 #   Recov. Re-registering an errored repo (same derived id) recovers it to
 #          indexed.
+#   #11    Re-registering an indexed repo with an unreachable source keeps its
+#          index and local dir (a missing local path is rejected with 400).
 #
 # Follows the conventions of run_e2e.sh: spins up the shared Qdrant + Neo4j
 # e2e containers, runs the server against a local fixture bare repo, and drives
@@ -282,8 +284,10 @@ echo -e "  ${GREEN}PASS${NC} — no fetch-255 / cwd-gone signature in the log"
 
 # ── Scenario 2: Bug B — a never-indexed clone failure is fully wiped ──
 echo -e "\n${CYAN}Scenario 2: Failed initial clone is wiped but entry kept (issue #7)${NC}"
-# A non-existent local bare path → clone fails (exit 128), last_indexed stays None.
-GHOST_BROKEN="$WORKSPACE_DIR/origins/does-not-exist/ghostrepo.git"
+# An unreachable remote (nothing listens on port 1) → the worker's pre-clone
+# reachability check fails, last_indexed stays None. A missing *local* path
+# would be rejected with 400 at registration (Scenario 6).
+GHOST_BROKEN="https://127.0.0.1:1/origins/ghostrepo.git"
 GHOST_ID=$(register_repo "$GHOST_BROKEN") || fail "registration of broken url"
 echo "  id=$GHOST_ID"
 wait_status "$GHOST_ID" "error" 60 || fail "broken clone did not reach 'error'"
@@ -358,6 +362,48 @@ sleep 1
 curl -s -o /dev/null -X POST "$BASE_URL/api/repos/$ALPHA_ID/sync"
 wait_reindexed "$ALPHA_ID" "$BEFORE" 90 || fail "repo did not recover after origin was restored"
 echo -e "  ${GREEN}PASS${NC} — recovered to 'indexed' after origin restored"
+
+# ── Scenario 6: re-registering with an unreachable source keeps the index (issue #11) ──
+echo -e "\n${CYAN}Scenario 6: re-register with an unreachable source keeps index + dir (issue #11)${NC}"
+BEFORE_COUNT=$(neo4j_entity_count "$ALPHA_ID")
+BEFORE=$(repo_last_indexed "$ALPHA_ID")
+mv "$HEALTHY_BARE" "$HEALTHY_BARE.bak"
+
+# 6a: a local path that no longer exists is rejected before anything is queued.
+MISSING_CODE=$(curl -s -w "%{http_code}" -o /dev/null \
+    -X POST "$BASE_URL/api/repos" \
+    -H "Content-Type: application/json" \
+    -d "{\"url\": \"$HEALTHY_BARE\", \"auth_type\": \"ssh\"}")
+[ "$MISSING_CODE" = "400" ] || fail "re-register with a missing local path returned $MISSING_CODE (expected 400)"
+[ "$(repo_status "$ALPHA_ID")" = "indexed" ] || fail "a rejected re-registration must leave the repo 'indexed'"
+echo -e "  ${GREEN}PASS${NC} — missing local path rejected with 400, repo still 'indexed'"
+
+# 6b: an unreachable remote with the same derived id is accepted, then fails
+# before the worker wipes anything.
+RID=$(register_repo "https://127.0.0.1:1/origins/alpha.git") || fail "re-register with an unreachable remote"
+[ "$RID" = "$ALPHA_ID" ] || fail "unreachable remote derived a different id ($RID vs $ALPHA_ID)"
+wait_status "$ALPHA_ID" "error" 60 || fail "re-register with an unreachable remote should error"
+grep -qF "source https://127.0.0.1:1/origins/alpha.git is unreachable" "$SERVER_LOG" || fail "server log does not report the unreachable source"
+[ -d "$WORKSPACE_DIR/$ALPHA_ID/.git" ] || fail "the local checkout was wiped for an unreachable source"
+[ "$(repo_last_indexed "$ALPHA_ID")" = "$BEFORE" ] || fail "last_indexed changed for an unreachable source"
+echo -e "  ${GREEN}PASS${NC} — status=error, local checkout and last_indexed preserved"
+if [ -n "$BEFORE_COUNT" ]; then
+    AFTER_COUNT=$(neo4j_entity_count "$ALPHA_ID")
+    if [ -n "$AFTER_COUNT" ] && [ "$AFTER_COUNT" -ge 1 ] && [ "$AFTER_COUNT" = "$BEFORE_COUNT" ]; then
+        echo -e "  ${GREEN}PASS${NC} — index preserved in Neo4j ($AFTER_COUNT entities)"
+    else
+        fail "index not preserved (before=$BEFORE_COUNT after=$AFTER_COUNT)"
+    fi
+else
+    echo -e "  ${YELLOW}SKIP${NC} — cypher-shell unavailable, cannot check index preservation"
+fi
+
+# 6c: re-registering the restored source recovers it.
+mv "$HEALTHY_BARE.bak" "$HEALTHY_BARE"
+sleep 1
+RID=$(register_repo "$HEALTHY_BARE") || fail "re-register after restoring origin"
+wait_reindexed "$ALPHA_ID" "$BEFORE" 90 || fail "repo did not recover after re-registering the restored origin"
+echo -e "  ${GREEN}PASS${NC} — recovered to 'indexed' after re-registering the restored origin"
 
 # -------------------------------------------------------
 # Step 4: done
