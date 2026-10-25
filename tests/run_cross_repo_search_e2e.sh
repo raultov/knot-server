@@ -778,8 +778,8 @@ echo -e "\n${CYAN}G6: callers empty-body key sets pinned${NC}"
 G6_CODE=$(curl -s -w "%{http_code}" -o /tmp/g6.json "$BASE_URL/api/callers?entity=NoSuchEntityXyz123")
 G6_KEYS=$(jq -r 'keys | sort | join(",")' /tmp/g6.json 2>/dev/null || echo "")
 G6_RES_KEYS=$(jq -r '.resolution | keys | sort | join(",")' /tmp/g6.json 2>/dev/null || echo "")
-# knot 1.11.5 added the dispatched_calls bucket
-G6_EXPECTED_KEYS="calls,declared_unused,dispatched_calls,extends,implements,imports_script,imports_stylesheet,imports_vmod,includes,macro_calls,overridden_by,overrides,references,references_dom,resolution,uses_acl,uses_backend,uses_css_class,uses_probe"
+# knot 1.11.5 added the dispatched_calls bucket, knot 1.12.0 the routes_to bucket
+G6_EXPECTED_KEYS="calls,declared_unused,dispatched_calls,extends,implements,imports_script,imports_stylesheet,imports_vmod,includes,macro_calls,overridden_by,overrides,references,references_dom,resolution,routes_to,uses_acl,uses_backend,uses_css_class,uses_probe"
 # knot 1.9.6 expanded resolution with kind_filter / hidden fields
 G6_EXPECTED_RES_KEYS="fuzzy,hidden_kinds,hidden_non_code,kind_filter,query,targets,tier,total_targets,truncated"
 if [ "$G6_CODE" = "200" ] \

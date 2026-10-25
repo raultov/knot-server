@@ -484,15 +484,16 @@ mod tests {
 
     // ── Cycle 3: tools/list is knot's surface (D3) ───────────────────
 
-    /// The literal is the contract: knot's five tools, spelled out
-    /// independently rather than compared against `tools()` (comparing a
-    /// value to itself proves nothing). If knot adds a sixth tool this test
-    /// fails and we *choose* to update it.
-    const EXPECTED_TOOLS: [&str; 6] = [
+    /// The literal is the contract: knot's tools, spelled out independently
+    /// rather than compared against `tools()` (comparing a value to itself
+    /// proves nothing). If knot adds another tool this test fails and we
+    /// *choose* to update it (`list_endpoints` arrived with knot 1.12.0).
+    const EXPECTED_TOOLS: [&str; 7] = [
         "search_hybrid_context",
         "find_callers",
         "explore_file",
         "list_files",
+        "list_endpoints",
         "list_repo_dependencies",
         "list_repositories",
     ];
@@ -536,7 +537,7 @@ mod tests {
         // A stateless server has no handshake state to enforce; this is what
         // lets a client's second request land on a different node.
         let (_, body) = post_json(mcp_app().await, &tools_list_body()).await;
-        assert_eq!(body["result"]["tools"].as_array().unwrap().len(), 6);
+        assert_eq!(body["result"]["tools"].as_array().unwrap().len(), 7);
     }
 
     #[tokio::test]

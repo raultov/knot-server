@@ -280,6 +280,7 @@ assert_eq "$M2_TOOLS_STATUS" "200" "M2: tools/list on node B returns 200"
 assert_contains "$M2_TOOLS" "search_hybrid_context" "M2: tools/list on node B works"
 assert_contains "$M2_TOOLS" "find_callers" "M2: find_callers listed"
 assert_contains "$M2_TOOLS" "explore_file" "M2: explore_file listed"
+assert_contains "$M2_TOOLS" "list_endpoints" "M2: list_endpoints listed"
 assert_contains "$M2_TOOLS" "list_repo_dependencies" "M2: list_repo_dependencies listed"
 assert_contains "$M2_TOOLS" "list_repositories" "M2: list_repositories listed"
 assert_no_session_header "$TMP/tools-list-headers.txt" \
