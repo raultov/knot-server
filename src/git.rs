@@ -47,6 +47,32 @@ pub async fn run_git_clone(repo: &RepoEntry) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Check that `repo.url` answers and carries `repo.branch` (as a branch or a
+/// tag, like `git clone --branch`) without touching the local checkout. The
+/// worker runs it before wiping a repository for a fresh clone.
+pub async fn check_remote_reachable(repo: &RepoEntry) -> anyhow::Result<()> {
+    let mut cmd = Command::new("git");
+    cmd.args(["ls-remote", "--exit-code"])
+        .arg(&repo.url)
+        .arg(format!("refs/heads/{}", repo.branch))
+        .arg(format!("refs/tags/{}", repo.branch));
+
+    let output = tokio::task::spawn_blocking(move || cmd.output()).await??;
+    if output.status.success() {
+        return Ok(());
+    }
+    // `--exit-code` exits with 2 when the remote answered but no ref matched.
+    if output.status.code() == Some(2) {
+        anyhow::bail!("branch '{}' not found in {}", repo.branch, repo.url);
+    }
+    anyhow::bail!(
+        "source {} is unreachable (git ls-remote exit code {:?}): {}",
+        repo.url,
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr).trim()
+    );
+}
+
 pub async fn run_git_pull(repo: &RepoEntry) -> anyhow::Result<()> {
     let local_path = Path::new(&repo.local_path);
 
@@ -250,5 +276,43 @@ mod tests {
 
         run_git_clone(&repo).await.unwrap();
         run_git_clone(&repo).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_check_remote_reachable_accepts_existing_branch() {
+        let dir = TempDir::new().unwrap();
+        let bare_url = create_test_bare_repo(dir.path());
+        let repo = create_test_repo_entry("test-repo", bare_url, &dir.path().join("cloned"));
+
+        check_remote_reachable(&repo).await.unwrap();
+        assert!(
+            !dir.path().join("cloned").exists(),
+            "the check must not create the local checkout"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_check_remote_reachable_reports_missing_branch() {
+        let dir = TempDir::new().unwrap();
+        let bare_url = create_test_bare_repo(dir.path());
+        let mut repo = create_test_repo_entry("test-repo", bare_url, &dir.path().join("cloned"));
+        repo.branch = "no-such-branch".into();
+
+        let err = check_remote_reachable(&repo).await.unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("branch 'no-such-branch' not found"),
+            "{err:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_check_remote_reachable_reports_missing_source() {
+        let dir = TempDir::new().unwrap();
+        let missing = dir.path().join("gone.git").to_string_lossy().into_owned();
+        let repo = create_test_repo_entry("gone", missing, &dir.path().join("cloned"));
+
+        let err = check_remote_reachable(&repo).await.unwrap_err();
+        assert!(err.to_string().contains("unreachable"), "{err:#}");
     }
 }

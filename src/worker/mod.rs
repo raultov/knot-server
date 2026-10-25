@@ -121,7 +121,7 @@ pub async fn worker_loop(
 /// [`should_wipe_on_failure`]). Called from [`worker_loop`] after
 /// `process_repository` has returned (i.e. the file lock is already released).
 pub(crate) async fn handle_job_failure(state: &Arc<crate::models::AppState>, repo: &RepoEntry) {
-    {
+    let current = {
         let mut registry = match state.registry.lock() {
             Ok(guard) => guard,
             Err(e) => {
@@ -130,9 +130,13 @@ pub(crate) async fn handle_job_failure(state: &Arc<crate::models::AppState>, rep
             }
         };
         let _ = registry.update_status(&repo.id, crate::models::RepoStatus::Error);
-    }
+        registry.get(&repo.id).cloned()
+    };
 
-    let wipe = should_wipe_on_failure(repo);
+    // Decide from the registry, not the job's snapshot: a re-registration
+    // keeps `last_indexed` and the pre-action wipe clears it, so a job that
+    // failed before the wipe keeps the index it did not touch.
+    let wipe = should_wipe_on_failure(current.as_ref().unwrap_or(repo));
     if wipe {
         tracing::warn!(
             "Job for '{}' failed and it was never indexed: wiping databases + local dir",
@@ -190,6 +194,29 @@ fn acquire_lock_or_requeue(
     }
 }
 
+/// Refuse to wipe a repository whose source cannot be fetched: the job fails
+/// before the existing index and local directory are deleted. Only runs when
+/// the plan wipes, so incremental pulls keep their single network round trip.
+async fn verify_source_before_wipe(
+    repo: &RepoEntry,
+    job_plan: &plan::JobPlan,
+) -> anyhow::Result<()> {
+    if !job_plan.wipe_before {
+        return Ok(());
+    }
+    if let Some(path) = crate::local_sync::local_source_path(&repo.url)
+        && !path.exists()
+    {
+        anyhow::bail!("local source path {} does not exist", path.display());
+    }
+    if job_plan.action == GitAction::FreshClone {
+        crate::git::check_remote_reachable(repo)
+            .instrument(tracing::info_span!("git_ls_remote"))
+            .await?;
+    }
+    Ok(())
+}
+
 /// Wipe databases and local directory before the git action when the plan
 /// requires it. Runs under the file lock so no re-registration race can occur.
 async fn wipe_before_action(
@@ -215,6 +242,11 @@ async fn wipe_before_action(
             },
         )
         .await;
+        if let Ok(mut registry) = state.registry.lock()
+            && let Err(e) = registry.clear_last_indexed(&repo.id)
+        {
+            tracing::warn!("Failed to clear last_indexed for '{}': {e}", repo.id);
+        }
     }
 }
 
@@ -407,11 +439,13 @@ async fn process_repository(
         return Ok(());
     };
 
-    // 2. Decide plan and wipe artifacts if needed (under the lock, so no race with re-registration)
+    // 2. Decide plan, check the source is reachable, and wipe artifacts if
+    //    needed (under the lock, so no race with re-registration)
     let is_local = crate::local_sync::is_local_path(&repo.url);
     let exists = Path::new(&repo.local_path).join(".git").exists();
     let job_plan = decide_job_plan(job, exists, is_local);
     tracing::info!("Worker: job plan for '{}': {:?}", repo.id, job_plan);
+    verify_source_before_wipe(repo, &job_plan).await?;
     wipe_before_action(state, repo, &job_plan, job).await;
 
     // 3. Execute the git phase (status was set to Cloning/Pulling by worker_loop)
@@ -1106,6 +1140,132 @@ mod tests {
             Path::new(&repo.local_path).exists(),
             "a previously-indexed repo must keep its local dir on failure"
         );
+    }
+
+    /// A previously indexed repo with a planted checkout, registered under
+    /// `url`. Returns the entry and its `KEEP.txt` marker.
+    fn seed_indexed_repo(
+        state: &Arc<crate::models::AppState>,
+        id: &str,
+        url: &str,
+    ) -> (RepoEntry, PathBuf) {
+        let local_path = crate::models::repo_local_path(&state.workspace_dir, id);
+        std::fs::create_dir_all(Path::new(&local_path).join(".git")).unwrap();
+        let marker = Path::new(&local_path).join("KEEP.txt");
+        std::fs::write(&marker, b"x").unwrap();
+        let mut repo = make_test_repo(id, Path::new(&local_path), RepoStatus::Indexed);
+        repo.url = url.into();
+        repo.last_indexed = Some("2026-07-06T00:00:00Z".into());
+        state
+            .registry
+            .lock()
+            .unwrap()
+            .add_or_replace(repo.clone())
+            .unwrap();
+        (repo, marker)
+    }
+
+    fn registry_entry(state: &Arc<crate::models::AppState>, id: &str) -> RepoEntry {
+        state.registry.lock().unwrap().get(id).unwrap().clone()
+    }
+
+    /// Issue #11: re-registering an indexed repo whose source is unreachable
+    /// fails the job before the wipe, and the failure keeps the index.
+    #[tokio::test]
+    async fn test_reregister_with_unreachable_remote_keeps_index_and_dir() {
+        use crate::models::RegisterRepoRequest;
+        use axum::Json;
+        use axum::extract::State;
+        use axum::http::StatusCode;
+
+        let dir = TempDir::new().unwrap();
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let (state, mut job_rx) = create_test_state_with_rx(&workspace).await;
+
+        let url = "https://invalid.example/keep.git";
+        let (_, marker) = seed_indexed_repo(&state, "keep", url);
+
+        let resp = crate::handlers::repo::register_repo_handler(
+            State(state.clone()),
+            Json(RegisterRepoRequest {
+                url: url.into(),
+                auth_type: AuthType::Ssh,
+                branch: "main".into(),
+                webhook_secret: None,
+            }),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::ACCEPTED);
+        let job = job_rx.recv().await.expect("Clone job enqueued");
+
+        let repo = registry_entry(&state, "keep");
+        let err = process_repository(&repo, &state, &job).await.unwrap_err();
+        assert!(format!("{err:#}").contains("unreachable"), "{err:#}");
+        handle_job_failure(&state, &repo).await;
+
+        let entry = registry_entry(&state, "keep");
+        assert_eq!(entry.status, RepoStatus::Error);
+        assert!(entry.last_indexed.is_some(), "last_indexed must survive");
+        assert!(marker.exists(), "the local checkout must not be wiped");
+    }
+
+    /// Issue #11: a local source deleted after registration is reported as
+    /// such (not as a failed clone) and the existing index is kept.
+    #[tokio::test]
+    async fn test_clone_job_with_deleted_local_source_keeps_index_and_dir() {
+        let dir = TempDir::new().unwrap();
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let state = create_test_state(&workspace).await;
+
+        let missing = dir.path().join("deleted").join("gone");
+        let (repo, marker) = seed_indexed_repo(&state, "gone", &missing.to_string_lossy());
+
+        let job = IndexJob::Clone {
+            repo_id: "gone".into(),
+        };
+        let err = process_repository(&repo, &state, &job).await.unwrap_err();
+        assert!(format!("{err:#}").contains("does not exist"), "{err:#}");
+        handle_job_failure(&state, &repo).await;
+
+        assert!(registry_entry(&state, "gone").last_indexed.is_some());
+        assert!(marker.exists(), "the local checkout must not be wiped");
+    }
+
+    /// Once the pre-clone wipe has run the old index is gone, so a later
+    /// failure cleans up the partial clone as for a never-indexed repo.
+    #[tokio::test]
+    async fn test_wipe_before_clone_clears_last_indexed() {
+        let dir = TempDir::new().unwrap();
+        let bare_url = create_bare_repo(dir.path());
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let state = create_test_state(&workspace).await;
+
+        let (repo, marker) = seed_indexed_repo(&state, "rewiped", &bare_url);
+
+        let job = IndexJob::Clone {
+            repo_id: "rewiped".into(),
+        };
+        let result = process_repository(&repo, &state, &job).await;
+        assert!(
+            !marker.exists(),
+            "the reachable source must be wiped and re-cloned"
+        );
+        assert_ne!(
+            registry_entry(&state, "rewiped").last_indexed.as_deref(),
+            Some("2026-07-06T00:00:00Z"),
+            "the wiped index must not keep its old timestamp"
+        );
+
+        if result.is_err() {
+            handle_job_failure(&state, &repo).await;
+            assert!(
+                !Path::new(&repo.local_path).exists(),
+                "a failure after the wipe must remove the partial clone"
+            );
+        }
     }
 
     #[tokio::test]

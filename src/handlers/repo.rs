@@ -60,9 +60,10 @@ pub async fn get_repo_handler(
     request_body = RegisterRepoRequest,
     responses(
         (status = 202, description = "Repository registered (or re-registered) and clone job enqueued", body = RegisterRepoResponse),
+        (status = 400, description = "Empty URL, or a local path that does not exist", body = ErrorResponse),
         (status = 429, description = "Indexing queue is full", body = ErrorResponse),
     ),
-    description = "Register a new Git repository, or re-register an existing one. The endpoint is idempotent: if a repository with the same derived id already exists, it is re-registered and a fresh Clone job is enqueued. The destructive cleanup (wiping the Neo4j/Qdrant data and the local directory) is performed by the indexing worker under its file lock — not by this endpoint — so a re-registration never races with in-flight indexing. The response message indicates whether the call was a fresh registration or a re-registration."
+    description = "Register a new Git repository, or re-register an existing one. The endpoint is idempotent: if a repository with the same derived id already exists, it is re-registered and a fresh Clone job is enqueued. The destructive cleanup (wiping the Neo4j/Qdrant data and the local directory) is performed by the indexing worker under its file lock — not by this endpoint — so a re-registration never races with in-flight indexing. Before wiping, the worker checks that the source is reachable (`git ls-remote` for a remote URL); if it is not, the job fails and a previously indexed repository keeps its index. A local path that does not exist is rejected with 400. The response message indicates whether the call was a fresh registration or a re-registration."
 )]
 #[tracing::instrument(
     name = "register_repo",
@@ -73,20 +74,18 @@ pub async fn register_repo_handler(
     State(state): State<Arc<AppState>>,
     Json(body): Json<RegisterRepoRequest>,
 ) -> Response {
-    if body.url.trim().is_empty() {
-        return error_response(StatusCode::BAD_REQUEST, "Repository URL cannot be empty");
-    }
-
-    let id = body.generate_id();
-    tracing::Span::current().record("repo_id", id.as_str());
-    if id.is_empty() {
-        return error_response(
-            StatusCode::BAD_REQUEST,
-            "Generated repository ID is empty (invalid URL format)",
-        );
-    }
+    let id = match validate_register_request(&body) {
+        Ok(id) => id,
+        Err(e) => return e.into_response(),
+    };
 
     let local_path = crate::models::repo_local_path(&state.workspace_dir, &id);
+
+    let mut registry = state.registry.lock().unwrap();
+    // A re-registration keeps `last_indexed`: the index survives until the
+    // worker wipes it, and a job that fails before the wipe must not treat
+    // the repository as never indexed (which would delete that index).
+    let last_indexed = registry.get(&id).and_then(|e| e.last_indexed.clone());
 
     let entry = RepoEntry {
         id: id.clone(),
@@ -95,11 +94,10 @@ pub async fn register_repo_handler(
         local_path,
         branch: body.branch.clone(),
         webhook_secret: body.webhook_secret.clone(),
-        last_indexed: None,
+        last_indexed,
         status: crate::models::RepoStatus::Queued,
     };
 
-    let mut registry = state.registry.lock().unwrap();
     match registry.add_or_replace(entry) {
         Ok(was_replaced) => {
             // Enqueue a Clone job. The worker is the sole owner of destructive
@@ -157,6 +155,38 @@ pub async fn register_repo_handler(
             error_response(StatusCode::INTERNAL_SERVER_ERROR, msg)
         }
     }
+}
+
+/// Validate a registration request and return the derived repository id, or
+/// the 400 response to send.
+fn validate_register_request(body: &RegisterRepoRequest) -> Result<String, HandlerError> {
+    if body.url.trim().is_empty() {
+        return Err(HandlerError::from(error_response(
+            StatusCode::BAD_REQUEST,
+            "Repository URL cannot be empty",
+        )));
+    }
+
+    // Reject a missing local source up front: re-registering it would enqueue
+    // a job that can only fail.
+    if let Some(path) = crate::local_sync::local_source_path(&body.url)
+        && !path.exists()
+    {
+        return Err(HandlerError::from(error_response(
+            StatusCode::BAD_REQUEST,
+            format!("Local repository path '{}' does not exist", path.display()),
+        )));
+    }
+
+    let id = body.generate_id();
+    tracing::Span::current().record("repo_id", id.as_str());
+    if id.is_empty() {
+        return Err(HandlerError::from(error_response(
+            StatusCode::BAD_REQUEST,
+            "Generated repository ID is empty (invalid URL format)",
+        )));
+    }
+    Ok(id)
 }
 
 #[utoipa::path(
@@ -307,6 +337,87 @@ mod tests {
             other => panic!("expected exactly one Clone job, got {other:?}"),
         }
         assert!(job_rx.try_recv().is_err(), "no extra jobs expected");
+    }
+
+    fn indexed_entry(id: &str, url: &str, local_path: &str) -> RepoEntry {
+        RepoEntry {
+            id: id.into(),
+            url: url.into(),
+            auth_type: AuthType::Ssh,
+            local_path: local_path.into(),
+            branch: "main".into(),
+            webhook_secret: None,
+            last_indexed: Some("2026-07-06T00:00:00Z".into()),
+            status: crate::models::RepoStatus::Indexed,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_register_missing_local_path_is_rejected_without_touching_entry() {
+        let dir = TempDir::new().unwrap();
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let (state, mut job_rx) = create_test_state_with_rx(&workspace).await;
+
+        let missing = dir.path().join("deleted").join("puppeteer");
+        let missing_url = missing.to_string_lossy().into_owned();
+        let local_path = crate::models::repo_local_path(&state.workspace_dir, "puppeteer");
+        state
+            .registry
+            .lock()
+            .unwrap()
+            .add_or_replace(indexed_entry("puppeteer", &missing_url, &local_path))
+            .unwrap();
+
+        let body = RegisterRepoRequest {
+            url: missing_url,
+            auth_type: AuthType::Ssh,
+            branch: "main".into(),
+            webhook_secret: None,
+        };
+        let response = register_repo_handler(State(state.clone()), Json(body)).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert!(job_rx.try_recv().is_err(), "no job may be enqueued");
+
+        let entry = state
+            .registry
+            .lock()
+            .unwrap()
+            .get("puppeteer")
+            .unwrap()
+            .clone();
+        assert_eq!(entry.status, crate::models::RepoStatus::Indexed);
+        assert!(entry.last_indexed.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_reregister_keeps_last_indexed() {
+        let dir = TempDir::new().unwrap();
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let (state, _job_rx) = create_test_state_with_rx(&workspace).await;
+
+        let url = "git@github.com:org/kept.git";
+        let local_path = crate::models::repo_local_path(&state.workspace_dir, "kept");
+        state
+            .registry
+            .lock()
+            .unwrap()
+            .add_or_replace(indexed_entry("kept", url, &local_path))
+            .unwrap();
+
+        let body = RegisterRepoRequest {
+            url: url.into(),
+            auth_type: AuthType::Ssh,
+            branch: "main".into(),
+            webhook_secret: None,
+        };
+        let response = register_repo_handler(State(state.clone()), Json(body)).await;
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        let entry = state.registry.lock().unwrap().get("kept").unwrap().clone();
+        assert_eq!(entry.status, crate::models::RepoStatus::Queued);
+        assert_eq!(entry.last_indexed.as_deref(), Some("2026-07-06T00:00:00Z"));
     }
 
     #[tokio::test]

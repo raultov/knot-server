@@ -56,17 +56,40 @@ fn build_gitignore(src_root: &Path, current_dir: &Path) -> Gitignore {
     builder.build().unwrap_or_else(|_| Gitignore::empty())
 }
 
-pub fn is_local_path(url: &str) -> bool {
-    let url = url.strip_prefix("file://").unwrap_or(url);
-    if url.starts_with("https://")
-        || url.starts_with("http://")
-        || url.starts_with("git@")
-        || url.starts_with("ssh://")
-        || url.starts_with("git://")
-    {
+/// The filesystem path a repository URL names when it is a local source (a
+/// `file://` URL or a plain path), or `None` for a remote URL (`scheme://…`
+/// or scp-like `[user@]host:path`). Whether the path exists is not checked,
+/// so a local source that has been deleted is still recognized as local.
+pub fn local_source_path(url: &str) -> Option<&Path> {
+    if let Some(path) = url.strip_prefix("file://") {
+        return Some(Path::new(path));
+    }
+    if url.contains("://") || is_scp_like(url) {
+        return None;
+    }
+    Some(Path::new(url))
+}
+
+/// Git's rule for the scp-like syntax: a colon before the first slash,
+/// except for a Windows drive letter (`C:\repo`, `C:/repo`).
+fn is_scp_like(url: &str) -> bool {
+    let Some(colon) = url.find(':') else {
+        return false;
+    };
+    if url.find(['/', '\\']).is_some_and(|slash| slash < colon) {
         return false;
     }
-    let p = Path::new(url);
+    let bytes = url.as_bytes();
+    let drive_letter = colon == 1
+        && bytes[0].is_ascii_alphabetic()
+        && bytes.get(2).is_none_or(|c| *c == b'/' || *c == b'\\');
+    !drive_letter
+}
+
+pub fn is_local_path(url: &str) -> bool {
+    let Some(p) = local_source_path(url) else {
+        return false;
+    };
     if !p.is_dir() {
         return false;
     }
@@ -513,6 +536,36 @@ mod tests {
     #[test]
     fn test_is_local_path_nonexistent() {
         assert!(!is_local_path("/nonexistent/path/xyz"));
+    }
+
+    #[test]
+    fn test_local_source_path_recognizes_paths_without_checking_existence() {
+        for (url, path) in [
+            ("/nonexistent/path/xyz", "/nonexistent/path/xyz"),
+            ("file:///srv/repos/app.git", "/srv/repos/app.git"),
+            ("./relative/repo", "./relative/repo"),
+            ("repo", "repo"),
+            ("C:\\repos\\app", "C:\\repos\\app"),
+            ("C:/repos/app", "C:/repos/app"),
+            ("/srv/a:b/repo", "/srv/a:b/repo"),
+        ] {
+            assert_eq!(local_source_path(url), Some(Path::new(path)), "{url}");
+        }
+    }
+
+    #[test]
+    fn test_local_source_path_rejects_remote_urls() {
+        for url in [
+            "https://github.com/org/repo.git",
+            "http://host/repo.git",
+            "ssh://git@host/repo.git",
+            "git://host/repo.git",
+            "git@github.com:org/repo.git",
+            "deploy@build-host:repos/app.git",
+            "host:repo.git",
+        ] {
+            assert_eq!(local_source_path(url), None, "{url}");
+        }
     }
 
     #[test]

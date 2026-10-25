@@ -141,16 +141,23 @@ impl Registry {
         &self.data.repositories
     }
 
-    pub fn update_status(&mut self, id: &str, status: RepoStatus) -> anyhow::Result<()> {
+    /// Apply `f` to the entry with `id` as one atomic registry mutation.
+    fn mutate_entry<F, R>(&mut self, id: &str, f: F) -> anyhow::Result<R>
+    where
+        F: FnOnce(&mut RepoEntry) -> R,
+    {
         self.mutate(|data| {
             let entry = data
                 .repositories
                 .iter_mut()
                 .find(|r| r.id == id)
                 .ok_or_else(|| anyhow::anyhow!("Repository '{}' not found", id))?;
-            entry.status = status;
-            Ok(())
+            Ok(f(entry))
         })
+    }
+
+    pub fn update_status(&mut self, id: &str, status: RepoStatus) -> anyhow::Result<()> {
+        self.mutate_entry(id, |entry| entry.status = status)
     }
 
     pub fn transition_status(
@@ -159,30 +166,24 @@ impl Registry {
         from: &[RepoStatus],
         to: RepoStatus,
     ) -> anyhow::Result<bool> {
-        self.mutate(|data| {
-            let entry = data
-                .repositories
-                .iter_mut()
-                .find(|r| r.id == id)
-                .ok_or_else(|| anyhow::anyhow!("Repository '{}' not found", id))?;
+        self.mutate_entry(id, |entry| {
             if !from.contains(&entry.status) {
-                return Ok(false);
+                return false;
             }
             entry.status = to;
-            Ok(true)
+            true
         })
     }
 
     pub fn update_last_indexed(&mut self, id: &str) -> anyhow::Result<()> {
-        self.mutate(|data| {
-            let entry = data
-                .repositories
-                .iter_mut()
-                .find(|r| r.id == id)
-                .ok_or_else(|| anyhow::anyhow!("Repository '{}' not found", id))?;
+        self.mutate_entry(id, |entry| {
             entry.last_indexed = Some(crate::time_utils::chrono_now());
-            Ok(())
         })
+    }
+
+    /// Forget the last successful index, once the worker has wiped it.
+    pub fn clear_last_indexed(&mut self, id: &str) -> anyhow::Result<()> {
+        self.mutate_entry(id, |entry| entry.last_indexed = None)
     }
 }
 
@@ -291,6 +292,18 @@ mod tests {
         assert!(registry.get("r1").unwrap().last_indexed.is_none());
         registry.update_last_indexed("r1").unwrap();
         assert!(registry.get("r1").unwrap().last_indexed.is_some());
+    }
+
+    #[test]
+    fn test_clear_last_indexed() {
+        let dir = TempDir::new().unwrap();
+        let mut registry = Registry::load_or_create(dir.path()).unwrap();
+        let repo = make_entry("r1", "git@github.com:org/r1.git", "/tmp/r1");
+        registry.add_or_replace(repo).unwrap();
+        registry.update_last_indexed("r1").unwrap();
+        registry.clear_last_indexed("r1").unwrap();
+        assert!(registry.get("r1").unwrap().last_indexed.is_none());
+        assert!(registry.clear_last_indexed("missing").is_err());
     }
 
     #[test]
