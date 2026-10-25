@@ -130,6 +130,9 @@ create_fixture_repo() {
 
     # Copy fixture source files into the working tree
     cp "$FIXTURE_DIR"/*.java "$work_path/" 2>/dev/null || true
+    # JAX-RS resource for the HTTP endpoint graph tests (G20–G23). Kept in a
+    # subdirectory so the suites copying fixtures/*.java do not pick it up.
+    cp "$FIXTURE_DIR"/http_endpoints/*.java "$work_path/"
 
     # Create a minimal README
     echo "# E2E Test Repository" > "$work_path/README.md"
@@ -609,7 +612,7 @@ if [ "$INDEXED_OK" = "true" ]; then
 
     # ── Test G17: Full relationship allow-list round-trip (drift guard) ──
     echo -e "\n${CYAN}Test G17: Full relationship allow-list round-trip${NC}"
-    ALL_RELS="CALLS EXTENDS IMPLEMENTS REFERENCES REFERENCES_DOM USES_CSS_CLASS IMPORTS_SCRIPT IMPORTS_STYLESHEET MACRO_CALLS CONTAINS GENERIC_BOUND DEPENDS_ON OVERRIDES"
+    ALL_RELS="CALLS EXTENDS IMPLEMENTS REFERENCES REFERENCES_DOM USES_CSS_CLASS IMPORTS_SCRIPT IMPORTS_STYLESHEET MACRO_CALLS CONTAINS GENERIC_BOUND DEPENDS_ON OVERRIDES ROUTES_TO"
     G17_FAILURES=""
     for rel in $ALL_RELS; do
       REL_CODE=$(curl -s -w "%{http_code}" -o /dev/null \
@@ -669,6 +672,72 @@ if [ "$INDEXED_OK" = "true" ]; then
     else
       echo -e "${RED}FAIL${NC}: Inner node missing fields"
       echo "$INNER_NODE"
+      exit 1
+    fi
+
+    # ── Test G20: kinds=endpoints shows HTTP endpoints routed to their handlers ──
+    # Fixture: tests/fixtures/http_endpoints/ItemsResource.java (JAX-RS, knot 1.12.0).
+    echo -e "\n${CYAN}Test G20: Overview with kinds=endpoints,functions and ROUTES_TO${NC}"
+    CODE=$(curl -s -w "%{http_code}" -o /tmp/g20.json \
+      "http://localhost:${SERVER_PORT}/api/repos/${REPO_ID}/graph?relationships=ROUTES_TO&kinds=endpoints,functions")
+    G20_GET_ID=$(jq -r '[.nodes[] | select(.kind == "http_endpoint" and .name == "GET /items/{id}")][0].id // empty' /tmp/g20.json)
+    G20_POST=$(jq '[.nodes[] | select(.kind == "http_endpoint" and .name == "POST /items")] | length' /tmp/g20.json)
+    G20_READ_ID=$(jq -r '[.nodes[] | select(.name == "read")][0].id // empty' /tmp/g20.json)
+    G20_ROUTE=$(jq --arg src "$G20_GET_ID" --arg tgt "$G20_READ_ID" \
+      '[.edges[] | select(.source == $src and .target == $tgt and .type == "ROUTES_TO")] | length' /tmp/g20.json)
+
+    if [ "$CODE" = "200" ] && [ -n "$G20_GET_ID" ] && [ "$G20_POST" -ge 1 ] && [ -n "$G20_READ_ID" ] && [ "$G20_ROUTE" -ge 1 ]; then
+      echo -e "${GREEN}PASS${NC}: GET /items/{id} -ROUTES_TO-> read, POST /items present"
+    else
+      echo -e "${RED}FAIL${NC}: status=$CODE, get_id=\"$G20_GET_ID\", post=$G20_POST, read_id=\"$G20_READ_ID\", routes_to_edges=$G20_ROUTE"
+      cat /tmp/g20.json
+      exit 1
+    fi
+
+    # ── Test G21: endpoints are hidden unless their category is requested ──
+    echo -e "\n${CYAN}Test G21: Endpoints are a category of their own${NC}"
+    G21_DEFAULT=$(jq '[.nodes[] | select(.kind == "http_endpoint")] | length' /tmp/g10.json)
+    curl -s -o /tmp/g21.json \
+      "http://localhost:${SERVER_PORT}/api/repos/${REPO_ID}/graph?relationships=ROUTES_TO&kinds=functions"
+    G21_FUNCTIONS=$(jq '[.nodes[] | select(.kind == "http_endpoint")] | length' /tmp/g21.json)
+    curl -s -o /tmp/g21b.json \
+      "http://localhost:${SERVER_PORT}/api/repos/${REPO_ID}/graph?relationships=ROUTES_TO&kinds=endpoints"
+    G21_FOREIGN=$(jq '[.nodes[] | select(.kind != "http_endpoint")] | length' /tmp/g21b.json)
+    G21_ONLY=$(jq '[.nodes[] | select(.kind == "http_endpoint")] | length' /tmp/g21b.json)
+
+    if [ "$G21_DEFAULT" -eq 0 ] && [ "$G21_FUNCTIONS" -eq 0 ] && [ "$G21_FOREIGN" -eq 0 ] && [ "$G21_ONLY" -ge 2 ]; then
+      echo -e "${GREEN}PASS${NC}: no endpoints by default or with kinds=functions; kinds=endpoints returns only endpoints ($G21_ONLY)"
+    else
+      echo -e "${RED}FAIL${NC}: default=$G21_DEFAULT, functions=$G21_FUNCTIONS, endpoints_foreign=$G21_FOREIGN, endpoints_only=$G21_ONLY"
+      exit 1
+    fi
+
+    # ── Test G22: focused graph on a handler reaches its endpoint ──
+    echo -e "\n${CYAN}Test G22: Focused ROUTES_TO subgraph on a handler${NC}"
+    CODE=$(curl -s -w "%{http_code}" -o /tmp/g22.json \
+      "http://localhost:${SERVER_PORT}/api/repos/${REPO_ID}/graph?entity=read&relationships=ROUTES_TO&kinds=endpoints,functions")
+    G22_ENDPOINT=$(jq '[.nodes[] | select(.kind == "http_endpoint" and .name == "GET /items/{id}")] | length' /tmp/g22.json)
+    G22_EDGES=$(jq '[.edges[] | select(.type == "ROUTES_TO")] | length' /tmp/g22.json)
+
+    if [ "$CODE" = "200" ] && [ "$G22_ENDPOINT" -ge 1 ] && [ "$G22_EDGES" -ge 1 ]; then
+      echo -e "${GREEN}PASS${NC}: handler 'read' reaches GET /items/{id} over ROUTES_TO"
+    else
+      echo -e "${RED}FAIL${NC}: status=$CODE, endpoint_nodes=$G22_ENDPOINT, routes_to_edges=$G22_EDGES"
+      cat /tmp/g22.json
+      exit 1
+    fi
+
+    # ── Test G23: callers of a handler carry the routes_to bucket ──
+    echo -e "\n${CYAN}Test G23: Callers of a handler list its HTTP route${NC}"
+    CODE=$(curl -s -w "%{http_code}" -o /tmp/g23.json \
+      "http://localhost:${SERVER_PORT}/api/repos/${REPO_ID}/callers?entity=ItemsResource.read")
+    G23_ROUTES=$(jq '.routes_to | length' /tmp/g23.json 2>/dev/null || echo 0)
+
+    if [ "$CODE" = "200" ] && [ "$G23_ROUTES" -ge 1 ]; then
+      echo -e "${GREEN}PASS${NC}: routes_to bucket has $G23_ROUTES row(s)"
+    else
+      echo -e "${RED}FAIL${NC}: status=$CODE, routes_to rows=$G23_ROUTES"
+      cat /tmp/g23.json
       exit 1
     fi
 
