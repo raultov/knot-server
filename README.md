@@ -81,7 +81,7 @@ Repositories measured (as indexed): `spring-ai` 2 406 files / 25 733 entities, `
 **knot-server** provides a comprehensive REST API to manage the lifecycle of your codebases.
 
 ### 📦 Repository Management
-- **`POST /api/repos`**: Register a new Git repository. Accepts a JSON body with a URL, name, and optional authentication. This endpoint is **idempotent**: if a repository with the same derived ID already exists, the server treats the call as a re-registration — the existing database entries and local files are cleaned up and the repository is cloned from scratch. The response message indicates whether the call was a fresh registration or a re-registration.
+- **`POST /api/repos`**: Register a new Git repository. Accepts a JSON body with a URL, name, and optional authentication. This endpoint is **idempotent**: if a repository with the same derived ID already exists, the server treats the call as a re-registration — the existing database entries and local files are cleaned up and the repository is cloned from scratch. The cleanup only runs once the source is known to be reachable: a local path that does not exist is rejected with `400`, and for a remote URL the worker runs `git ls-remote` (checking that the branch exists) before wiping anything. If that check fails, the job ends in `error` and a previously indexed repository keeps its index and local checkout (`last_indexed` is kept across the re-registration). The response message indicates whether the call was a fresh registration or a re-registration.
   ```json
   {
     "url": "https://github.com/raultov/knot.git",
@@ -134,7 +134,7 @@ Repositories measured (as indexed): `spring-ai` 2 406 files / 25 733 entities, `
 
 ### 🔍 Code Intelligence Search
 - **`GET /api/repos/:id/search?q=...&kinds=...&path=...&max_results=...`**: Semantic + structural search. Find code by meaning, class name, method signature, or docstrings. The optional `kinds` filter accepts comma-separated exact wire-format kinds (e.g. `rust_function`) or aliases like `definition`, `class`, `function` (knot's kind filter, forwarded verbatim). The optional `path` filter accepts a repo-relative directory prefix (`src/api`, matched on a path boundary) or a glob (`src/**/*_test.rs`). `max_results` is **enforced** at 1..=100 (default 5): requests above 100 are clamped to 100 — there is no pagination or cursor, so to look past the bound narrow the search with `kinds` / `path` or refine the query.
-- **`GET /api/repos/:id/callers?entity=...&max_targets=...`**: Reverse dependency lookup. Identify callers, dead code, and perform impact analysis. Rows carry `repo_name` / `target_repo_name` (knot 1.8.1), so callers are self-labeling. The response always reports the true pre-truncation target count in `resolution.total_targets` and whether the relationship buckets are only a sample in `resolution.truncated`; `max_targets` (default 25, max 500) is the opt-in path to the full impact set. Since knot 1.11.5 the response also carries a `dispatched_calls` bucket: callers whose `CALLS` edge is statically bound to an override of the target (or to a supertype method it overrides), each row naming the method it is bound to.
+- **`GET /api/repos/:id/callers?entity=...&max_targets=...`**: Reverse dependency lookup. Identify callers, dead code, and perform impact analysis. Rows carry `repo_name` / `target_repo_name` (knot 1.8.1), so callers are self-labeling. The response always reports the true pre-truncation target count in `resolution.total_targets` and whether the relationship buckets are only a sample in `resolution.truncated`; `max_targets` (default 25, max 500) is the opt-in path to the full impact set. Since knot 1.11.5 the response also carries a `dispatched_calls` bucket: callers whose `CALLS` edge is statically bound to an override of the target (or to a supertype method it overrides), each row naming the method it is bound to. Since knot 1.12.0 a `routes_to` bucket lists the HTTP endpoints (JAX-RS / Spring MVC, Java and Kotlin) served by the target handler, so a handler reached only over HTTP is not reported as unused.
 - **`GET /api/repos/:id/explore?path=...`**: File anatomy inspection. Quickly see all classes, interfaces, methods, and functions in a specific file.
 - **`GET /api/repos/:id/deps?max_depth=...&reverse=...`**: View repository dependencies (transitive and reverse) across the indexed ecosystem. Returns an object `{"dependencies": [...], "diagnostics": {...} | null, "depth": {...}}`. When dependencies are empty, `diagnostics` explains why (e.g. declared dependencies that resolve to no indexed repo, stale graph, or unindexed repo), achieving parity with the `list_repo_dependencies` MCP tool. Depth clamping is surfaced explicitly in `depth`.
 
@@ -190,7 +190,7 @@ Caveats:
 
 ### 🧬 Graph Visualization (Web UI)
 - **`GET /graph`**: Interactive 3D codebase graph viewer. Open in your browser to visually explore entity relationships.
-  - **Dynamic Filtering**: Real-time toggles for relationship types (`Calls`, `Extends`, `Implements`, `Overrides`, `Contains`, etc.) and entity kinds (`Classes`, `Interfaces`, `Functions`).
+  - **Dynamic Filtering**: Real-time toggles for relationship types (`Calls`, `Extends`, `Implements`, `Overrides`, `Contains`, etc.) and entity kinds (`Classes`, `Interfaces`, `Functions`, `Endpoints`, `Other`). Turning on `Routes` (`ROUTES_TO`) also turns on `Endpoints` and `Functions`, so the HTTP endpoints of Java/Kotlin controllers show up linked to their handler methods.
   - **Node Interaction**: 
     - **Click**: Automatically discover and expand neighbors.
     - **Focus on Entity**: Isolate a specific entity and its deep relationship subgraph.
@@ -211,7 +211,7 @@ Caveats:
   | `depth` | u32 | `2` | Traversal depth (1–5) |
   | `relationships` | CSV | `CALLS,EXTENDS,IMPLEMENTS` | Edge types to follow. |
   | `direction` | String | `both` | `outgoing`, `incoming`, or `both` |
-  | `kinds` | CSV | `classes,interfaces` | Entity types to include. |
+  | `kinds` | CSV | `classes,interfaces` | Entity categories to include: `classes`, `interfaces`, `functions`, `endpoints` (HTTP endpoints, `http_endpoint`), `other` (turns the kind filter off). Use `relationships=ROUTES_TO&kinds=endpoints,functions` for the endpoint → handler map. |
 
 - **`GET /api/repos/:id/graph/repos`**: Query repository-level dependency graph (DEPENDS_ON relations). Returns nodes and edges in JSON format for repository-level cross-dependency tracking.
 
@@ -289,7 +289,7 @@ knot-server is also an **MCP server**. The `/mcp` endpoint speaks the
 JSON-RPC HTTP (`POST /mcp`), so MCP clients (Claude Code, opencode, Cursor, …)
 can connect directly to knot-server — including a load-balanced cluster.
 
-The endpoint serves the **exact same six tools** as the `knot-mcp` stdio
+The endpoint serves the **exact same seven tools** as the `knot-mcp` stdio
 binary, backed by the same Neo4j and Qdrant connections the REST API uses:
 
 | Tool | Purpose |
@@ -298,6 +298,7 @@ binary, backed by the same Neo4j and Qdrant connections the REST API uses:
 | `find_callers` | Reverse dependency lookup (impact analysis) |
 | `explore_file` | File structure and entity declarations |
 | `list_files` | File layout discovery (repo-relative listing, optional prefix/glob matcher) |
+| `list_endpoints` | HTTP endpoint catalogue (JAX-RS / Spring MVC handlers, filter by method or path) |
 | `list_repo_dependencies` | Cross-repository dependency graph traversal |
 | `list_repositories` | List all indexed repositories with optional name filtering |
 
@@ -316,7 +317,7 @@ MCP report the **same total** for the same entity.
 
 ### What `/mcp` exposes vs. the REST API
 
-The five MCP tools are the **read** surface. They mirror the `skills/*.md`
+The MCP tools are the **read** surface. They mirror the `skills/*.md`
 guide almost 1:1, with these differences:
 
 | Capability | MCP tool | REST equivalent |
@@ -325,6 +326,7 @@ guide almost 1:1, with these differences:
 | Caller / impact analysis | `find_callers` | `GET /api/repos/{id}/callers`, `GET /api/callers` |
 | File anatomy | `explore_file` | `GET /api/repos/{id}/explore` |
 | File layout discovery | `list_files` | — **MCP only** (by design: it is an agent-oriented "what files exist here?" aid used to pick `path` filters; REST clients have `GET /api/repos/{id}/explore` and the search routes' `path` filter instead) |
+| HTTP endpoint catalogue | `list_endpoints` | — **MCP only** (the graph API reaches endpoints through `ROUTES_TO` edges, and `find_callers` / the callers routes report them in the `routes_to` bucket) |
 | Cross-repo dependencies | `list_repo_dependencies` | `GET /api/repos/{id}/deps`, `GET /api/repos/{id}/graph/repos` |
 | List indexed repositories | `list_repositories` | `GET /api/repos` |
 | Register / sync / delete a repository | — **REST only** | `POST /api/repos`, `POST /api/repos/{id}/sync`, `DELETE /api/repos/{id}` |
