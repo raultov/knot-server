@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-25
+
+### Added
+- **HTTP endpoints in the graph API and viewer.** The graph API accepts `ROUTES_TO` in `relationships` and a new `endpoints` kind category (`http_endpoint`), so `relationships=ROUTES_TO&kinds=endpoints,functions` returns the endpoint → handler map without the noisy `other` category (which turns the kind filter off). The `/graph` viewer gains a **Routes** relationship toggle and an **Endpoints** kind toggle; turning on Routes turns on Endpoints and Functions.
+- **`list_endpoints` MCP tool and `routes_to` callers bucket.** Served through knot's shared tool list and callers output: `/mcp` lists `list_endpoints`, and `GET /api/callers` / `GET /api/repos/{id}/callers` report the HTTP endpoints routed to a handler in `routes_to`, so a handler reached only over HTTP is not reported as unused.
+
+### Changed
+- **Upgrade `knot` to 1.12.0.** Updated the `knot` dependency from 1.11.12 to 1.12.0. Upstream adds an HTTP endpoint catalogue for Java/Kotlin (JAX-RS and Spring MVC handlers become `http_endpoint` entities linked to their handler by a `ROUTES_TO` edge) (1.12.0). Kotlin FQNs now carry their package (1.11.13); local JS/TS variables are no longer indexed as class members and `this.m()` walks the supertypes (1.11.14); calls inside one-line Groovy methods are attached to them (1.11.15); same-named Java/Kotlin types resolve through the caller's imports (1.11.16). **Re-index Java, Kotlin, TypeScript/JavaScript and Groovy repositories** to pick up the new entities and corrected edges.
+- **`POST /api/repos` rejects a local path that does not exist with `400`** instead of accepting it and failing in the worker. A local source must exist when it is registered.
+
+### Fixed
+- **Re-registering a repository with an unreachable source wiped its index** ([#11](https://github.com/raultov/knot-server/issues/11)). A `Clone` job wiped the databases and the local directory before trying the clone, and a re-registration reset `last_indexed`, so the failure path treated the repository as never indexed and wiped again. Now, before any wipe, the worker checks that the source is reachable (`git ls-remote` for a remote URL, which also checks that the branch exists, or the source directory for a local path), and `last_indexed` is kept across a re-registration and cleared only once the worker has wiped the index. A re-registration whose source cannot be reached now ends in `error` and keeps the previous index and local checkout. A failure *after* the wipe (for example, the clone breaks off partway) still loses the old index; cloning into a temporary directory would avoid that and is left for later.
+
 ## [0.8.9] - 2026-10-24
 
 ### Changed
