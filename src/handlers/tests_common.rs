@@ -793,6 +793,17 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_kinds_endpoints_expands_to_http_endpoint_only() {
+        let result = parse_kinds("endpoints").unwrap();
+        assert_eq!(result, vec!["http_endpoint"]);
+        assert!(!includes_other("endpoints"));
+
+        // Endpoints are their own category: no other category pulls them in.
+        let rest = parse_kinds("classes,interfaces,functions").unwrap();
+        assert!(!rest.contains(&"http_endpoint"));
+    }
+
+    #[test]
     fn test_parse_kinds_other_returns_empty_visible() {
         let result = parse_kinds("other").unwrap();
         assert!(result.is_empty());

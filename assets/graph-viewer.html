@@ -293,12 +293,14 @@
       <label data-rel="REFERENCES">References</label>
       <label data-rel="MACRO_CALLS">Macro Calls</label>
       <label data-rel="GENERIC_BOUND">Gen. Bounds</label>
+      <label data-rel="ROUTES_TO">Routes</label>
     </div>
     <div id="kind-toggles" class="filter-group">
       <span class="filter-label">Kinds:</span>
       <label class="active" data-kind="classes">Classes</label>
       <label class="active" data-kind="interfaces">Interfaces</label>
       <label data-kind="functions">Functions</label>
+      <label data-kind="endpoints">Endpoints</label>
       <label data-kind="other">Other</label>
     </div>
     <div id="repo-deps-group" class="filter-group">
@@ -404,6 +406,7 @@
       csharp_method:  '#4EA8DE',
       csharp_constructor:'#48CAE4',
       csharp_property:'#90E0EF',
+      http_endpoint:  '#FF4D8D',
       repository_root: '#ffffff',
       repository_dependency: '#2EC4B6',
       repository_dependent: '#F39C12',
@@ -911,6 +914,10 @@
         CALLS: ['functions', 'other'],
         REFERENCES: ['functions', 'other'],
         CONTAINS: ['functions', 'other'],
+        // HTTP endpoint -> handler method: both ends must be visible, and the
+        // pair shares its enclosing class, so the overview's class projection
+        // (a self-loop) cannot stand in for them.
+        ROUTES_TO: ['endpoints', 'functions'],
         // OVERRIDES is deliberately absent. Its edges live between methods, but
         // overview roots are entities without an incoming CONTAINS edge, so methods
         // are never reachable with OVERRIDES alone (see fetch_nodes in

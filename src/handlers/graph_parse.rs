@@ -27,8 +27,9 @@ pub fn parse_kinds(kinds: &str) -> Result<Vec<&str>, String> {
             "classes" => visible.extend_from_slice(KIND_CATEGORY_CLASSES),
             "interfaces" => visible.extend_from_slice(KIND_CATEGORY_INTERFACES),
             "functions" => visible.extend_from_slice(KIND_CATEGORY_FUNCTIONS),
+            "endpoints" => visible.extend_from_slice(KIND_CATEGORY_ENDPOINTS),
             "other" => {
-                // "other" means: any kind not explicitly in classes, interfaces, or functions.
+                // "other" means: any kind not explicitly in another category.
                 // We don't expand it here — the Cypher query will handle it via exclusion.
             }
             _ => {}
@@ -132,5 +133,12 @@ mod tests {
                 parse_relationships(rel).unwrap_or_else(|e| panic!("{rel} must be accepted: {e}"));
             assert_eq!(parsed, vec![rel]);
         }
+    }
+
+    #[test]
+    fn parse_relationships_accepts_routes_to() {
+        // knot 1.12.0: HTTP endpoint -> handler edges.
+        let parsed = parse_relationships("ROUTES_TO").expect("ROUTES_TO must be accepted");
+        assert_eq!(parsed, vec!["ROUTES_TO"]);
     }
 }

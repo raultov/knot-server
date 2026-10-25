@@ -124,7 +124,7 @@ pub struct GraphParams {
     /// Graph traversal direction: incoming, outgoing, or both
     #[param(example = "both")]
     pub direction: Option<String>,
-    /// Comma-separated kind categories: classes, interfaces, functions, other
+    /// Comma-separated kind categories: classes, interfaces, functions, endpoints, other
     #[param(example = "classes,interfaces")]
     pub kinds: Option<String>,
 }
@@ -147,7 +147,7 @@ pub struct GraphExpandParams {
     pub direction: Option<String>,
     /// Comma-separated entity UUIDs to exclude from results
     pub exclude: Option<String>,
-    /// Comma-separated kind categories: classes, interfaces, functions, other
+    /// Comma-separated kind categories: classes, interfaces, functions, endpoints, other
     #[param(example = "classes,interfaces")]
     pub kinds: Option<String>,
 }
@@ -267,6 +267,7 @@ pub const VALID_RELATIONSHIPS: &[&str] = &[
     "INCLUDES",
     "IMPORTS_VMOD",
     "DECLARED_UNUSED",
+    "ROUTES_TO",
 ];
 
 pub const DEFAULT_RELATIONSHIPS_OVERVIEW: &str = "CALLS,EXTENDS,IMPLEMENTS";
@@ -358,9 +359,13 @@ pub const KIND_CATEGORY_FUNCTIONS: &[&str] = &[
     "vcc_method",
 ];
 
+/// HTTP endpoints (knot 1.12.0), linked to their handler method by `ROUTES_TO`.
+pub const KIND_CATEGORY_ENDPOINTS: &[&str] = &["http_endpoint"];
+
 pub const DEFAULT_VISIBLE_KINDS: &str = "classes,interfaces";
 
-pub const VALID_KIND_CATEGORIES: &[&str] = &["classes", "interfaces", "functions", "other"];
+pub const VALID_KIND_CATEGORIES: &[&str] =
+    &["classes", "interfaces", "functions", "endpoints", "other"];
 
 #[cfg(test)]
 mod tests {
