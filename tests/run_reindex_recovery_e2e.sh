@@ -16,6 +16,9 @@
 #          indexed.
 #   #11    Re-registering an indexed repo with an unreachable source keeps its
 #          index and local dir (a missing local path is rejected with 400).
+#   #10    A second knot-server on the same workspace and port exits before
+#          touching the registry, and a repo left in an in-progress status
+#          with no worker holding its lock is re-enqueued on its own.
 #
 # Follows the conventions of run_e2e.sh: spins up the shared Qdrant + Neo4j
 # e2e containers, runs the server against a local fixture bare repo, and drives
@@ -38,6 +41,8 @@ WORKSPACE_DIR="/tmp/knot-e2e-recovery-workspace-$$"
 SERVER_PORT=18081
 SERVER_PID=""
 SERVER_LOG="/tmp/knot-server-recovery-e2e-$$.log"
+SECOND_LOG="/tmp/knot-server-recovery-e2e-second-$$.log"
+SECOND_PID=""
 
 NEO4J_URI="bolt://localhost:17687"
 NEO4J_USER="neo4j"
@@ -51,6 +56,10 @@ echo -e "${GREEN}==================================================${NC}"
 
 cleanup() {
     local exit_code=$?
+    if [ -n "$SECOND_PID" ] && kill -0 "$SECOND_PID" 2>/dev/null; then
+        kill "$SECOND_PID" 2>/dev/null || true
+    fi
+    rm -f "$SECOND_LOG"
     if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
         kill "$SERVER_PID" 2>/dev/null || true
         wait "$SERVER_PID" 2>/dev/null || true
@@ -175,6 +184,17 @@ wait_reindexed() {
     return 1
 }
 
+# Rewrite one repo's status in repos.json behind the server's back, as a
+# process that dies mid-job leaves it. The server reloads the changed file.
+set_repo_status() {
+    local id="$1" status="$2" tmp
+    tmp=$(mktemp "$WORKSPACE_DIR/repos.json.e2e.XXXXXX")
+    jq --arg id "$id" --arg st "$status" \
+        '(.repositories[] | select(.id == $id) | .status) = $st' \
+        "$WORKSPACE_DIR/repos.json" >"$tmp"
+    mv "$tmp" "$WORKSPACE_DIR/repos.json"
+}
+
 neo4j_entity_count() {
     local id="$1"
     docker exec knot_server_neo4j_e2e cypher-shell -u neo4j -p "$NEO4J_PASSWORD" \
@@ -222,15 +242,23 @@ echo "  Healthy fixture repo: $HEALTHY_BARE"
 
 cargo build 2>&1 | grep -E "(Compiling|Finished|error)" || true
 
-KNOT_SERVER_QDRANT_URL="$QDRANT_URL" \
-KNOT_SERVER_NEO4J_URI="$NEO4J_URI" \
-KNOT_SERVER_NEO4J_USER="$NEO4J_USER" \
-KNOT_NEO4J_PASSWORD="$NEO4J_PASSWORD" \
-KNOT_SERVER_PORT="$SERVER_PORT" \
-KNOT_WORKSPACE_DIR="$WORKSPACE_DIR" \
-KNOT_SERVER_QUEUE_CAPACITY="${KNOT_SERVER_QUEUE_CAPACITY:-4}" \
-RUST_LOG="${RUST_LOG:-info}" \
-    "$PROJECT_ROOT/target/debug/knot-server" >"$SERVER_LOG" 2>&1 &
+# Same environment for the server under test and the second instance of
+# Scenario 7. The 1s stuck check lets Scenario 8 observe self-healing. `exec`
+# makes `$!` of `run_server &` the server's PID, so cleanup can stop it.
+run_server() {
+    KNOT_SERVER_QDRANT_URL="$QDRANT_URL" \
+    KNOT_SERVER_NEO4J_URI="$NEO4J_URI" \
+    KNOT_SERVER_NEO4J_USER="$NEO4J_USER" \
+    KNOT_NEO4J_PASSWORD="$NEO4J_PASSWORD" \
+    KNOT_SERVER_PORT="$SERVER_PORT" \
+    KNOT_WORKSPACE_DIR="$WORKSPACE_DIR" \
+    KNOT_SERVER_QUEUE_CAPACITY="${KNOT_SERVER_QUEUE_CAPACITY:-4}" \
+    KNOT_SERVER_STUCK_CHECK_INTERVAL_SECS=1 \
+    RUST_LOG="${RUST_LOG:-info}" \
+        exec "$PROJECT_ROOT/target/debug/knot-server"
+}
+
+run_server >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 
 echo -n "  Waiting for knot-server on port $SERVER_PORT (up to 90s for fastembed init)..."
@@ -404,6 +432,50 @@ sleep 1
 RID=$(register_repo "$HEALTHY_BARE") || fail "re-register after restoring origin"
 wait_reindexed "$ALPHA_ID" "$BEFORE" 90 || fail "repo did not recover after re-registering the restored origin"
 echo -e "  ${GREEN}PASS${NC} — recovered to 'indexed' after re-registering the restored origin"
+
+# ── Scenario 7: a second instance on the same port leaves the registry alone (issue #10) ──
+echo -e "\n${CYAN}Scenario 7: second knot-server on the same port exits before touching the registry (issue #10)${NC}"
+# 'queued' with no job behind it is what the old startup recovery re-enqueued
+# and claimed (-> cloning) before the second instance died on bind.
+set_repo_status "$ALPHA_ID" "queued"
+[ "$(repo_status "$ALPHA_ID")" = "queued" ] || fail "could not set '$ALPHA_ID' to queued"
+run_server >"$SECOND_LOG" 2>&1 &
+SECOND_PID=$!
+for _ in $(seq 1 120); do
+    kill -0 "$SECOND_PID" 2>/dev/null || break
+    sleep 1
+done
+if kill -0 "$SECOND_PID" 2>/dev/null; then
+    fail "the second instance is still running after 120s (it should fail to bind)"
+fi
+if wait "$SECOND_PID"; then
+    fail "the second instance exited with status 0 (expected a bind failure)"
+fi
+SECOND_PID=""
+grep -q "failed to bind" "$SECOND_LOG" || { cat "$SECOND_LOG"; fail "the second instance did not report the bind failure"; }
+if grep -qE "Recovering stuck repo|Worker picked up|Registry loaded" "$SECOND_LOG"; then
+    cat "$SECOND_LOG"
+    fail "the second instance touched the registry before failing to bind"
+fi
+[ "$(repo_status "$ALPHA_ID")" = "queued" ] || fail "the second instance changed '$ALPHA_ID' (now '$(repo_status "$ALPHA_ID")')"
+[ -d "$WORKSPACE_DIR/$ALPHA_ID/.git" ] || fail "the second instance wiped the local checkout of '$ALPHA_ID'"
+echo -e "  ${GREEN}PASS${NC} — second instance failed to bind, registry and checkout untouched"
+set_repo_status "$ALPHA_ID" "indexed"
+
+# ── Scenario 8: a repo stuck in-progress with no lock holder heals itself (issue #10) ──
+echo -e "\n${CYAN}Scenario 8: a repo stuck in 'cloning' with no worker is re-enqueued (issue #10)${NC}"
+BEFORE=$(repo_last_indexed "$ALPHA_ID")
+sleep 1  # last_indexed has 1s granularity
+set_repo_status "$ALPHA_ID" "cloning"
+[ "$(repo_status "$ALPHA_ID")" = "cloning" ] || fail "could not set '$ALPHA_ID' to cloning"
+for i in $(seq 1 30); do
+    grep -q "Recovering stuck repo '$ALPHA_ID' (was cloning): no worker holds its lock" "$SERVER_LOG" && break
+    [ "$i" -eq 30 ] && fail "the stuck check did not recover '$ALPHA_ID' within 30s"
+    sleep 1
+done
+echo -e "  ${GREEN}PASS${NC} — stuck check re-enqueued the repo"
+wait_reindexed "$ALPHA_ID" "$BEFORE" 90 || fail "the recovered repo did not reach 'indexed'"
+echo -e "  ${GREEN}PASS${NC} — recovered repo re-indexed"
 
 # -------------------------------------------------------
 # Step 4: done
