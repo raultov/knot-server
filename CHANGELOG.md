@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-10-27
+
+### Changed
+- **Upgrade `knot` to 1.12.1.** Updated the `knot` dependency from 1.12.0 to 1.12.1. Upstream, a Groovy receiver call `a.b(..)` is no longer also reported as a bare call `b(..)`, so a call on an unindexed type (`Canvas.render(..)`) no longer becomes a caller of the repository's only same-named method; the receiver keeps its whole dotted path (`StringUtils.INSTANCE.countWords(..)`). No API changes required. **Re-index Groovy repositories** to drop the false `CALLS` edges.
+
 ## [0.9.0] - 2026-10-25
 
 ### Added
