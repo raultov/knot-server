@@ -910,7 +910,8 @@ AI (via knot-server):
 | `KNOT_SERVER_INGEST_CONCURRENCY` | `4` | Number of concurrent async tasks for embedding computation and database ingestion. Lower values reduce RAM and CPU usage. |
 | `KNOT_SERVER_POLL_INTERVAL_SECS` | `86400` (24h) | How often the background scheduler runs |
 | `KNOT_SERVER_MAX_INDEX_AGE_SECS` | `86400` (24h) | Age before a repository is automatically re-indexed |
-| `KNOT_SERVER_STALE_LOCK_TIMEOUT_SECS` | `3600` (1h) | Timeout before a repository lock file (`<workspace>/.locks/<repo_id>.lock`) is considered orphaned and removed |
+| `KNOT_SERVER_STALE_LOCK_TIMEOUT_SECS` | `3600` (1h) | Timeout before a repository lock file (`<workspace>/.locks/<repo_id>.lock`) is considered orphaned and removed. A lock file that a live worker still holds is never removed, however old. |
+| `KNOT_SERVER_STUCK_CHECK_INTERVAL_SECS` | `60` | How often the server looks for repositories stuck in `cloning` / `pulling` / `indexing` with no worker holding their lock (left by a crashed node). A repository seen stuck on two consecutive checks is re-enqueued. Must be at least `1`. |
 | `KNOT_SERVER_QUEUE_CAPACITY` | `16` | Maximum number of jobs in the background indexing queue. Returns `429 Too Many Requests` when full. |
 | `RUST_LOG` | `info` | Log level (`debug`, `info`, `warn`, `error`) |
 | `KNOT_SERVER_METRICS_ENABLED` | `true` | Enable Prometheus metrics endpoint at `/metrics` |
@@ -1229,6 +1230,13 @@ embedding model and its native dimension (e.g. `BGEBaseENV15 · 768 dims`).
 `knot-server` is designed to run in horizontal scale-out clusters. Multiple instances
 share a common workspace directory (NFS, EFS, or Kubernetes RWX PVC) and coordinate
 via file-based locks — no distributed consensus protocol required.
+
+A worker holds a repository's lock for the whole job, so the lock tells live work apart
+from an interrupted job: on startup a node only re-enqueues the unfinished repositories
+nobody holds the lock of, and every node re-enqueues a repository left in `cloning` /
+`pulling` / `indexing` with no lock holder (see `KNOT_SERVER_STUCK_CHECK_INTERVAL_SECS`).
+A node binds its port before touching the registry, so an instance started by mistake on
+a port that is already in use exits without claiming any job.
 
 ### Docker Compose (Multi-Instance)
 
