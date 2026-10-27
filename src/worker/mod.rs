@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tracing::Instrument;
 
 use crate::cleanup::CleanupScope;
-use crate::locking::{FileLock, acquire_file_lock, repo_lock_path};
+use crate::locking::{FileLock, acquire_file_lock_with_retry, repo_lock_path};
 use crate::models::{IndexJob, RepoEntry};
 
 /// Look up a repo entry from the registry, logging and returning `None` on any failure.
@@ -50,10 +50,14 @@ fn claim_queued_job(state: &Arc<crate::models::AppState>, repo_id: &str, job: &I
     match registry.transition_status(repo_id, &[crate::models::RepoStatus::Queued], new_status) {
         Ok(true) => true,
         Ok(false) => {
+            let found = registry
+                .get(repo_id)
+                .map_or_else(|| "removed".to_string(), |e| e.status.to_string());
             tracing::info!(
-                "Dropping stale job {:?} for '{}' — repo no longer Queued",
+                "Dropping stale job {:?} for '{}' — repo no longer Queued (found: {})",
                 job,
-                repo_id
+                repo_id,
+                found
             );
             false
         }
@@ -163,12 +167,12 @@ pub(crate) async fn handle_job_failure(state: &Arc<crate::models::AppState>, rep
 /// Attempt to acquire the file lock for a repository. If the lock is held by
 /// another process, reverts the registry status to `Queued` and returns `None`
 /// so the caller can exit gracefully without failing the job.
-fn acquire_lock_or_requeue(
+async fn acquire_lock_or_requeue(
     state: &Arc<crate::models::AppState>,
     repo: &RepoEntry,
     lock_path: &Path,
 ) -> Option<FileLock> {
-    match acquire_file_lock(lock_path) {
+    match acquire_file_lock_with_retry(lock_path).await {
         Ok(lock) => {
             tracing::info!("Worker: acquired file lock for '{}'", repo.id);
             Some(lock)
@@ -435,7 +439,7 @@ async fn process_repository(
 ) -> anyhow::Result<()> {
     // 1. Acquire exclusive file lock
     let lock_path = repo_lock_path(Path::new(&state.workspace_dir), &repo.id);
-    let Some(_lock) = acquire_lock_or_requeue(state, repo, &lock_path) else {
+    let Some(_lock) = acquire_lock_or_requeue(state, repo, &lock_path).await else {
         return Ok(());
     };
 
@@ -527,6 +531,7 @@ fn spawn_progress_persister(
 mod tests {
     use super::*;
     use crate::handlers::tests_common::make_test_repo;
+    use crate::locking::acquire_file_lock;
     use crate::models::{AuthType, RepoStatus};
     use std::sync::Mutex;
     use tempfile::TempDir;

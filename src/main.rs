@@ -19,6 +19,7 @@ mod worker;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use anyhow::Context as _;
 use axum::Router;
 use axum::extract::{Request, State};
 use axum::middleware::{self, Next};
@@ -103,6 +104,16 @@ async fn main() -> anyhow::Result<()> {
 
     let embedder = setup_embedder(fastembed_cache_dir)?;
 
+    // Bind before touching the registry: a second knot-server started on a
+    // port that is already taken must exit here, not after its worker has
+    // claimed (and begun wiping) a repository it then abandons (issue #10).
+    let bind_addr = format!("{}:{}", cfg.bind_addr, cfg.port);
+    let listener = tokio::net::TcpListener::bind(&bind_addr)
+        .await
+        .with_context(|| {
+            format!("failed to bind {bind_addr}: is another knot-server already listening on it?")
+        })?;
+
     tracing::info!("Loading repository registry from {}...", cfg.workspace_dir);
     let mut registry = Registry::load_or_create(Path::new(&cfg.workspace_dir))?;
     tracing::info!("Registry loaded: {} repositories", registry.list().len());
@@ -110,7 +121,7 @@ async fn main() -> anyhow::Result<()> {
     // Create job queue channel
     let (job_tx, job_rx) = tokio::sync::mpsc::channel::<models::IndexJob>(cfg.queue_capacity);
 
-    recover_stuck_repos(&mut registry, &job_tx);
+    recover_stuck_repos(&mut registry, &job_tx, Path::new(&cfg.workspace_dir));
 
     let start_time = std::time::Instant::now();
 
@@ -161,6 +172,15 @@ async fn main() -> anyhow::Result<()> {
         poll_interval,
         stale_lock_timeout,
         max_index_age
+    );
+
+    tokio::spawn(scheduler::stuck_repo_loop(
+        state.clone(),
+        cfg.stuck_check_interval_secs,
+    ));
+    tracing::info!(
+        "Stuck repository check started (every {}s)",
+        cfg.stuck_check_interval_secs
     );
 
     #[derive(OpenApi)]
@@ -263,7 +283,6 @@ async fn main() -> anyhow::Result<()> {
 
     let app = app.with_state(state);
 
-    let listener = tokio::net::TcpListener::bind(format!("{}:{}", cfg.bind_addr, cfg.port)).await?;
     tracing::info!("knot-server listening on {}:{}", cfg.bind_addr, cfg.port);
 
     axum::serve(listener, app)
@@ -409,9 +428,13 @@ fn setup_embedder(cache_dir: std::path::PathBuf) -> anyhow::Result<Embedder> {
     Ok(embedder)
 }
 
+/// Re-enqueue the repositories a previous run left in a non-final status.
+/// A repository whose lock is held is skipped: a live node is indexing it, and
+/// it is not ours to reset (cluster restart, or a second instance).
 fn recover_stuck_repos(
     registry: &mut Registry,
     job_tx: &tokio::sync::mpsc::Sender<models::IndexJob>,
+    workspace_dir: &Path,
 ) {
     let stuck: Vec<models::RepoEntry> = registry
         .list()
@@ -430,26 +453,27 @@ fn recover_stuck_repos(
         .collect();
 
     for repo in stuck {
-        let git_dir = Path::new(&repo.local_path).join(".git");
-        let job = if git_dir.exists() {
-            tracing::warn!(
-                "Recovering stuck repo '{}' (was {}): .git exists, enqueuing Pull",
+        if locking::is_lock_held(&locking::repo_lock_path(workspace_dir, &repo.id)) {
+            tracing::info!(
+                "Repo '{}' (was {}) is locked by a live node, not recovering it",
                 repo.id,
                 repo.status
             );
-            models::IndexJob::Pull {
-                repo_id: repo.id.clone(),
-            }
-        } else {
-            tracing::warn!(
-                "Recovering stuck repo '{}' (was {}): .git missing, enqueuing Clone (worker will wipe + fresh-clone)",
-                repo.id,
-                repo.status
-            );
-            models::IndexJob::Clone {
-                repo_id: repo.id.clone(),
+            continue;
+        }
+        let job = scheduler::recovery_job(&repo);
+        let plan = match job {
+            models::IndexJob::Pull { .. } => ".git exists, enqueuing Pull",
+            models::IndexJob::Clone { .. } => {
+                ".git missing, enqueuing Clone (worker will wipe + fresh-clone)"
             }
         };
+        tracing::warn!(
+            "Recovering stuck repo '{}' (was {}): {}",
+            repo.id,
+            repo.status,
+            plan
+        );
         if job_tx.try_send(job).is_err() {
             tracing::warn!(
                 "Failed to enqueue recovery job for '{}', leaving Pending",
@@ -537,5 +561,41 @@ mod tests {
         // fallback that responds 404 (proving the override did not fire).
         let response = app.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    /// Issue #10 / cluster restarts: a repository whose lock a live node holds
+    /// is not reset or re-enqueued; the others are.
+    #[test]
+    fn recover_stuck_repos_skips_repos_locked_by_a_live_node() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let workspace = dir.path();
+        let mut registry = Registry::load_or_create(workspace).unwrap();
+        for (id, status) in [
+            ("busy", models::RepoStatus::Indexing),
+            ("orphan", models::RepoStatus::Cloning),
+        ] {
+            let local = workspace.join(id);
+            let repo = handlers::tests_common::make_test_repo(id, &local, status);
+            registry.add_or_replace(repo).unwrap();
+        }
+        let _held =
+            locking::acquire_file_lock(&locking::repo_lock_path(workspace, "busy")).unwrap();
+        let (job_tx, mut job_rx) = tokio::sync::mpsc::channel(4);
+
+        recover_stuck_repos(&mut registry, &job_tx, workspace);
+
+        assert_eq!(
+            registry.get("busy").unwrap().status,
+            models::RepoStatus::Indexing
+        );
+        assert_eq!(
+            registry.get("orphan").unwrap().status,
+            models::RepoStatus::Queued
+        );
+        match job_rx.try_recv() {
+            Ok(models::IndexJob::Clone { repo_id }) => assert_eq!(repo_id, "orphan"),
+            other => panic!("expected one Clone job for 'orphan', got {other:?}"),
+        }
+        assert!(job_rx.try_recv().is_err());
     }
 }

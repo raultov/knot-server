@@ -87,6 +87,16 @@ pub struct ServerConfig {
     )]
     pub stale_lock_timeout_secs: u64,
 
+    /// How often repositories stuck in an in-progress status with no worker
+    /// holding their lock are looked for (re-enqueued on the second sighting).
+    #[arg(
+        long,
+        env = "KNOT_SERVER_STUCK_CHECK_INTERVAL_SECS",
+        default_value_t = 60,
+        value_parser = clap::value_parser!(u64).range(1..)
+    )]
+    pub stuck_check_interval_secs: u64,
+
     #[arg(long, env = "KNOT_SERVER_MAX_INDEX_AGE_SECS", default_value_t = 86400)]
     pub max_index_age_secs: u64,
 
@@ -276,6 +286,26 @@ mod tests {
         // hidden, deprecated and `Option<u64>`.
         let cfg = parse_args(&["--embed-dim", "384"]);
         assert_eq!(cfg.embed_dim, Some(384));
+    }
+
+    #[test]
+    fn test_stuck_check_interval_default_and_custom() {
+        assert_eq!(parse_args(&[]).stuck_check_interval_secs, 60);
+        let cfg = parse_args(&["--stuck-check-interval-secs", "5"]);
+        assert_eq!(cfg.stuck_check_interval_secs, 5);
+    }
+
+    #[test]
+    fn test_stuck_check_interval_rejects_zero() {
+        // A zero period would panic in `tokio::time::interval`.
+        let args = [
+            "knot-server",
+            "--neo4j-password",
+            "secret",
+            "--stuck-check-interval-secs",
+            "0",
+        ];
+        assert!(ServerConfig::try_parse_from(args).is_err());
     }
 
     #[test]

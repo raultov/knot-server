@@ -47,6 +47,44 @@ pub fn acquire_file_lock(lock_path: &Path) -> anyhow::Result<FileLock> {
     Ok(FileLock::new(file))
 }
 
+/// Attempts [`acquire_file_lock_with_retry`] makes before reporting contention.
+const LOCK_ATTEMPTS: u32 = 5;
+const LOCK_RETRY_DELAY: Duration = Duration::from_millis(20);
+
+/// [`acquire_file_lock`] with a short retry. [`is_lock_held`] takes the lock
+/// for a few microseconds to probe it, so a worker that tried exactly then
+/// would otherwise mistake the probe for another node indexing the repository.
+pub async fn acquire_file_lock_with_retry(lock_path: &Path) -> anyhow::Result<FileLock> {
+    let mut attempt = 1;
+    loop {
+        match acquire_file_lock(lock_path) {
+            Ok(lock) => return Ok(lock),
+            Err(e) if attempt >= LOCK_ATTEMPTS => return Err(e),
+            Err(_) => {
+                attempt += 1;
+                tokio::time::sleep(LOCK_RETRY_DELAY).await;
+            }
+        }
+    }
+}
+
+/// Whether a live process (another node, or a worker of this one) holds the
+/// lock right now. A missing lock file is never held. The probe takes the lock
+/// without blocking and releases it at once; any probe error counts as held,
+/// so callers err on the side of leaving the repository alone.
+pub fn is_lock_held(lock_path: &Path) -> bool {
+    let Ok(file) = File::open(lock_path) else {
+        return false;
+    };
+    match file.try_lock_exclusive() {
+        Ok(()) => {
+            let _ = FileExt::unlock(&file);
+            false
+        }
+        Err(_) => true,
+    }
+}
+
 pub fn is_lock_stale(lock_path: &Path, threshold: Duration) -> bool {
     if let Ok(metadata) = fs::metadata(lock_path)
         && let Ok(modified) = metadata.modified()
@@ -161,6 +199,44 @@ mod tests {
             acquire_file_lock(&lock_path).is_err(),
             "a second node must not acquire the lock after the repo dir is wiped"
         );
+    }
+
+    #[test]
+    fn test_is_lock_held_tracks_the_holder() {
+        let dir = TempDir::new().unwrap();
+        let lock_path = dir.path().join("alpha.lock");
+        assert!(!is_lock_held(&lock_path), "a missing file is never held");
+
+        let held = acquire_file_lock(&lock_path).unwrap();
+        assert!(is_lock_held(&lock_path));
+        drop(held);
+        assert!(!is_lock_held(&lock_path), "the file outlives the lock");
+        assert!(
+            acquire_file_lock(&lock_path).is_ok(),
+            "the probe must release the lock it took"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_acquire_with_retry_waits_out_a_brief_holder() {
+        let dir = TempDir::new().unwrap();
+        let lock_path = dir.path().join("alpha.lock");
+        let held = acquire_file_lock(&lock_path).unwrap();
+        let release = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            drop(held);
+        });
+
+        assert!(acquire_file_lock_with_retry(&lock_path).await.is_ok());
+        release.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_acquire_with_retry_reports_a_lasting_holder() {
+        let dir = TempDir::new().unwrap();
+        let lock_path = dir.path().join("alpha.lock");
+        let _held = acquire_file_lock(&lock_path).unwrap();
+        assert!(acquire_file_lock_with_retry(&lock_path).await.is_err());
     }
 
     #[test]

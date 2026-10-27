@@ -1,10 +1,11 @@
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::locking::{is_lock_stale, remove_stale_lock, repo_lock_path};
+use crate::locking::{is_lock_held, is_lock_stale, remove_stale_lock, repo_lock_path};
 use crate::models::AppState;
-use crate::models::{IndexJob, RepoStatus};
+use crate::models::{IndexJob, RepoEntry, RepoStatus};
 
 pub async fn scheduler_loop(
     state: Arc<AppState>,
@@ -22,6 +23,99 @@ pub async fn scheduler_loop(
     }
 }
 
+/// The job that resumes an interrupted repository: an incremental `Pull`
+/// when a checkout exists, otherwise a `Clone` (the worker wipes and starts
+/// from scratch).
+pub(crate) fn recovery_job(repo: &RepoEntry) -> IndexJob {
+    let repo_id = repo.id.clone();
+    if Path::new(&repo.local_path).join(".git").exists() {
+        IndexJob::Pull { repo_id }
+    } else {
+        IndexJob::Clone { repo_id }
+    }
+}
+
+/// Periodically re-enqueue repositories left in an in-progress status by a
+/// worker that died, independently of the (by default daily) scheduler poll.
+pub async fn stuck_repo_loop(state: Arc<AppState>, check_interval_secs: u64) {
+    let mut interval = tokio::time::interval(Duration::from_secs(check_interval_secs));
+    interval.tick().await;
+    let mut suspects = HashSet::new();
+    loop {
+        interval.tick().await;
+        heal_stuck_repos(&state, &mut suspects);
+    }
+}
+
+/// One self-healing pass. A worker holds the repository lock for the whole
+/// job, so a repo in `cloning` / `pulling` / `indexing` whose lock nobody
+/// holds has no job behind it: its worker crashed, or it was claimed by a
+/// second knot-server that exited before serving (issue #10). Such a repo is
+/// only re-enqueued when two consecutive passes see it, which rules out the
+/// instant between a worker's claim and its lock. `suspects` carries the repos
+/// seen on the previous pass. Returns the number of repos re-enqueued.
+pub(crate) fn heal_stuck_repos(state: &Arc<AppState>, suspects: &mut HashSet<String>) -> usize {
+    let repos = {
+        let mut registry = state.registry.lock().unwrap();
+        registry.list().to_vec()
+    };
+
+    let mut seen_now = HashSet::new();
+    let mut healed = 0;
+    for repo in repos.iter().filter(|r| is_in_progress(&r.status)) {
+        let lock_path = repo_lock_path(Path::new(&state.workspace_dir), &repo.id);
+        if is_lock_held(&lock_path) {
+            continue;
+        }
+        if !suspects.contains(&repo.id) {
+            seen_now.insert(repo.id.clone());
+            continue;
+        }
+        if requeue_stuck_repo(state, repo) {
+            healed += 1;
+        }
+    }
+    *suspects = seen_now;
+    healed
+}
+
+fn is_in_progress(status: &RepoStatus) -> bool {
+    matches!(
+        status,
+        RepoStatus::Cloning | RepoStatus::Pulling | RepoStatus::Indexing
+    )
+}
+
+/// Move a stuck repo back to `Queued` and enqueue its recovery job. The
+/// transition is a CAS, so a repo that moved on since the pass listed it is
+/// left alone. Returns `true` when a job was enqueued.
+fn requeue_stuck_repo(state: &Arc<AppState>, repo: &RepoEntry) -> bool {
+    let mut registry = state.registry.lock().unwrap();
+    let in_progress = [
+        RepoStatus::Cloning,
+        RepoStatus::Pulling,
+        RepoStatus::Indexing,
+    ];
+    if !matches!(
+        registry.transition_status(&repo.id, &in_progress, RepoStatus::Queued),
+        Ok(true)
+    ) {
+        return false;
+    }
+    let job = recovery_job(repo);
+    tracing::warn!(
+        "Recovering stuck repo '{}' (was {}): no worker holds its lock, enqueuing {:?}",
+        repo.id,
+        repo.status,
+        job
+    );
+    if state.job_tx.try_send(job).is_err() {
+        let _ = registry.update_status(&repo.id, RepoStatus::Pending);
+        return false;
+    }
+    true
+}
+
 /// Remove a stale lock, re-queue the repo, and enqueue a Pull job. Returns
 /// `Some(enqueued)` when a stale lock was found (regardless of whether the
 /// channel send succeeded), `None` when the lock is absent or not yet stale.
@@ -31,7 +125,9 @@ fn recover_stale_lock(
     lock_path: &Path,
     threshold: Duration,
 ) -> Option<bool> {
-    if !lock_path.exists() || !is_lock_stale(lock_path, threshold) {
+    // An old lock file can still be held by a long job: removing it would let
+    // another node lock a new file at the same path and index concurrently.
+    if !lock_path.exists() || !is_lock_stale(lock_path, threshold) || is_lock_held(lock_path) {
         return None;
     }
     tracing::warn!(
@@ -62,17 +158,8 @@ fn recover_stale_lock(
 ///
 /// The caller is responsible for verifying `status == Pending && !lock_exists`
 /// before calling this function.
-fn pickup_pending_repo(state: &Arc<AppState>, repo: &crate::models::RepoEntry) -> bool {
-    let git_dir = Path::new(&repo.local_path).join(".git");
-    let job = if git_dir.exists() {
-        IndexJob::Pull {
-            repo_id: repo.id.clone(),
-        }
-    } else {
-        IndexJob::Clone {
-            repo_id: repo.id.clone(),
-        }
-    };
+fn pickup_pending_repo(state: &Arc<AppState>, repo: &RepoEntry) -> bool {
+    let job = recovery_job(repo);
     let mut registry = state.registry.lock().unwrap();
     match registry.transition_status(&repo.id, &[RepoStatus::Pending], RepoStatus::Queued) {
         Ok(true) => {
@@ -291,6 +378,136 @@ mod tests {
         let enqueued = pickup_pending_repo(&state, &repo);
         assert!(!enqueued);
         assert!(rx.try_recv().is_err(), "expected no job in the channel");
+    }
+
+    fn add_repo(state: &Arc<AppState>, workspace: &Path, id: &str, status: RepoStatus) {
+        let repo = make_repo(id, &workspace.join(id), status);
+        state.registry.lock().unwrap().add_or_replace(repo).unwrap();
+    }
+
+    fn status_of(state: &Arc<AppState>, id: &str) -> RepoStatus {
+        state
+            .registry
+            .lock()
+            .unwrap()
+            .get(id)
+            .unwrap()
+            .status
+            .clone()
+    }
+
+    /// Issue #10: a repo left in `cloning` with no worker holding its lock is
+    /// re-enqueued, but only on the second consecutive sighting.
+    #[tokio::test]
+    async fn test_heal_stuck_repos_requeues_on_second_sighting() {
+        let dir = TempDir::new().unwrap();
+        let workspace = dir.path().join("ws");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let (state, mut rx) = create_test_state_with_rx(&workspace).await;
+        add_repo(&state, &workspace, "stuck", RepoStatus::Cloning);
+        add_repo(&state, &workspace, "done", RepoStatus::Indexed);
+
+        let mut suspects = HashSet::new();
+        assert_eq!(heal_stuck_repos(&state, &mut suspects), 0);
+        assert_eq!(status_of(&state, "stuck"), RepoStatus::Cloning);
+        assert!(
+            rx.try_recv().is_err(),
+            "the first sighting must not enqueue"
+        );
+
+        assert_eq!(heal_stuck_repos(&state, &mut suspects), 1);
+        assert_eq!(status_of(&state, "stuck"), RepoStatus::Queued);
+        match rx.try_recv() {
+            Ok(IndexJob::Clone { repo_id }) => assert_eq!(repo_id, "stuck"),
+            other => panic!("expected a Clone job for 'stuck', got {other:?}"),
+        }
+        assert!(rx.try_recv().is_err(), "only the stuck repo is re-enqueued");
+        assert_eq!(status_of(&state, "done"), RepoStatus::Indexed);
+    }
+
+    #[tokio::test]
+    async fn test_heal_stuck_repos_leaves_a_locked_repo_alone() {
+        let dir = TempDir::new().unwrap();
+        let workspace = dir.path().join("ws");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let (state, mut rx) = create_test_state_with_rx(&workspace).await;
+        add_repo(&state, &workspace, "busy", RepoStatus::Indexing);
+        let _held = crate::locking::acquire_file_lock(&repo_lock_path(&workspace, "busy")).unwrap();
+
+        let mut suspects = HashSet::new();
+        for _ in 0..3 {
+            assert_eq!(heal_stuck_repos(&state, &mut suspects), 0);
+        }
+        assert_eq!(status_of(&state, "busy"), RepoStatus::Indexing);
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_heal_stuck_repos_forgets_a_repo_that_moved_on() {
+        let dir = TempDir::new().unwrap();
+        let workspace = dir.path().join("ws");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let (state, mut rx) = create_test_state_with_rx(&workspace).await;
+        add_repo(&state, &workspace, "claimed", RepoStatus::Cloning);
+
+        let mut suspects = HashSet::new();
+        heal_stuck_repos(&state, &mut suspects);
+        // The worker finished in between: the next passes start from scratch.
+        state
+            .registry
+            .lock()
+            .unwrap()
+            .update_status("claimed", RepoStatus::Indexed)
+            .unwrap();
+        assert_eq!(heal_stuck_repos(&state, &mut suspects), 0);
+        assert!(suspects.is_empty());
+
+        state
+            .registry
+            .lock()
+            .unwrap()
+            .update_status("claimed", RepoStatus::Pulling)
+            .unwrap();
+        assert_eq!(
+            heal_stuck_repos(&state, &mut suspects),
+            0,
+            "a new in-progress status needs two sightings again"
+        );
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_recover_stale_lock_never_removes_a_held_lock() {
+        let dir = TempDir::new().unwrap();
+        let workspace = dir.path().join("ws");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let (state, mut rx) = create_test_state_with_rx(&workspace).await;
+        add_repo(&state, &workspace, "long", RepoStatus::Indexing);
+        let lock_path = repo_lock_path(&workspace, "long");
+        let held = crate::locking::acquire_file_lock(&lock_path).unwrap();
+        let old = std::time::SystemTime::now() - Duration::from_secs(7200);
+        std::fs::File::options()
+            .write(true)
+            .open(&lock_path)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        let repo = state.registry.lock().unwrap().get("long").unwrap().clone();
+
+        let threshold = Duration::from_secs(3600);
+        assert_eq!(
+            recover_stale_lock(&state, &repo, &lock_path, threshold),
+            None
+        );
+        assert!(lock_path.exists(), "a held lock file must stay");
+        assert!(rx.try_recv().is_err());
+
+        drop(held);
+        assert_eq!(
+            recover_stale_lock(&state, &repo, &lock_path, threshold),
+            Some(true),
+            "an old lock nobody holds is still recovered"
+        );
     }
 
     #[test]
