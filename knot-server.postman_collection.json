@@ -230,6 +230,191 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "tools/call - explore_file",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 6,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"explore_file\",\n    \"arguments\": {\n      \"file_path\": \"src/lib.rs\",\n      \"repo_name\": \"knot\"\n    }\n  }\n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:3000/mcp",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "mcp"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "tools/call - list_files",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 7,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"list_files\",\n    \"arguments\": {\n      \"path\": \"src\",\n      \"repo_name\": \"knot\"\n    }\n  }\n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:3000/mcp",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "mcp"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "tools/call - list_endpoints",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 8,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"list_endpoints\",\n    \"arguments\": {\n      \"method\": \"GET\",\n      \"path\": \"/api\",\n      \"repo_name\": \"all\"\n    }\n  }\n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:3000/mcp",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "mcp"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "tools/call - list_repo_dependencies",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 9,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"list_repo_dependencies\",\n    \"arguments\": {\n      \"repo_name\": \"knot-server\",\n      \"max_depth\": 3,\n      \"reverse\": false\n    }\n  }\n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:3000/mcp",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "mcp"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "tools/call - list_repositories",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 10,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"list_repositories\",\n    \"arguments\": {\n      \"filter\": \"knot\"\n    }\n  }\n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:3000/mcp",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "mcp"
+              ]
+            }
+          },
+          "response": []
         }
       ]
     },
@@ -239,7 +424,7 @@
         "method": "GET",
         "header": [],
         "url": {
-          "raw": "http://localhost:3000/api/repos/knot/search?q=run_indexing_pipeline&max_results=5&path=&kinds=",
+          "raw": "http://localhost:3000/api/repos/knot/search?q=run_indexing_pipeline&max_results=5",
           "protocol": "http",
           "host": [
             "localhost"
@@ -318,7 +503,7 @@
         "method": "GET",
         "header": [],
         "url": {
-          "raw": "http://localhost:3000/api/search?q=run_indexing_pipeline&repo=&path=&kinds=",
+          "raw": "http://localhost:3000/api/search?q=run_indexing_pipeline",
           "protocol": "http",
           "host": [
             "localhost"
@@ -350,6 +535,12 @@
               "value": "",
               "description": "Optional path filter: repo-relative directory prefix (src/api, matched on a path boundary) or glob (src/**/*_test.rs). Disabled = omitted = search every file.",
               "disabled": true
+            },
+            {
+              "key": "kinds",
+              "value": "",
+              "description": "Comma-separated entity kind filter: exact wire-format kinds (e.g. rust_function) or aliases like definition / class / function. Disabled = omitted = no filtering.",
+              "disabled": true
             }
           ]
         }
@@ -362,7 +553,7 @@
         "method": "GET",
         "header": [],
         "url": {
-          "raw": "http://localhost:3000/api/callers?entity=run_indexing_pipeline&repo=",
+          "raw": "http://localhost:3000/api/callers?entity=run_indexing_pipeline",
           "protocol": "http",
           "host": [
             "localhost"
@@ -439,6 +630,20 @@
             "repos",
             "knot-server",
             "deps"
+          ],
+          "query": [
+            {
+              "key": "max_depth",
+              "value": "3",
+              "description": "Transitive depth (clamped; the response reports clamping in `depth`).",
+              "disabled": true
+            },
+            {
+              "key": "reverse",
+              "value": "false",
+              "description": "true = repositories that depend on this one.",
+              "disabled": true
+            }
           ]
         }
       },
@@ -478,6 +683,140 @@
       "response": []
     },
     {
+      "name": "Entity Graph",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/api/repos/knot/graph?entity=run_indexing_pipeline&depth=2&relationships=CALLS,EXTENDS,IMPLEMENTS&kinds=classes,interfaces,functions",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "api",
+            "repos",
+            "knot",
+            "graph"
+          ],
+          "query": [
+            {
+              "key": "entity",
+              "value": "run_indexing_pipeline",
+              "description": "Root entity (name or FQN). Disabled = repository overview."
+            },
+            {
+              "key": "depth",
+              "value": "2",
+              "description": "Traversal depth 1-5."
+            },
+            {
+              "key": "relationships",
+              "value": "CALLS,EXTENDS,IMPLEMENTS",
+              "description": "Edge types: CALLS, EXTENDS, IMPLEMENTS, OVERRIDES, REFERENCES, REFERENCES_DOM, USES_CSS_CLASS, IMPORTS_SCRIPT, IMPORTS_STYLESHEET, MACRO_CALLS, CONTAINS, GENERIC_BOUND, DEPENDS_ON, ROUTES_TO, USES_BACKEND, USES_PROBE, USES_ACL, INCLUDES, IMPORTS_VMOD, DECLARED_UNUSED."
+            },
+            {
+              "key": "direction",
+              "value": "both",
+              "description": "incoming | outgoing | both",
+              "disabled": true
+            },
+            {
+              "key": "kinds",
+              "value": "classes,interfaces,functions",
+              "description": "Kind categories: classes, interfaces, functions, endpoints (http_endpoint), other (turns the kind filter off). Default: classes,interfaces."
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Endpoint Graph (ROUTES_TO)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/api/repos/HikariCP/graph?relationships=ROUTES_TO&kinds=endpoints,functions",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "api",
+            "repos",
+            "HikariCP",
+            "graph"
+          ],
+          "query": [
+            {
+              "key": "relationships",
+              "value": "ROUTES_TO"
+            },
+            {
+              "key": "kinds",
+              "value": "endpoints,functions",
+              "description": "Kind categories: classes, interfaces, functions, endpoints (http_endpoint), other (turns the kind filter off). Default: classes,interfaces."
+            }
+          ]
+        },
+        "description": "HTTP endpoint -> handler map (knot 1.12.0, Java/Kotlin JAX-RS and Spring MVC). Point it at a repository with REST controllers."
+      },
+      "response": []
+    },
+    {
+      "name": "Graph Expand",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/api/repos/knot/graph/expand?entity=run_indexing_pipeline&depth=1&relationships=CALLS,REFERENCES,CONTAINS&kinds=classes,interfaces,functions",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "api",
+            "repos",
+            "knot",
+            "graph",
+            "expand"
+          ],
+          "query": [
+            {
+              "key": "entity",
+              "value": "run_indexing_pipeline",
+              "description": "Entity to expand from (or entity_id)."
+            },
+            {
+              "key": "depth",
+              "value": "1"
+            },
+            {
+              "key": "relationships",
+              "value": "CALLS,REFERENCES,CONTAINS",
+              "description": "Edge types: CALLS, EXTENDS, IMPLEMENTS, OVERRIDES, REFERENCES, REFERENCES_DOM, USES_CSS_CLASS, IMPORTS_SCRIPT, IMPORTS_STYLESHEET, MACRO_CALLS, CONTAINS, GENERIC_BOUND, DEPENDS_ON, ROUTES_TO, USES_BACKEND, USES_PROBE, USES_ACL, INCLUDES, IMPORTS_VMOD, DECLARED_UNUSED."
+            },
+            {
+              "key": "exclude",
+              "value": "",
+              "description": "Comma-separated entity UUIDs already on screen.",
+              "disabled": true
+            },
+            {
+              "key": "kinds",
+              "value": "classes,interfaces,functions",
+              "description": "Kind categories: classes, interfaces, functions, endpoints (http_endpoint), other (turns the kind filter off). Default: classes,interfaces."
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
       "name": "Check Health",
       "request": {
         "method": "GET",
@@ -494,6 +833,26 @@
             "health"
           ]
         }
+      },
+      "response": []
+    },
+    {
+      "name": "Metrics",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/metrics",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "metrics"
+          ]
+        },
+        "description": "Prometheus metrics. Only served when metrics are enabled."
       },
       "response": []
     },
@@ -518,13 +877,34 @@
       "response": []
     },
     {
+      "name": "Get Repo",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/api/repos/knot",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "api",
+            "repos",
+            "knot"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
       "name": "Upload Remote Repo",
       "request": {
         "method": "POST",
         "header": [],
         "body": {
           "mode": "raw",
-          "raw": "{\n    \"url\": \"https://github.com/brettwooldridge/HikariCP.git\",\n    \"name\": \"hikariCP\",\n    \"auth\": { \n        \"type\": \"none\"\n     },\n     \"branch\": \"dev\"\n}\n",
+          "raw": "{\n    \"url\": \"https://github.com/brettwooldridge/HikariCP.git\",\n    \"auth_type\": \"https\",\n    \"branch\": \"dev\"\n}\n",
           "options": {
             "raw": {
               "language": "json"
@@ -542,7 +922,8 @@
             "api",
             "repos"
           ]
-        }
+        },
+        "description": "Body fields: url (required), auth_type (ssh | https, default ssh), branch (default main), webhook_secret (optional). The repository id is derived from the URL (here: HikariCP). Re-registering the same id re-clones from scratch once the source is known to be reachable."
       },
       "response": []
     },
@@ -594,7 +975,17 @@
       "name": "Trigger webhook",
       "request": {
         "method": "POST",
-        "header": [],
+        "header": [
+          {
+            "key": "X-Gitlab-Token",
+            "value": "change-me",
+            "description": "Must equal the repo's webhook_secret. GitHub uses X-Hub-Signature-256 (HMAC-SHA256 of the body), Bitbucket X-Hub-Signature."
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
         "url": {
           "raw": "http://localhost:3000/api/webhook/knot",
           "protocol": "http",
@@ -607,7 +998,17 @@
             "webhook",
             "knot"
           ]
-        }
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"object_kind\": \"push\",\n    \"ref\": \"refs/heads/master\"\n}\n",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "description": "Enqueues an incremental Pull job (202). Returns 401 when the repo has no webhook_secret or the header does not match it."
       },
       "response": []
     },
@@ -618,7 +1019,7 @@
         "header": [],
         "body": {
           "mode": "raw",
-          "raw": "{\n    \"url\": \"/home/USER/workspace/knot\",\n    \"name\": \"knot\",\n    \"auth\": { \n        \"type\": \"none\"\n     },\n     \"branch\": \"master\"\n}\n",
+          "raw": "{\n    \"url\": \"/home/USER/workspace/knot\",\n    \"auth_type\": \"ssh\",\n    \"branch\": \"master\",\n    \"webhook_secret\": \"change-me\"\n}\n",
           "options": {
             "raw": {
               "language": "json"
@@ -636,7 +1037,8 @@
             "api",
             "repos"
           ]
-        }
+        },
+        "description": "Local working tree, mirrored into the workspace. The path must exist: a missing local path is rejected with 400. webhook_secret enables 'Trigger webhook' for this repo (id: knot)."
       },
       "response": []
     },
