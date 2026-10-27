@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-10-27
+
+### Added
+- **`KNOT_SERVER_STUCK_CHECK_INTERVAL_SECS`** (default `60`, minimum `1`): how often the server looks for repositories stuck in `cloning` / `pulling` / `indexing` with no worker holding their lock.
+- **Postman collection brought up to date** with the current API: correct registration bodies, a webhook request with its token header, the repo detail, entity graph (including `ROUTES_TO`), graph expand and metrics requests, and every MCP tool.
+
+### Fixed
+- **A repository could stay in `cloning` forever** ([#10](https://github.com/raultov/knot-server/issues/10)). A second `knot-server` started on the same workspace and port loaded the registry, re-enqueued every unfinished repository, and its worker claimed one (and began wiping it) before the process failed to bind the port and exited. The running server then dropped its own job for that repository as stale, and nothing reset the status until the daily scheduler poll. Now the server binds its port before touching the registry (`failed to bind …: is another knot-server already listening on it?`); startup recovery skips repositories whose lock a live node holds, so restarting a cluster node no longer resets another node's in-flight job; a new check (`KNOT_SERVER_STUCK_CHECK_INTERVAL_SECS`, default 60s) re-enqueues a repository seen in `cloning` / `pulling` / `indexing` with no lock holder on two consecutive passes; the stale-lock recovery never removes a lock file that is still held; and a dropped job logs the status it found (`repo no longer Queued (found: cloning)`).
+
 ## [0.9.1] - 2026-10-27
 
 ### Changed
