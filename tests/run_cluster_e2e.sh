@@ -289,13 +289,21 @@ sleep 0.5
 echo "  flock process holding lock (PID: $FLOCK_PID)"
 assert_file_exists "$LOCK_PATH" "repo-alpha lock exists (flock holding it)"
 
-# Kill the flock process — OS releases the advisory lock, file stays.
+# Kill the flock process and its `sleep` child — OS releases the advisory
+# lock, file stays. flock(1) forks the command with the locked fd, so killing
+# flock alone leaves `sleep` holding the lock: a live holder, which the
+# scheduler must (and does) leave alone.
+pkill -9 -P "$FLOCK_PID" 2>/dev/null || true
 kill -9 "$FLOCK_PID"
 wait "$FLOCK_PID" 2>/dev/null || true
 echo "  flock killed (simulating worker crash)"
+if flock --nonblock --exclusive "$LOCK_PATH" true; then
+    pass "repo-alpha lock released by the crash"
+else
+    fail "repo-alpha lock still held after killing flock and its child"
+fi
 
-# Actually, on Linux, kill -9 on flock doesn't orphan the file immediately
-# if another process had the fd open. Let's also kill Instance A now.
+# Also kill Instance A now.
 kill -9 "$SERVER_A_PID"
 wait "$SERVER_A_PID" 2>/dev/null || true
 SERVER_A_PID=""
