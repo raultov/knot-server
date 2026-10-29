@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-10-29
+
+### Changed
+- **Upgrade `knot` to 1.12.2.** Updated the `knot` dependency from 1.12.1 to 1.12.2. Upstream, Groovy calls whose only argument is a trailing closure (both receiver calls like `parts.each { ... }` and bare DSL-style calls like `withLock { ... }`) are now detected and produce a `CALLS` intent with arity one, so repository methods invoked only through this syntax no longer look unused to `find_callers`. No API changes required. **Re-index Groovy repositories** to add the missing `CALLS` edges.
+
 ## [0.9.2] - 2026-10-27
 
 ### Added
