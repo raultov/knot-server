@@ -268,6 +268,7 @@ pub const VALID_RELATIONSHIPS: &[&str] = &[
     "IMPORTS_VMOD",
     "DECLARED_UNUSED",
     "ROUTES_TO",
+    "HTTP_CALLS",
 ];
 
 pub const DEFAULT_RELATIONSHIPS_OVERVIEW: &str = "CALLS,EXTENDS,IMPLEMENTS";
@@ -359,8 +360,9 @@ pub const KIND_CATEGORY_FUNCTIONS: &[&str] = &[
     "vcc_method",
 ];
 
-/// HTTP endpoints (knot 1.12.0), linked to their handler method by `ROUTES_TO`.
-pub const KIND_CATEGORY_ENDPOINTS: &[&str] = &["http_endpoint"];
+/// HTTP endpoints (knot 1.12.0), linked to their handler method by `ROUTES_TO`,
+/// and the HTTP client calls (knot 1.14.0) linked to them by `HTTP_CALLS`.
+pub const KIND_CATEGORY_ENDPOINTS: &[&str] = &["http_endpoint", "http_client_call"];
 
 pub const DEFAULT_VISIBLE_KINDS: &str = "classes,interfaces";
 

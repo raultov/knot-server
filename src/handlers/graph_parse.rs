@@ -136,6 +136,14 @@ mod tests {
     }
 
     #[test]
+    fn parse_relationships_accepts_http_calls() {
+        // knot 1.14.0: HTTP client call -> endpoint edges.
+        let parsed =
+            parse_relationships("HTTP_CALLS,ROUTES_TO").expect("HTTP_CALLS must be accepted");
+        assert_eq!(parsed, vec!["HTTP_CALLS", "ROUTES_TO"]);
+    }
+
+    #[test]
     fn parse_relationships_accepts_routes_to() {
         // knot 1.12.0: HTTP endpoint -> handler edges.
         let parsed = parse_relationships("ROUTES_TO").expect("ROUTES_TO must be accepted");
