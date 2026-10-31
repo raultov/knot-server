@@ -130,8 +130,9 @@ create_fixture_repo() {
 
     # Copy fixture source files into the working tree
     cp "$FIXTURE_DIR"/*.java "$work_path/" 2>/dev/null || true
-    # JAX-RS resource for the HTTP endpoint graph tests (G20–G23). Kept in a
-    # subdirectory so the suites copying fixtures/*.java do not pick it up.
+    # JAX-RS resource and its Feign client for the HTTP endpoint graph tests
+    # (G20–G24). Kept in a subdirectory so the suites copying fixtures/*.java
+    # do not pick them up.
     cp "$FIXTURE_DIR"/http_endpoints/*.java "$work_path/"
 
     # Create a minimal README
@@ -612,7 +613,7 @@ if [ "$INDEXED_OK" = "true" ]; then
 
     # ── Test G17: Full relationship allow-list round-trip (drift guard) ──
     echo -e "\n${CYAN}Test G17: Full relationship allow-list round-trip${NC}"
-    ALL_RELS="CALLS EXTENDS IMPLEMENTS REFERENCES REFERENCES_DOM USES_CSS_CLASS IMPORTS_SCRIPT IMPORTS_STYLESHEET MACRO_CALLS CONTAINS GENERIC_BOUND DEPENDS_ON OVERRIDES ROUTES_TO"
+    ALL_RELS="CALLS EXTENDS IMPLEMENTS REFERENCES REFERENCES_DOM USES_CSS_CLASS IMPORTS_SCRIPT IMPORTS_STYLESHEET MACRO_CALLS CONTAINS GENERIC_BOUND DEPENDS_ON OVERRIDES ROUTES_TO HTTP_CALLS"
     G17_FAILURES=""
     for rel in $ALL_RELS; do
       REL_CODE=$(curl -s -w "%{http_code}" -o /dev/null \
@@ -702,11 +703,11 @@ if [ "$INDEXED_OK" = "true" ]; then
     G21_FUNCTIONS=$(jq '[.nodes[] | select(.kind == "http_endpoint")] | length' /tmp/g21.json)
     curl -s -o /tmp/g21b.json \
       "http://localhost:${SERVER_PORT}/api/repos/${REPO_ID}/graph?relationships=ROUTES_TO&kinds=endpoints"
-    G21_FOREIGN=$(jq '[.nodes[] | select(.kind != "http_endpoint")] | length' /tmp/g21b.json)
+    G21_FOREIGN=$(jq '[.nodes[] | select(.kind != "http_endpoint" and .kind != "http_client_call")] | length' /tmp/g21b.json)
     G21_ONLY=$(jq '[.nodes[] | select(.kind == "http_endpoint")] | length' /tmp/g21b.json)
 
     if [ "$G21_DEFAULT" -eq 0 ] && [ "$G21_FUNCTIONS" -eq 0 ] && [ "$G21_FOREIGN" -eq 0 ] && [ "$G21_ONLY" -ge 2 ]; then
-      echo -e "${GREEN}PASS${NC}: no endpoints by default or with kinds=functions; kinds=endpoints returns only endpoints ($G21_ONLY)"
+      echo -e "${GREEN}PASS${NC}: no endpoints by default or with kinds=functions; kinds=endpoints returns only endpoints and client calls ($G21_ONLY endpoints)"
     else
       echo -e "${RED}FAIL${NC}: default=$G21_DEFAULT, functions=$G21_FUNCTIONS, endpoints_foreign=$G21_FOREIGN, endpoints_only=$G21_ONLY"
       exit 1
@@ -738,6 +739,27 @@ if [ "$INDEXED_OK" = "true" ]; then
     else
       echo -e "${RED}FAIL${NC}: status=$CODE, routes_to rows=$G23_ROUTES"
       cat /tmp/g23.json
+      exit 1
+    fi
+
+    # ── Test G24: an HTTP client call reaches its endpoint over HTTP_CALLS ──
+    # Fixture: tests/fixtures/http_endpoints/ItemsClient.java (Feign, knot 1.14).
+    echo -e "\n${CYAN}Test G24: HTTP_CALLS links the client call to its endpoint${NC}"
+    CODE=$(curl -s -w "%{http_code}" -o /tmp/g24.json \
+      "http://localhost:${SERVER_PORT}/api/repos/${REPO_ID}/graph?relationships=HTTP_CALLS,ROUTES_TO&kinds=endpoints,functions")
+    G24_CALL_ID=$(jq -r '[.nodes[] | select(.kind == "http_client_call" and .name == "GET /items/{id}")][0].id // empty' /tmp/g24.json)
+    G24_GET_ID=$(jq -r '[.nodes[] | select(.kind == "http_endpoint" and .name == "GET /items/{id}")][0].id // empty' /tmp/g24.json)
+    G24_EDGE=$(jq --arg src "$G24_CALL_ID" --arg tgt "$G24_GET_ID" \
+      '[.edges[] | select(.source == $src and .target == $tgt and .type == "HTTP_CALLS")] | length' /tmp/g24.json)
+    curl -s -o /tmp/g24b.json \
+      "http://localhost:${SERVER_PORT}/api/repos/${REPO_ID}/callers?entity=ItemsResource.read"
+    G24_HTTP_CALLERS=$(jq -r '[.http_calls[]?.name] | join(",")' /tmp/g24b.json)
+
+    if [ "$CODE" = "200" ] && [ -n "$G24_CALL_ID" ] && [ -n "$G24_GET_ID" ] && [ "$G24_EDGE" -eq 1 ] \
+       && [ "$G24_HTTP_CALLERS" = "GET /items/{id}" ]; then
+      echo -e "${GREEN}PASS${NC}: client call GET /items/{id} -HTTP_CALLS-> GET /items/{id}; read lists it under http_calls"
+    else
+      echo -e "${RED}FAIL${NC}: status=$CODE, call_id=\"$G24_CALL_ID\", get_id=\"$G24_GET_ID\", http_calls_edges=$G24_EDGE, http_calls=\"$G24_HTTP_CALLERS\""
       exit 1
     fi
 
