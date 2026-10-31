@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-10-31
+
+### Changed
+- **Upgrade `knot` to 1.14.0.** Updated the `knot` dependency from 1.12.2 to 1.14.0. No API code changes were required. Upstream changes visible through knot-server:
+  - **HTTP callers** (knot 1.14.0, Java/Kotlin). `GET /api/repos/:id/callers`, `GET /api/callers` and the `find_callers` MCP tool gain an `http_calls` bucket: the HTTP client calls linked by heuristic `HTTP_CALLS` edges to the queried endpoint or handler, from any indexed repository. Covered clients are OpenFeign, MicroProfile REST Client, Spring `@HttpExchange`, `RestTemplate`, `WebClient` and `RestClient`. Each client call is an `http_client_call` entity, found by search and listed by `explore_file`. Indexing reads each repository's `application*` / `bootstrap*` configuration for base URLs, service names and context paths, and recomputes the links across all repositories after every run, so they do not depend on indexing order.
+  - **Overload addressing** (knot 1.14.0). `entity=com.x.Foo.bar(int, int)` resolves a single overload; `resolution.overload` reports the parameter list, whether it matched and, when it did not, the declared overloads. Query-side only, no re-index needed.
+  - **Untyped receivers** (knot 1.14.0, Java/Kotlin). A call on a receiver of unknown type binds by name alone only to a method whose type is visible from the caller's file, and `var x = new Foo()` types the receiver.
+  - **Compact search answers** (knot 1.13.0). In search JSON, `*_samples` hold production rows only; test rows are counted in `*_test_count` / `*_test_samples`. The MCP `search_hybrid_context` tool gains `detail` (`full` / `brief`) and `include_tests`. TypeScript/JavaScript `this.x` reads and writes become references instead of calls.
+  - **TypeScript fixes** (knot 1.12.3, 1.12.4). Function locals and parameters passed as arguments no longer produce cross-module calls, receiverless calls are restricted to module scope, and class members no longer inherit an earlier member's decorators.
+  - **Re-index** Java, Kotlin, TypeScript and JavaScript repositories to build the HTTP client calls and drop the false edges fixed upstream.
+- **E2E G6** pins the `http_calls` bucket in the callers key set.
+
+### Known limitations
+- `HTTP_CALLS` is not yet accepted by the graph API's `relationships` filter: knot's subgraph query does not list it.
+- In a cluster, two nodes finishing an index run at the same time may briefly leave the `HTTP_CALLS` edges missing or stale until the next run: knot recomputes them in two separate statements.
+
 ## [0.9.3] - 2026-10-29
 
 ### Changed
