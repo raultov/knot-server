@@ -22,3 +22,5 @@ install-updater = false
 # Use ubuntu-24.04 (glibc 2.39) for Linux builds — ort-sys requires glibc 2.38+
 [dist.github-custom-runners]
 x86_64-unknown-linux-gnu = "ubuntu-24.04"
+# dist 0.31 defaults Apple Silicon to macos-14, retired by GitHub on 2026-11-02
+aarch64-apple-darwin = "macos-15"
