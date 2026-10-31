@@ -34,33 +34,33 @@ With `knot-server`, you can register Git repositories via a REST API, trigger au
 
 ## 🧮 Token Efficiency — Measured, Not Claimed
 
-An LLM agent exploring an unfamiliar codebase pays for every byte it reads. Without an index it greps and then reads whole files; with `knot-server`'s REST APIs, it receives targeted answers, bringing the exact same token-saving performance of the core `knot` engine to multi-node enterprise environments. The difference was measured on **three real indexed repositories** across nine realistic exploration tasks:
+An LLM agent exploring an unfamiliar codebase pays for every byte it reads. Without an index it greps and then reads whole files; with `knot-server`'s MCP endpoint (`POST /mcp`), it receives the same targeted answers as the core `knot` engine, in multi-node enterprise environments. The difference was measured on **three real indexed repositories** across nine realistic exploration tasks:
 
 | Repo | Lang | Task | knot-server/knot tokens | Read-the-code tokens | Reduction |
 |------|------|------|------------:|---------------------:|----------:|
-| spring-ai | Java | discovery — *how does the chat client run the advisor chain?* | 1 092 | 10 168 | **89.3%** |
-| spring-ai | Java | callers — *who uses `ToolCallingManager`?* | 8 808 | 15 554 | **43.4%** |
-| spring-ai | Java | explore — *structure of `DefaultChatClient.java`* | 4 865 | 7 838 | **37.9%** |
-| puppeteer | TypeScript | discovery — *how is a CDP session created?* | 609 | 4 149 | **85.3%** |
-| puppeteer | TypeScript | callers — *who calls `createCDPSession`?* | 1 004 | 39 878 | **97.5%** |
-| puppeteer | TypeScript | explore — *structure of the `Page` API* | 7 287 | 25 300 | **71.2%** |
-| knot | Rust | discovery — *how are call intents resolved?* | 594 | 14 824 | **96.0%** |
-| knot | Rust | callers — *who calls `format_references_result`?* | 461 | 10 949 | **95.8%** |
-| knot | Rust | explore — *structure of the graph query module* | 978 | 12 103 | **91.9%** |
-| **TOTAL** | — | **9 tasks** | **25 698** | **140 763** | **81.7%** |
+| spring-ai | Java | discovery — *how does the chat client run the advisor chain?* | 771 | 12 262 | **93.7%** |
+| spring-ai | Java | callers — *who uses `ToolCallingManager`?* | 3 352 | 43 707 | **92.3%** |
+| spring-ai | Java | explore — *structure of `DefaultChatClient.java`* | 4 033 | 9 675 | **58.3%** |
+| puppeteer | TypeScript | discovery — *how is a CDP session created?* | 335 | 4 706 | **92.9%** |
+| puppeteer | TypeScript | callers — *who calls `createCDPSession`?* | 690 | 42 857 | **98.4%** |
+| puppeteer | TypeScript | explore — *structure of the `Page` API* | 5 865 | 27 522 | **78.7%** |
+| knot | Rust | discovery — *how are call intents resolved?* | 766 | 37 110 | **97.9%** |
+| knot | Rust | callers — *who calls `format_references_result`?* | 330 | 18 830 | **98.2%** |
+| knot | Rust | explore — *structure of the graph query module* | 12 231 | 28 281 | **56.8%** |
+| **TOTAL** | — | **9 tasks** | **28 373** | **224 950** | **87.4%** |
 
-**≈ 5.5× fewer tokens** for the same nine questions — 115 000 tokens saved, enough to keep a long refactoring session inside a single context window.
+**≈ 7.9× fewer tokens** for the same nine questions — 196 000 tokens saved, enough to keep a long refactoring session inside a single context window. Measured with knot 1.15.0 on 2026-10-31.
 
 <details>
 <summary><b>Methodology (and how to reproduce it)</b></summary>
 
-Both sides are measured on the **exact bytes an LLM would receive as tool output**, counted with OpenAI's `cl100k_base` tokenizer (tiktoken):
+Both sides are measured on the **exact bytes an LLM would receive as tool output**, counted with OpenAI's `cl100k_base` tokenizer (tiktoken). The knot side is the Markdown answer of the knot tools, which `POST /mcp` serves unchanged; the REST routes return the same results as structured JSON for programs, which is larger:
 
-| Task | knot-server/knot side | Read-the-code side |
+| Task | knot-server/knot side (MCP tool, `knot` CLI) | Read-the-code side |
 |------|-----------|--------------------|
-| `discovery` | `GET /api/repos/{id}/search?q=<question>` | `rg -l <keyword>` (candidate list) **+ full read of the files that actually answer the question** |
-| `callers` | `GET /api/repos/{id}/callers?entity=<symbol>` | `rg -n "\b<symbol>\b"` **+ full read of the first 5 distinct files with hits** |
-| `explore` | `GET /api/repos/{id}/explore?path=<file>` | full read of the file |
+| `discovery` | `search_hybrid_context` (`knot search "<question>" --output markdown`) | `rg -l <keyword>` (candidate list) **+ full read of the files that actually answer the question** |
+| `callers` | `find_callers` (`knot callers "<symbol>" --output markdown`) | `rg -n "\b<symbol>\b"` **+ full read of the first 5 distinct files with hits** |
+| `explore` | `explore_file` (`knot explore "<file>" --output markdown`) | full read of the file |
 
 The baseline is deliberately **generous**, so the measured saving is a lower bound:
 
@@ -68,9 +68,11 @@ The baseline is deliberately **generous**, so the measured saving is a lower bou
 - for `discovery` the baseline is given *oracle file selection*: it reads only the files that answer the question, with zero wasted reads;
 - for `callers` it reads at most 5 files, while a rigorous impact analysis would need every file with a textual hit.
 
-Honest caveats: knot-server's cost scales with the **number of results**, not with repo size. The weakest row (`spring-ai` / `ToolCallingManager`, 43%) is a symbol with 156 references — knot-server/knot enumerates all of them with exact call sites, while the capped baseline reads only 5 files and still cannot tell a call from a comment. The `explore` rows for large classes are also the least favourable, because signatures plus docstrings are a large fraction of a well-documented file.
+Honest caveats: knot's cost scales with the **number of results**, not with repo size. `callers` answers list the references made from production code and **count** those made from test code (`+N in tests`, knot 1.15.0). Listing them too (`include_tests: true`) costs 16 422 / 773 / 2 926 tokens for the three `callers` rows and brings the total saving to **80.4%**: `ToolCallingManager` has 394 references, 320 of them in tests. The `explore` rows for large files are the least favourable, because signatures plus docstrings are a large fraction of a well-documented file.
 
-Repositories measured (as indexed): `spring-ai` 2 406 files / 25 733 entities, `puppeteer` 1 832 files / 19 310 entities, `knot` 222 files / 4 000 entities.
+How the answers shrank on the same snapshots (knot tokens, 9 tasks): 59 579 with knot 1.12.4, 53 806 with 1.14.1 (compact search and explore answers) and 28 373 with 1.15.0 (compact callers answers).
+
+Repositories measured (as indexed): `spring-ai` 2 490 files / 27 740 entities (commit `b6b5767`), `puppeteer` 1 286 files / 11 733 entities (`08e7b1a`), `knot` 390 files / 8 166 entities (`421b515`). Raw measurements: [`.perf_metrics/token_savings.json`](https://github.com/raultov/knot/blob/master/.perf_metrics/token_savings.json) in the knot repository.
 
 </details>
 
