@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.7] - 2026-10-31
+
+### Changed
+- **Upgrade `knot` to 1.15.0.** The `find_callers` tool of `POST /mcp` returns compact Markdown answers: references made from test code (test files, Rust `#[cfg(test)]`) are counted (`+N in tests`) and listed only with the new `include_tests: true` argument, a single-repository answer names its repository once on the `Found` line, rows are one line each with a compact signature, and a file's `<module>` import row is folded into its other rows. Counts are unchanged. No re-index needed.
+- **Reference rows carry `is_test_context`.** The JSON of `GET /api/repos/:id/callers` and `GET /api/callers` gains the `is_test_context` field on every row (knot 1.15.0); all rows are still returned.
+- **Token-efficiency table re-measured.** 87.4% fewer tokens (≈7.9×) across the nine benchmark tasks with knot 1.15.0, on recorded snapshots of spring-ai, puppeteer and knot. The README now states that the saving is measured on the Markdown answers that `POST /mcp` serves; the REST routes return the same results as structured JSON, which is larger.
+
 ## [0.9.6] - 2026-10-31
 
 ### Fixed
