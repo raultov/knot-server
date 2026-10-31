@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.5] - 2026-10-31
+
+### Added
+- **`HTTP_CALLS` in the graph API.** `relationships=HTTP_CALLS` draws the heuristic edges from an HTTP client call to the endpoint it hits, possibly in another repository (knot 1.14). The `endpoints` kind category now includes `http_client_call` next to `http_endpoint`, so `relationships=HTTP_CALLS,ROUTES_TO&kinds=endpoints,functions` follows a client call to the handler that serves it.
+
+### Changed
+- **Upgrade `knot` to 1.14.1.** knot relinks `HTTP_CALLS` in one transaction serialized by a lock on a singleton `:HttpCallsLock` node, unique by a constraint created at startup. Cluster nodes finishing an index run at the same time no longer leave the edges missing or stale, and the subgraph query accepts `HTTP_CALLS`. No re-index needed.
+
+### Fixed
+- Both limitations listed in 0.9.4 (graph support for `HTTP_CALLS` and the cluster relink race) are resolved.
+
+### Tests
+- E2E G24: the Feign client fixture `tests/fixtures/http_endpoints/ItemsClient.java` reaches `GET /items/{id}` over `HTTP_CALLS` in the graph, and the handler's callers list it under `http_calls`. G17 adds `HTTP_CALLS` to the relationship round-trip; G21 accepts client calls in the `endpoints` category.
+
 ## [0.9.4] - 2026-10-31
 
 ### Changed
