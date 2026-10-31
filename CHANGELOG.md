@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.8] - 2026-11-01
+
+### Fixed
+- **Incremental re-indexing no longer leaves duplicate entities** (knot 1.15.1, [knot#53](https://github.com/raultov/knot/issues/53)). On every sync or webhook run, the previous entities of a modified file were never deleted, because the deletion compared absolute paths with the repo-relative paths stored in Neo4j and Qdrant. Every entity that moved to another line or was removed from the file stayed next to its new copy, so `find_callers` resolved several targets, listed callers twice and showed members that no longer exist. Edges from unchanged files and other repositories into a re-indexed file are now re-pointed at its new entities.
+- **Existing indexes keep their duplicates until a full re-index.** Delete its `.knot/index_state.json` in the workspace and trigger a sync, or run `knot-indexer --clean` on it with the server's database settings.
+
 ## [0.9.7] - 2026-10-31
 
 ### Changed
