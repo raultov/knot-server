@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.6] - 2026-10-31
+
+### Fixed
+- **Release binaries are built again.** dist 0.31 builds Apple Silicon on `macos-14`, whose runner image GitHub retires on 2026-11-02. Its brownout cancelled the `aarch64-apple-darwin` job, so v0.9.4 and v0.9.5 have no GitHub Release; both are on crates.io and Docker Hub. The Apple Silicon build now runs on `macos-15`. No code changes since 0.9.5.
+
 ## [0.9.5] - 2026-10-31
 
 ### Added
