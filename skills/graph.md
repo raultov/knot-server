@@ -57,9 +57,14 @@ curl -fsS -G \
 - **`relationships`** (query, optional): Comma-separated list of edges to include.
   - Options: `CALLS`, `EXTENDS`, `IMPLEMENTS`, `OVERRIDES`, `REFERENCES`, `REFERENCES_DOM`,
     `USES_CSS_CLASS`, `IMPORTS_SCRIPT`, `IMPORTS_STYLESHEET`, `MACRO_CALLS`,
-    `CONTAINS`, `GENERIC_BOUND`, `DEPENDS_ON`, `ROUTES_TO`.
+    `CONTAINS`, `GENERIC_BOUND`, `DEPENDS_ON`, `ROUTES_TO`, `HTTP_CALLS`.
   - `ROUTES_TO` (Java/Kotlin, knot 1.12.0): HTTP endpoint → handler method. Pair it
     with `kinds=endpoints,functions` so both ends are visible.
+  - `HTTP_CALLS` (Java/Kotlin, knot 1.14.0, heuristic): HTTP client call → the
+    endpoint it hits, possibly in another repository. Client calls
+    (`http_client_call`) belong to the `endpoints` category; use
+    `relationships=HTTP_CALLS,ROUTES_TO&kinds=endpoints,functions` to follow a
+    client call to the handler that serves it.
   - `OVERRIDES` (JVM only): method-level override/implementation.
     Direction: subtype method → supertype method.
     - **When to prefer it over `EXTENDS`/`IMPLEMENTS`:** it links to the type that

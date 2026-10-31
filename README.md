@@ -211,7 +211,7 @@ Caveats:
   | `depth` | u32 | `2` | Traversal depth (1–5) |
   | `relationships` | CSV | `CALLS,EXTENDS,IMPLEMENTS` | Edge types to follow. |
   | `direction` | String | `both` | `outgoing`, `incoming`, or `both` |
-  | `kinds` | CSV | `classes,interfaces` | Entity categories to include: `classes`, `interfaces`, `functions`, `endpoints` (HTTP endpoints, `http_endpoint`), `other` (turns the kind filter off). Use `relationships=ROUTES_TO&kinds=endpoints,functions` for the endpoint → handler map. |
+  | `kinds` | CSV | `classes,interfaces` | Entity categories to include: `classes`, `interfaces`, `functions`, `endpoints` (HTTP endpoints, `http_endpoint`, and HTTP client calls, `http_client_call`), `other` (turns the kind filter off). Use `relationships=ROUTES_TO&kinds=endpoints,functions` for the endpoint → handler map, and `relationships=HTTP_CALLS,ROUTES_TO&kinds=endpoints,functions` to follow HTTP client calls to the handlers they reach. |
 
 - **`GET /api/repos/:id/graph/repos`**: Query repository-level dependency graph (DEPENDS_ON relations). Returns nodes and edges in JSON format for repository-level cross-dependency tracking.
 
