@@ -38,18 +38,18 @@ An LLM agent exploring an unfamiliar codebase pays for every byte it reads. With
 
 | Repo | Lang | Task | knot-server/knot tokens | Read-the-code tokens | Reduction |
 |------|------|------|------------:|---------------------:|----------:|
-| spring-ai | Java | discovery — *how does the chat client run the advisor chain?* | 771 | 12 262 | **93.7%** |
+| spring-ai | Java | discovery — *how does the chat client run the advisor chain?* | 677 | 12 262 | **94.5%** |
 | spring-ai | Java | callers — *who uses `ToolCallingManager`?* | 3 352 | 43 707 | **92.3%** |
 | spring-ai | Java | explore — *structure of `DefaultChatClient.java`* | 4 033 | 9 675 | **58.3%** |
-| puppeteer | TypeScript | discovery — *how is a CDP session created?* | 335 | 4 706 | **92.9%** |
+| puppeteer | TypeScript | discovery — *how is a CDP session created?* | 389 | 4 706 | **91.7%** |
 | puppeteer | TypeScript | callers — *who calls `createCDPSession`?* | 690 | 42 857 | **98.4%** |
-| puppeteer | TypeScript | explore — *structure of the `Page` API* | 5 865 | 27 522 | **78.7%** |
-| knot | Rust | discovery — *how are call intents resolved?* | 766 | 37 110 | **97.9%** |
-| knot | Rust | callers — *who calls `format_references_result`?* | 330 | 18 830 | **98.2%** |
-| knot | Rust | explore — *structure of the graph query module* | 12 231 | 28 281 | **56.8%** |
-| **TOTAL** | — | **9 tasks** | **28 373** | **224 950** | **87.4%** |
+| puppeteer | TypeScript | explore — *structure of the `Page` API* | 5 447 | 27 522 | **80.2%** |
+| knot | Rust | discovery — *how are call intents resolved?* | 765 | 37 110 | **97.9%** |
+| knot | Rust | callers — *who calls `format_references_result`?* | 152 | 18 929 | **99.2%** |
+| knot | Rust | explore — *structure of the graph query module* | 4 761 | 28 281 | **83.2%** |
+| **TOTAL** | — | **9 tasks** | **20 266** | **225 049** | **91.0%** |
 
-**≈ 7.9× fewer tokens** for the same nine questions — 196 000 tokens saved, enough to keep a long refactoring session inside a single context window. Measured with knot 1.15.0 on 2026-10-31.
+**≈ 11× fewer tokens** for the same nine questions — 205 000 tokens saved, enough to keep a long refactoring session inside a single context window. Measured with knot 1.15.1 on 2026-11-01, on a clean index.
 
 <details>
 <summary><b>Methodology (and how to reproduce it)</b></summary>
@@ -68,11 +68,11 @@ The baseline is deliberately **generous**, so the measured saving is a lower bou
 - for `discovery` the baseline is given *oracle file selection*: it reads only the files that answer the question, with zero wasted reads;
 - for `callers` it reads at most 5 files, while a rigorous impact analysis would need every file with a textual hit.
 
-Honest caveats: knot's cost scales with the **number of results**, not with repo size. `callers` answers list the references made from production code and **count** those made from test code (`+N in tests`, knot 1.15.0). Listing them too (`include_tests: true`) costs 16 422 / 773 / 2 926 tokens for the three `callers` rows and brings the total saving to **80.4%**: `ToolCallingManager` has 394 references, 320 of them in tests. The `explore` rows for large files are the least favourable, because signatures plus docstrings are a large fraction of a well-documented file.
+Honest caveats: knot's cost scales with the **number of results**, not with repo size. `callers` answers list the references made from production code and **count** those made from test code (`+N in tests`, knot 1.15.0). Listing them too (`include_tests: true`) costs 16 422 / 773 / 1 003 tokens for the three `callers` rows and brings the total saving to **84.8%**: `ToolCallingManager` has 394 references, 320 of them in tests. The `explore` rows for large files are the least favourable, because signatures plus docstrings are a large fraction of a well-documented file.
 
-How the answers shrank on the same snapshots (knot tokens, 9 tasks): 59 579 with knot 1.12.4, 53 806 with 1.14.1 (compact search and explore answers) and 28 373 with 1.15.0 (compact callers answers).
+How the answers shrank on the same snapshots (knot tokens, 9 tasks): 59 579 with knot 1.12.4, 53 806 with 1.14.1 (compact search and explore answers) and 28 373 with 1.15.0 (compact callers answers), all on an incrementally built index that still held the stale entities fixed in knot 1.15.1; 20 266 with 1.15.1 after a clean re-index.
 
-Repositories measured (as indexed): `spring-ai` 2 490 files / 27 740 entities (commit `b6b5767`), `puppeteer` 1 286 files / 11 733 entities (`08e7b1a`), `knot` 390 files / 8 166 entities (`421b515`). Raw measurements: [`.perf_metrics/token_savings.json`](https://github.com/raultov/knot/blob/master/.perf_metrics/token_savings.json) in the knot repository.
+Repositories measured (as indexed): `spring-ai` 2 490 files / 27 775 entities (commit `b6b5767`), `puppeteer` 1 286 files / 11 733 entities (`08e7b1a`), `knot` 390 files / 5 956 entities (`421b515`). Raw measurements: [`.perf_metrics/token_savings.json`](https://github.com/raultov/knot/blob/master/.perf_metrics/token_savings.json) in the knot repository.
 
 </details>
 
