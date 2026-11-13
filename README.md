@@ -1091,9 +1091,18 @@ usage during indexing. Three environment variables control resource consumption:
 
 | Variable | Controls | Default | Effect of lowering |
 |----------|----------|---------|-------------------|
-| `KNOT_SERVER_RAYON_THREADS` | CPU | all cores | Fewer parallel parsers → lower CPU, slightly slower |
+| `KNOT_SERVER_RAYON_THREADS` | CPU (parsing only) | all cores | Fewer parallel parsers → lower CPU while parsing, slightly slower |
 | `KNOT_SERVER_BATCH_SIZE` | RAM | `128` | Fewer entities buffered in memory → lower RAM |
 | `KNOT_SERVER_INGEST_CONCURRENCY` | RAM + CPU | `4` | Fewer concurrent embedding + DB writes → lower RAM and CPU |
+
+> **Embedding threads follow the CPU limit, not `KNOT_SERVER_RAYON_THREADS`.**
+> The embedding stage, where most of the indexing time goes, runs on ONNX
+> Runtime, which starts one thread per CPU the process may use
+> (`std::thread::available_parallelism()`). That count honours a container CPU
+> limit (`cpus:` / `--cpus`) but not `KNOT_SERVER_RAYON_THREADS`, and the
+> threads busy-wait briefly between operations (`allow_spinning: 1` in the
+> `ort::logging` session log). To bound the CPU used by indexing, limit the
+> container's CPUs.
 
 ### Preconfigured Profiles
 
@@ -1106,8 +1115,8 @@ usage during indexing. Three environment variables control resource consumption:
 ### Measured on a small shared host
 
 knot-server 0.9.8 with `AllMiniLML6V2` on a 4-core Intel Celeron J3455 with
-7.6 GiB of RAM shared with other services (`KNOT_SERVER_RAYON_THREADS=3`,
-`KNOT_SERVER_INGEST_CONCURRENCY=4`):
+7.6 GiB of RAM shared with other services (`cpus: 3`,
+`KNOT_SERVER_RAYON_THREADS=3`, `KNOT_SERVER_INGEST_CONCURRENCY=4`):
 
 | `KNOT_SERVER_BATCH_SIZE` | knot-server memory while indexing | Throughput |
 |--------------------------|-----------------------------------|------------|
@@ -1123,22 +1132,38 @@ knot-server 0.9.8 with `AllMiniLML6V2` on a 4-core Intel Celeron J3455 with
   restart: unfinished repositories are re-enqueued on startup.
 - Cap Neo4j explicitly; by default it sizes its heap from the host's RAM. With
   the settings below it stayed under 700 MiB.
+- Give the stack less CPU than its neighbours. With `cpus: 3`, embedding
+  (3 threads) plus Neo4j (1–1.3 cores while writing) took all 4 cores, and a
+  low-priority neighbour (`cpu_shares: 256`) missed a 5-second startup timeout.
+  With `cpus: 2` and Neo4j at `cpus: 1`, the stack can no longer take the whole
+  host (Neo4j only uses its core while writing): a CPU-bound test
+  in a `cpu_shares: 256` container took 5.9–6.5 s while indexing, against
+  5.7 s with knot-server idle. Indexing slowed to ~2 entities/s.
+- `cpus` is a hard cap; `cpu_shares` only matters when the host is
+  oversubscribed. Docker's default is `1024`; a lower value, such as `32`,
+  makes the stack yield to the other containers instead of taking most of the
+  CPU.
 
 ```yaml
   knot-server:
     mem_limit: 2560m
-    cpus: 3
+    cpus: 2
+    cpu_shares: 32
     environment:
-      - KNOT_SERVER_RAYON_THREADS=3
+      - KNOT_SERVER_RAYON_THREADS=2
       - KNOT_SERVER_BATCH_SIZE=32
   neo4j:
     mem_limit: 1536m
+    cpus: 1
+    cpu_shares: 32
     environment:
       - NEO4J_server_memory_heap_initial__size=256m
       - NEO4J_server_memory_heap_max__size=640m
       - NEO4J_server_memory_pagecache_size=256m
   qdrant:
     mem_limit: 1g
+    cpus: 0.5
+    cpu_shares: 32
 ```
 
 Qdrant (`6333`/`6334`) and Neo4j (`7474`/`7687`) only need to be reachable by
