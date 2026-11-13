@@ -566,6 +566,11 @@ with the `knot-server` binary, `git`, and SSH clients — everything needed to
 clone and index repositories. It is the recommended way to deploy `knot-server`
 in containerized environments (Docker, Docker Compose, or Kubernetes).
 
+> **CPU requirement:** the image needs a CPU with AVX2. On older or low-power
+> CPUs (Intel Atom / Celeron / Pentium J and N series, pre-Haswell Intel) it
+> exits with code 132 and no logs — see
+> [Running on CPUs without AVX2](#running-on-cpus-without-avx2-exit-code-132--illegal-instruction).
+
 ### Option A: Quick Install (curl)
 
 A single command that auto-detects your OS and architecture — no `sudo` or
@@ -632,6 +637,27 @@ volumes:
 
 Make sure your host `ssh-agent` is running and the key is loaded before
 starting the stack (`ssh-add ~/.ssh/id_rsa`).
+
+> **Headless servers (no `ssh-agent`):** when `SSH_AUTH_SOCK` is unset,
+> `docker compose` refuses to start with
+> `invalid spec: :/ssh-agent:ro: empty section between colons`. Remove the
+> `SSH_AUTH_SOCK=/ssh-agent` environment line and the
+> `${SSH_AUTH_SOCK}:/ssh-agent:ro` volume line from `docker-compose.yml`;
+> passphrase-less key files in `KNOT_SSH_KEYS_DIR` keep working without them.
+
+##### GitHub deploy keys and several private repositories
+
+A GitHub deploy key grants access to **one** repository and cannot be added to
+a second one. Several deploy keys in the key directory do not solve this: SSH
+authenticates with the first key GitHub accepts, and GitHub then denies the
+repositories that key does not cover (`ERROR: Repository not found`). To index
+more than one private repository of the same host, use a key added to a user
+(or machine-user) account, or register the repository with
+`"auth": {"type": "https", "token": "..."}`.
+
+Put `known_hosts` in the key directory as well (for example
+`ssh-keyscan github.com > known_hosts`): the container starts with an empty
+`/root/.ssh`, so without it SSH clones fail with `Host key verification failed`.
 
 #### Indexing local repositories
 
@@ -721,6 +747,56 @@ KNOT_LOCAL_REPOS_DIR=/home/user/workspace \
 > alias dc-dev='docker compose -f docker-compose.yml -f docker-compose.dev.yml'
 > dc-dev up --build
 > ```
+
+#### Running on CPUs without AVX2 (exit code 132 / `Illegal instruction`)
+
+**Symptom:** the container restarts in a loop with exit code `132` and **empty
+logs**; even `knot-server --help` prints `Illegal instruction (core dumped)`.
+
+**Cause:** the default build statically links the prebuilt ONNX Runtime that the
+`ort` crate downloads (`download-binaries`), and that binary uses CPU
+instructions (AVX/AVX2) the host lacks. Check with `grep -c avx2 /proc/cpuinfo`
+(`0` means affected). This applies to the Docker Hub image and to any build
+with the default `ort` features; rebuilding from source unchanged does not help,
+because the same prebuilt runtime is linked again.
+
+**Fix:** build with `ort`'s `load-dynamic` feature and ship Microsoft's official
+ONNX Runtime shared library, which selects its kernels at runtime. Changes to
+the `Dockerfile`:
+
+```dockerfile
+# Builder stage, right after copying Cargo.toml / Cargo.lock.
+# Cargo features are additive: adding `ort` as a direct dependency turns on
+# `load-dynamic` for the whole graph, and nothing is linked statically.
+# Use the exact `ort` version already in Cargo.lock. `download-binaries`
+# stays enabled but is ignored once `load-dynamic` is on.
+RUN cargo add "ort@=2.0.0-rc.13" --features load-dynamic
+
+# Builder stage: fetch the official ONNX Runtime release.
+RUN mkdir -p /opt/onnxruntime/lib /tmp/ort \
+    && curl -fsSL https://github.com/microsoft/onnxruntime/releases/download/v1.28.0/onnxruntime-linux-x64-1.28.0.tgz \
+       | tar -xz -C /tmp/ort --strip-components=1 \
+    && cp -a /tmp/ort/lib/libonnxruntime.so* /opt/onnxruntime/lib/
+
+# Runtime stage: ship the library and tell `ort` where it is.
+RUN apt-get update && apt-get install -y --no-install-recommends libstdc++6 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /opt/onnxruntime/ /opt/onnxruntime/
+ENV ORT_DYLIB_PATH=/opt/onnxruntime/lib/libonnxruntime.so
+```
+
+Choosing the ONNX Runtime version:
+
+- It must be at least `1.N`, where `N` is the highest `api-N` feature of `ort`
+  in the build (`cargo tree -e features -i ort`). With knot 1.15.1 that is
+  `api-27`, so `1.27` or newer; an older library fails at startup with
+  `ort ... is not compatible with the ONNX Runtime binary`.
+- The safest choice is the exact version `ort-sys` targets: the `ms@x.y.z` in
+  `ort-sys-<version>/build/download/dist.tsv` of the cargo registry (`1.28.0`
+  for `ort` 2.0.0-rc.13).
+
+Verified with knot-server 0.9.8 and ONNX Runtime 1.28.0 on an Intel Celeron
+J3455 (SSE4.2, no AVX).
 
 ###  Convenience Scripts
 
@@ -1027,6 +1103,49 @@ usage during indexing. Three environment variables control resource consumption:
 | **Balanced** | `4` | `32` | `2` | ~2 GiB | ~400% |
 | **Maximum throughput** (default) | all cores | `128` | `4` | ~5 GiB | all cores |
 
+### Measured on a small shared host
+
+knot-server 0.9.8 with `AllMiniLML6V2` on a 4-core Intel Celeron J3455 with
+7.6 GiB of RAM shared with other services (`KNOT_SERVER_RAYON_THREADS=3`,
+`KNOT_SERVER_INGEST_CONCURRENCY=4`):
+
+| `KNOT_SERVER_BATCH_SIZE` | knot-server memory while indexing | Throughput |
+|--------------------------|-----------------------------------|------------|
+| `128` (default) | ~2.3 GiB | ~4.9 entities/s |
+| `32` | ~0.85–0.93 GiB | ~3 entities/s |
+
+- `KNOT_SERVER_BATCH_SIZE` is the main memory lever: it is also the embedding
+  batch size, and the memory of the embedding model grows with it. Memory
+  depends little on the size of the repository (840 MiB for 80 files, 930 MiB
+  for 405 files at batch size 32), so size the container limit for the batch.
+- Indexing runs one repository at a time, so registering many repositories at
+  once queues them instead of multiplying the load. The queue survives a
+  restart: unfinished repositories are re-enqueued on startup.
+- Cap Neo4j explicitly; by default it sizes its heap from the host's RAM. With
+  the settings below it stayed under 700 MiB.
+
+```yaml
+  knot-server:
+    mem_limit: 2560m
+    cpus: 3
+    environment:
+      - KNOT_SERVER_RAYON_THREADS=3
+      - KNOT_SERVER_BATCH_SIZE=32
+  neo4j:
+    mem_limit: 1536m
+    environment:
+      - NEO4J_server_memory_heap_initial__size=256m
+      - NEO4J_server_memory_heap_max__size=640m
+      - NEO4J_server_memory_pagecache_size=256m
+  qdrant:
+    mem_limit: 1g
+```
+
+Qdrant (`6333`/`6334`) and Neo4j (`7474`/`7687`) only need to be reachable by
+`knot-server`: on a server, drop their `ports:` entries from
+`docker-compose.yml` to avoid clashes with other services and to keep the
+databases off the network.
+
 ### Docker run with tuning
 
 ```bash
@@ -1215,6 +1334,35 @@ In your GitHub/GitLab repository settings, add a webhook pointing to:
 Set the **secret/token** to the same value as `webhook_secret` you used when registering
 the repository. Whenever a push occurs, `knot-server` will validate the signature and
 automatically perform a fast incremental update.
+
+The Git provider must be able to reach that URL. A server that is only on a
+private network needs a reverse proxy or a tunnel; publish only `/api/webhook/`,
+because the rest of the API is unauthenticated. Pushes that never arrive are
+still picked up by the scheduler, which re-indexes any repository older than
+`KNOT_SERVER_MAX_INDEX_AGE_SECS` (24 h by default).
+
+Every correctly signed request enqueues a sync: the event type and the branch in
+the payload are not inspected, so a GitHub `ping` or a push to another branch
+also triggers an (incremental) update.
+
+Jobs for the same repository are not deduplicated, and a full queue answers
+`429 Too Many Requests`, which GitHub reports as a failed delivery and does not
+retry. With the default `KNOT_SERVER_QUEUE_CAPACITY` of `16`, registering ten
+repositories and creating their webhooks at once was enough to reject five
+`ping` events. If you serve many repositories, raise it (the queue lives in
+memory, so `128` costs next to nothing).
+
+To test a webhook without pushing, sign a payload the way GitHub does:
+
+```bash
+BODY='{"ref":"refs/heads/master"}'
+SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" | sed 's/^.* //')
+curl -X POST http://localhost:3000/api/webhook/knot-core \
+  -H "Content-Type: application/json" \
+  -H "X-Hub-Signature-256: sha256=$SIG" \
+  -d "$BODY"
+# 202: sync enqueued · 401: wrong secret or missing signature header
+```
 
 **7. Browse the interactive API documentation**
 Open `http://localhost:3000/docs` in your browser to explore all endpoints with Swagger UI. Use "Try it out" to test requests directly, or import `http://localhost:3000/api-docs/openapi.json` into Postman.
