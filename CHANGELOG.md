@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-14
+
+### Fixed
+- **`explore_file` over `POST /mcp` returns the whole outline to every client** (knot 1.16.1, [#12](https://github.com/raultov/knot-server/issues/12)). Its `structuredContent` held only `markup_count` and `markup_references`, while the outline was only in the text, so MCP clients that read `structuredContent` when it is present lost the entities. The tool now returns text only, like the other six tools.
+
+### Changed
+- **Upgrade `knot` to 1.16.1.** The `serverInfo` description and the `explore_file`, `find_callers` and `search_hybrid_context` descriptions list every indexed language family instead of only Java/TypeScript. No re-index needed.
+
 ## [0.10.0] - 2026-11-14
 
 ### Added
