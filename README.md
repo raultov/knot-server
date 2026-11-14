@@ -754,23 +754,20 @@ KNOT_LOCAL_REPOS_DIR=/home/user/workspace \
 logs**; even `knot-server --help` prints `Illegal instruction (core dumped)`.
 
 **Cause:** the default build statically links the prebuilt ONNX Runtime that the
-`ort` crate downloads (`download-binaries`), and that binary uses CPU
-instructions (AVX/AVX2) the host lacks. Check with `grep -c avx2 /proc/cpuinfo`
-(`0` means affected). This applies to the Docker Hub image and to any build
-with the default `ort` features; rebuilding from source unchanged does not help,
-because the same prebuilt runtime is linked again.
+`ort` crate downloads, and that binary uses CPU instructions (AVX/AVX2) the host
+lacks. Check with `grep -c avx2 /proc/cpuinfo` (`0` means affected). This
+applies to the Docker Hub image and to any default build; rebuilding from
+source unchanged does not help, because the same prebuilt runtime is linked
+again. The same prebuilt runtime also needs glibc 2.38 to link
+(`undefined symbol: __isoc23_strtol` on Debian 12 / Ubuntu 22.04).
 
-**Fix:** build with `ort`'s `load-dynamic` feature and ship Microsoft's official
-ONNX Runtime shared library, which selects its kernels at runtime. Changes to
-the `Dockerfile`:
+**Fix:** build with the `ort-load-dynamic` feature and ship Microsoft's official
+ONNX Runtime shared library, which selects its kernels at runtime. Nothing is
+downloaded or linked statically. Changes to the `Dockerfile`:
 
 ```dockerfile
-# Builder stage, right after copying Cargo.toml / Cargo.lock.
-# Cargo features are additive: adding `ort` as a direct dependency turns on
-# `load-dynamic` for the whole graph, and nothing is linked statically.
-# Use the exact `ort` version already in Cargo.lock. `download-binaries`
-# stays enabled but is ignored once `load-dynamic` is on.
-RUN cargo add "ort@=2.0.0-rc.13" --features load-dynamic
+# Builder stage: build with the feature instead of the default.
+RUN cargo build --release --features ort-load-dynamic && strip target/release/knot-server
 
 # Builder stage: fetch the official ONNX Runtime release.
 RUN mkdir -p /opt/onnxruntime/lib /tmp/ort \
@@ -785,18 +782,15 @@ COPY --from=builder /opt/onnxruntime/ /opt/onnxruntime/
 ENV ORT_DYLIB_PATH=/opt/onnxruntime/lib/libonnxruntime.so
 ```
 
-Choosing the ONNX Runtime version:
+Without a usable library, `knot-server` exits at startup with an error that
+names `ORT_DYLIB_PATH` and the minimum version, before any model download.
 
-- It must be at least `1.N`, where `N` is the highest `api-N` feature of `ort`
-  in the build (`cargo tree -e features -i ort`). With knot 1.15.1 that is
-  `api-27`, so `1.27` or newer; an older library fails at startup with
-  `ort ... is not compatible with the ONNX Runtime binary`.
-- The safest choice is the exact version `ort-sys` targets: the `ms@x.y.z` in
-  `ort-sys-<version>/build/download/dist.tsv` of the cargo registry (`1.28.0`
-  for `ort` 2.0.0-rc.13).
+Choosing the ONNX Runtime version: `1.27` or newer (knot 1.16.0 uses `ort`'s
+`api-27` level; an older library is rejected at startup). The safest choice is
+`1.28.0`, the version `ort` 2.0.0-rc.13 targets.
 
-Verified with knot-server 0.9.8 and ONNX Runtime 1.28.0 on an Intel Celeron
-J3455 (SSE4.2, no AVX).
+The `ort` workaround this replaces was verified with knot-server 0.9.8 and
+ONNX Runtime 1.28.0 on an Intel Celeron J3455 (SSE4.2, no AVX).
 
 ###  Convenience Scripts
 
