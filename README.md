@@ -789,8 +789,11 @@ Choosing the ONNX Runtime version: `1.27` or newer (knot 1.16.0 uses `ort`'s
 `api-27` level; an older library is rejected at startup). The safest choice is
 `1.28.0`, the version `ort` 2.0.0-rc.13 targets.
 
-The `ort` workaround this replaces was verified with knot-server 0.9.8 and
-ONNX Runtime 1.28.0 on an Intel Celeron J3455 (SSE4.2, no AVX).
+Verified with ONNX Runtime 1.28.0 on an Intel Celeron J3455 (SSE4.2, no AVX):
+knot 1.16.0's `ort-load-dynamic` builds on Debian 12 (glibc 2.36) and indexes,
+searches and resolves callers (through knot-lite 0.7.0). knot-server 0.9.8 ran
+on the same host with the equivalent hand-made `ort` change this feature
+replaces.
 
 ###  Convenience Scripts
 
