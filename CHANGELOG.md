@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-14
+
+### Added
+- **`ort-load-dynamic` cargo feature** (knot 1.16.0, [knot#54](https://github.com/raultov/knot/issues/54)). It forwards knot's feature of the same name: `knot-server` loads Microsoft's official ONNX Runtime shared library (1.27 or newer) from `ORT_DYLIB_PATH` instead of linking the prebuilt static one, which needs a CPU with AVX and glibc 2.38. A missing or too old library stops the server at startup with an error naming `ORT_DYLIB_PATH`. The "Running on CPUs without AVX2" recipe now uses `cargo build --release --features ort-load-dynamic` instead of editing `Cargo.toml` with `cargo add ort`.
+
+### Changed
+- **Upgrade `knot` to 1.16.0.** Default builds are unchanged. No re-index needed.
+- **`make build` / `make install` use default features.** `--all-features` would now turn on `ort-load-dynamic`, and the binary would then need the shared library at run time.
+
 ## [0.9.8] - 2026-11-01
 
 ### Fixed
