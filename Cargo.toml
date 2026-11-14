@@ -39,8 +39,14 @@ opt-level = 3
 inherits = "release"
 lto = "thin"
 
+[features]
+# Load ONNX Runtime at run time from `ORT_DYLIB_PATH` instead of linking
+# the prebuilt static one (needs AVX and glibc 2.38). See README
+# "Running on CPUs without AVX2" and knot#54.
+ort-load-dynamic = ["knot/ort-load-dynamic"]
+
 [dependencies]
-knot = "1.15.1"
+knot = "1.16.0"
 rust-mcp-sdk = "1.1"
 ignore = "0.4"
 axum = "0.8.9"
