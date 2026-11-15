@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.3] - 2026-11-15
+
+### Changed
+- **The packaged `Cargo.lock` no longer references a yanked crate.** It recorded `chacha20` 0.10.1, which is yanked on crates.io, so `cargo publish` warned about it and the published `.crate` carried that lock. It is now 0.10.2. Only `cargo install knot-server --locked` was affected, and only by the warning: `chacha20` is reached through `rand` 0.10, which the lock records but no enabled feature uses, so no compiled code changes.
+
 ## [0.10.2] - 2026-11-15
 
 ### Changed
