@@ -51,7 +51,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.100.0
         with:
           components: rustfmt, clippy
       - name: Run rustfmt
@@ -155,6 +155,12 @@ jobs:
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
             echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           fi
+      # `dist build` compiles with the rustup default toolchain, which on GitHub
+      # runners is whatever stable the image happens to carry. Pinning it here
+      # keeps the published artifacts on the compiler the project is tested
+      # with. Keep in sync with rust-toolchain.toml and the Dockerfile.
+      - name: Install Rust 1.100.0
+        uses: dtolnay/rust-toolchain@1.100.0
       - name: Install dist
         run: |
           ${{ matrix.install_dist.run }}
