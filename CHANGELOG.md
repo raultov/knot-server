@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-11-15
+
+### Changed
+- **Upgrade `knot` to 1.16.2.** That release only moves knot's build toolchain to Rust 1.100.0: no API, behaviour or index format changed, so no re-index is needed.
+- **Build with Rust 1.100.0.** The Docker build stage installs the 1.100.0 toolchain instead of 1.98.0. A new `rust-toolchain.toml` pins the channel (with `rustfmt` and `clippy`), and every GitHub workflow installs `dtolnay/rust-toolchain@1.100.0` instead of the moving `stable` ref. The release workflow also pins the toolchain in `build-local-artifacts` before `dist build`, so the artifacts attached to a GitHub Release are compiled with 1.100.0 rather than whichever stable the runner carries.
+
 ## [0.10.1] - 2026-11-14
 
 ### Fixed
